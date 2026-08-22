@@ -1,0 +1,116 @@
+.form {
+  max-width: 620px;
+  margin: 0 auto;
+  padding: 1.5rem;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  color: #1a1a1a;
+}
+
+.section {
+  border: none;
+  border-top: 1px solid #ddd;
+  padding: 1.25rem 0;
+  margin: 0;
+}
+
+.section legend {
+  font-weight: 600;
+  font-size: 0.95rem;
+  padding: 0 0 0.75rem;
+  color: #333;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-bottom: 1rem;
+  font-size: 0.9rem;
+  color: #333;
+}
+
+.field input {
+  padding: 0.6rem 0.75rem;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  font-size: 1rem;
+  font-family: inherit;
+}
+
+.field input:focus {
+  outline: 2px solid #2563eb;
+  outline-offset: 1px;
+  border-color: #2563eb;
+}
+
+.hint {
+  font-size: 0.82rem;
+  color: #666;
+  margin: 0.35rem 0 0;
+  line-height: 1.5;
+}
+
+.subLegend {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #333;
+  margin: 1rem 0 0.6rem;
+}
+
+.checkboxOption,
+.radioOption {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin-bottom: 0.6rem;
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+.submitButton {
+  width: 100%;
+  padding: 0.85rem;
+  margin-top: 1rem;
+  background: #2563eb;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.submitButton:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.errorMessage {
+  color: #b91c1c;
+  font-size: 0.9rem;
+  margin-top: 0.75rem;
+}
+
+.successMessage {
+  max-width: 620px;
+  margin: 2rem auto;
+  padding: 1.5rem;
+  text-align: center;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 1.05rem;
+  line-height: 1.6;
+}
+
+.honeypot {
+  position: absolute;
+  left: -9999px;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+@media (max-width: 480px) {
+  .form {
+    padding: 1rem;
+  }
+}
