@@ -1,0 +1,19 @@
+1:"$Sreact.fragment"
+2:I[97367,["/_next/static/chunks/3fntmmi971322.js"],"OutletBoundary"]
+3:"$Sreact.suspense"
+7:I[97367,["/_next/static/chunks/3fntmmi971322.js"],"ViewportBoundary"]
+8:I[97367,["/_next/static/chunks/3fntmmi971322.js"],"MetadataBoundary"]
+9:I[27201,["/_next/static/chunks/3fntmmi971322.js"],"IconMark"]
+b:I[39756,["/_next/static/chunks/3fntmmi971322.js"],"default"]
+c:I[37457,["/_next/static/chunks/3fntmmi971322.js"],"default"]
+:HL["/_next/static/chunks/0u-x1rqrpqx4t.css","style"]
+6:X
+0:{"buildId":"1VOheqEmZUes7eIkvO7Vz","data":[{"rsc":["$","$1","c",{"children":[["$","main",null,{"style":{"maxWidth":620,"margin":"4rem auto","padding":"1.5rem","textAlign":"center"},"children":[["$","h1",null,{"style":{"fontSize":"1.5rem","marginBottom":"0.75rem"},"children":"Research Submission Platform"}],["$","p",null,{"style":{"color":"#555","marginBottom":"1.5rem"},"children":"This is a working test deployment."}],["$","a",null,{"href":"/submit","style":{"display":"inline-block","padding":"0.75rem 1.5rem","background":"#2563eb","color":"white","borderRadius":"6px","textDecoration":"none","fontWeight":600},"children":"Go to the submission form"}]]}],null,["$","$L2",null,{"children":["$","$3",null,{"name":"Next.MetadataOutlet","children":"$@4"}]}]]}],"isPartial":"$@5","staleTime":"$6","varyParams":null},{"rsc":["$","$1","h",{"children":[null,["$","$L7",null,{"children":[["$","meta","0",{"charSet":"utf-8"}],["$","meta","1",{"name":"viewport","content":"width=device-width, initial-scale=1"}]]}],["$","div",null,{"hidden":true,"children":["$","$L8",null,{"children":["$","$3",null,{"name":"Next.Metadata","children":[["$","title","0",{"children":"Research Submission"}],["$","meta","1",{"name":"description","content":"Submit your graduation research"}],["$","link","2",{"rel":"icon","href":"/favicon.ico?favicon.2vob68tjqpejf.ico","sizes":"256x256","type":"image/x-icon"}],["$","$L9","3",{}]]}]}]}],null]}],"isPartial":"$@a","staleTime":"$6","varyParams":null},{"rsc":["$","$1","c",{"children":[[["$","link","0",{"rel":"stylesheet","href":"/_next/static/chunks/0u-x1rqrpqx4t.css","precedence":"next"}],["$","script","script-0",{"src":"/_next/static/chunks/3fntmmi971322.js","async":true}]],["$","html",null,{"lang":"en","children":["$","body",null,{"children":["$","$Lb",null,{"parallelRouterKey":"children","template":["$","$Lc",null,{}],"notFound":[[["$","title",null,{"children":"404: This page could not be found."}],["$","div",null,{"style":{"fontFamily":"system-ui,\"Segoe UI\",Roboto,Helvetica,Arial,sans-serif,\"Apple Color Emoji\",\"Segoe UI Emoji\"","height":"100vh","textAlign":"center","display":"flex","flexDirection":"column","alignItems":"center","justifyContent":"center"},"children":["$","div",null,{"children":[["$","style",null,{"dangerouslySetInnerHTML":{"__html":"body{color:#000;background:#fff;margin:0}.next-error-h1{border-right:1px solid rgba(0,0,0,.3)}@media (prefers-color-scheme:dark){body{color:#fff;background:#000}.next-error-h1{border-right:1px solid rgba(255,255,255,.3)}}"}}],["$","h1",null,{"className":"next-error-h1","style":{"display":"inline-block","margin":"0 20px 0 0","padding":"0 23px 0 0","fontSize":24,"fontWeight":500,"verticalAlign":"top","lineHeight":"49px"},"children":404}],["$","div",null,{"style":{"display":"inline-block"},"children":["$","h2",null,{"style":{"fontSize":14,"fontWeight":400,"lineHeight":"49px","margin":0},"children":"This page could not be found."}]}]]}]}]],[]]}]}]}]]}],"isPartial":"$@d","staleTime":"$6","varyParams":null}],"isUpgradeableISRFallback":false,"a":"$@e","rootVaryParams":null,"needsRuntimeRequest":"$@f"}
+4:null
+6:300
+f:true
+6:C
+e:0
+a:"$undefined"
+d:"$undefined"
+5:"$undefined"

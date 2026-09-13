@@ -1,0 +1,9 @@
+{
+  "/_global-error/page": "/_global-error",
+  "/_not-found/page": "/_not-found",
+  "/api/extract/route": "/api/extract",
+  "/confirm/[token]/page": "/confirm/[token]",
+  "/favicon.ico/route": "/favicon.ico",
+  "/page": "/",
+  "/submit/page": "/submit"
+}
