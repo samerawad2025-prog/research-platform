@@ -1,0 +1,34 @@
+-- ============================================================
+-- Phase 1 diagnostic migration.
+-- Run once in Supabase -> SQL Editor -> New query -> Run.
+-- Adds ONE nullable column. Nothing is deleted or altered.
+-- ============================================================
+
+-- Which kind of failure occurred, when extraction_status = 'failed'.
+-- Until now every failure collapsed into a single indistinguishable
+-- state, which is what made the PDF problem so hard to diagnose:
+-- a token-budget exhaustion and a genuinely corrupt file looked
+-- identical from both the UI and the database.
+--
+-- Values written by app/api/extract/route.js:
+--   max_tokens      - model hit its output ceiling before answering
+--   malformed_json  - model answered, but not with valid JSON
+--   api_error       - non-2xx from Gemini, or a network failure
+--   timeout         - Gemini did not respond within the timeout
+--   empty_response  - 2xx, but no content returned
+--   config          - server misconfiguration (missing key, etc.)
+--   internal        - storage or database failure, not a model failure
+--   not_research    - correctly classified as a non-research document
+--   unsupported_file_type
+alter table papers add column if not exists failure_code text;
+
+-- Handy during the experiment: the most recent failures with their
+-- captured token diagnostics, newest first.
+--
+--   select p.id, p.failure_code, p.extraction_status,
+--          g.notes, g.result_data -> '_diagnostics' as diagnostics
+--   from papers p
+--   left join ai_generations g on g.id = p.last_applied_generation_id
+--   where p.extraction_status = 'failed'
+--   order by p.created_at desc
+--   limit 10;
