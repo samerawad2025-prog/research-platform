@@ -12,6 +12,7 @@ A few things below look unusual until you know the history:
 - **The supervisor field explicitly states its own JSON key** (`use the JSON key "supervisor_name" for this field`) because it didn't always. Every other field's JSON key matches its section header word exactly; this was the one that didn't, and Gemini consistently returned it under the header word (`supervisor`) instead — confirmed against 12 real production records. See `BUG_HISTORY.md` #15 before "simplifying" this line.
 - **The explicit list of supervisor label patterns, in English and Arabic**, exists because an earlier version of this prompt discouraged reporting a supervisor more than it helped find one, and missed one that was clearly labeled on the cover page. See `BUG_HISTORY.md` #8.
 - **`methodology`, `keywords`, and `themes` are deliberately absent.** They were removed from an earlier version of this prompt to cut unnecessary AI calls and page-scanning for information the platform doesn't need to identify a paper. The database columns still exist, unused.
+- **TITLE/TITLE_AR and ABSTRACT/ABSTRACT_AR now state their JSON key split explicitly** (English → `title`/`abstract`, Arabic → `title_ar`/`abstract_ar`) for the same reason `supervisor_name` does above: `title_ar`/`abstract_ar` were already wired through the schema, orchestrator, keyword scan, and database columns, but the prompt itself never told the model which language belongs under which key, leaving it to infer from a section header — the exact pattern `BUG_HISTORY.md` #15 exists to warn against. Retest with a real Arabic-only and a real bilingual document before trusting this against live Gemini output; it hasn't been confirmed against production evidence the way the supervisor fix was.
 
 ## The actual prompt text
 
@@ -31,7 +32,7 @@ If document_type is "not_research", return that classification and mark every ot
 
 Otherwise, extract these fields:
 
-TITLE: exactly as written on the document. Do not rewrite, shorten, translate, or improve it.
+TITLE / TITLE_AR: exactly as written on the document, never rewritten, shortened, translated, or improved. Report an English-language title under the JSON key "title" and an Arabic-language title under the JSON key "title_ar". A document may have one, both, or neither - report only what is actually present, under its own language's key. Never translate one language into the other to fill the missing key.
 
 RESEARCHERS: the people who wrote this, with the order the document lists them in. On a thesis this is usually under "By", "Prepared by", "Submitted by", or "إعداد". Author order is positional information, not a ranking.
 
@@ -50,13 +51,12 @@ FACULTY: the faculty, school, college, or department named on the document.
 
 DEGREE_TYPE: for a thesis, the degree it was submitted for (for example "BSc", "Bachelor of Business Administration", "MSc", "PhD"), exactly as the document states it. Not applicable to most journal articles.
 
-ABSTRACT: the document's own abstract, only where one clearly exists under that heading (or "ملخص"). Never write a summary of your own and present it as the abstract. If there is no abstract section, mark it not_found.
+ABSTRACT / ABSTRACT_AR: the document's own abstract, only where one clearly exists under that heading (or "ملخص"). Never write a summary of your own and present it as the abstract. Report an English-language abstract under the JSON key "abstract" and an Arabic-language abstract under the JSON key "abstract_ar", by the same rule as title/title_ar above - one, both, or neither, never translated to fill the other. If there is no abstract section in a given language, mark that key not_found.
 
 Rules that matter more than completeness:
 - Only report what the document actually states. Never invent, guess, or fill in something plausible.
 - An affiliation, department, or institution name is never a person. A supervisor is never listed as an author, and an author is never listed as the supervisor.
 - People named only in acknowledgements, or as examiners, correspondents, or editors, are not authors.
-- Arabic and English are both valid source languages. If the document gives a title or abstract in only one language, do not translate it into the other, leave the other field not_found.
 - When something genuinely is not in the document, not_found is the correct and useful answer. Never manufacture a value to fill a gap.
 
 For every field, return one of these shapes, never a bare value:
