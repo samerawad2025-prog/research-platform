@@ -11,6 +11,15 @@ import { runExtraction } from '../../../lib/extraction/orchestrator'
 import { decideApplication } from '../../../lib/extraction/applyResult'
 import { getProvider } from '../../../lib/ai'
 
+// Without this, the platform's own default function timeout (well under
+// GEMINI_TIMEOUT_MS x up to 2 calls x up to 2 attempts each) can kill this
+// route mid-extraction. papers.extraction_status is already 'processing'
+// by then, so a kill leaves it stuck there forever with no failure_code
+// and no ai_generations row. 300s is a judgment call, not a confirmed
+// plan limit - verify against whichever Vercel project actually serves
+// production (see docs/deployment.md, three projects are linked).
+export const maxDuration = 300
+
 function hashToken(token) {
   return crypto.createHash('sha256').update(token).digest('hex')
 }
