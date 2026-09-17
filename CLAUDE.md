@@ -28,6 +28,7 @@ Full methodology: `docs/troubleshooting.md`. If using Claude Code's command syst
 
 | Need to know about... | Go to |
 |---|---|
+| **Current verified status** — what's confirmed working in production, open bugs, technical debt, next priorities | `CURRENT_STATUS.md` (read this first, before `CLAUDE_CODE_HANDOVER.md`) |
 | Product vision, target users, non-negotiable standards | `docs/vision.md` |
 | System architecture, stack choices and why, security model | `docs/architecture.md` |
 | Database schema, tables, RPCs | `docs/database.md` + `supabase/schema.sql` (source of truth) + `supabase/functions/` |

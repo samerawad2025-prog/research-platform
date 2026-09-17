@@ -2,6 +2,8 @@
 
 **Generated:** September 12, 2026. Sixteen bugs, in the order they were found and fixed. Feature additions (WhatsApp field, extraction-scope simplification) are documented in `CLAUDE_CODE_HANDOVER.md` instead — this file is bugs only: something was broken, it was diagnosed, it was fixed, it was tested.
 
+**Production-verified 2026-09-13** (see `CURRENT_STATUS.md` for full evidence): bugs #13, #15, and #16 below were previously confirmed only against mock data or a single forensic test file. A direct query of live `ai_generations`/`papers` rows from real submissions dated 2026-09-11 and 2026-09-13 now confirms all three fixes are deployed and working correctly on real Gemini calls in production — 14/15 recent generations return `supervisor_name` correctly, recent real theses show `university`/`faculty`/`degree_type` populated from DOCX headers, and a real 6-researcher thesis survived a two-pass merge intact. Bugs #7 and #10 (typed `failure_code`, `partial` status) remain **unexercised** in production — no failure of any kind has occurred since 2026-09-09, so neither is confirmed working nor confirmed broken; do not treat them as verified.
+
 A pattern worth noting before the list: bugs 13–16 were all found by querying real, live `ai_generations` records via a direct Supabase connection rather than reasoning from synthetic test cases, and two earlier hypotheses in that same investigation (a DOCX text-box content-loss theory, and a general Gemini-nondeterminism theory for the supervisor field) were explicitly **disproven** by real data and replaced with the actual causes below. Where that happened, it's called out.
 
 ---
