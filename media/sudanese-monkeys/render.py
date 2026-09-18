@@ -12,8 +12,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 S = os.path.dirname(os.path.abspath(__file__))
 FFMPEG = os.path.join(S, "ffmpeg")
-SRC = os.path.join(S, "kf", "kf3.png")
-OUT = os.path.join(S, "out", "monkeys_video.mp4")
+SRC = os.path.join(S, "keyframe.png")
 
 W, H, FPS = 720, 1280, 24
 ASPECT = W / H                      # 0.5625

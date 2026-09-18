@@ -1,0 +1,6 @@
+# build artifacts and fetched tooling (see build.sh)
+ffmpeg
+fonts/
+out/
+audio/raw*.wav
+audio/track.m4a
