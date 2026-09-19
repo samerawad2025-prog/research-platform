@@ -2,7 +2,7 @@
 
 **`supabase/schema.sql` is the source of truth for exact DDL.** This document explains what each piece is for; if this document and the actual schema ever disagree, the schema wins — update this file, not the other way around.
 
-Project: Supabase, Postgres 17, region eu-west-1. Six tables, all with RLS enabled.
+Project: Supabase, Postgres 17, region eu-central-1 (project ref `mzpkiuovjppmavqkppem`; rebuilt from `supabase/schema.sql` on 2026-09-18 after the original project `jyqvhaqyrsfqkkcxiwth` was deleted). Six tables, all with RLS enabled.
 
 ## `researchers`
 Anyone credited on a paper, including the person who submitted it.
