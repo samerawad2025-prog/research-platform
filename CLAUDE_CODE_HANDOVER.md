@@ -36,7 +36,8 @@ Browser (student)
            renders an editable form, submitter reviews/corrects
            calls confirm_researcher_metadata() RPC to finalize
 
-Supabase (Postgres 17.6.1, eu-west-1, project ref jyqvhaqyrsfqkkcxiwth)
+Supabase (Postgres 17, eu-central-1, project ref mzpkiuovjppmavqkppem)
+   - Rebuilt from schema.sql on 2026-09-18; the original project was deleted
    - All tables have RLS enabled, fully locked to anonymous users
    - The ONLY way an anonymous visitor can read or write anything is
      through three SECURITY DEFINER RPC functions (§6)

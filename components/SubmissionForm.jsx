@@ -31,6 +31,30 @@ const SCOPE_OPTIONS = [
 const MAX_FILE_BYTES = 20 * 1024 * 1024 // matches the storage bucket's own limit
 const ACCEPTED_EXTENSIONS = ['.pdf', '.docx']
 
+// A Supabase Storage object key only accepts a conservative ASCII
+// subset. Building one straight from the uploaded filename fails
+// outright when that name is in Arabic script - the common case for
+// this platform's own users, and a failure that leaves no trace at all
+// (no storage object, no paper row, nothing to query afterwards).
+//
+// Only the extension is load-bearing: app/api/extract/route.js picks
+// the parser from it. The readable part is cosmetic, kept purely so a
+// human scanning the bucket can recognise a file, so anything not
+// safely representable is dropped rather than transliterated.
+function buildFilePath(fileName) {
+  const dot = fileName.lastIndexOf('.')
+  const ext = dot > -1 ? fileName.slice(dot).toLowerCase() : ''
+  const label = (dot > -1 ? fileName.slice(0, dot) : fileName)
+    .replace(/[^a-zA-Z0-9._-]+/g, '_')
+    .replace(/_{2,}/g, '_')
+    .replace(/^[_.-]+|[_.-]+$/g, '')
+    .slice(0, 80)
+
+  return label
+    ? `${crypto.randomUUID()}-${label}${ext}`
+    : `${crypto.randomUUID()}${ext}`
+}
+
 // Turns a thrown error into something the person can actually act on.
 //
 // The key rule: a Postgres error with SQLSTATE P0001 is one of OUR
@@ -51,7 +75,11 @@ function userFacingError(err) {
     if (raw.includes('mime') || raw.includes('type')) {
       return 'That file type isn\u2019t supported. Please upload a PDF or DOCX file.'
     }
-    return 'We couldn\u2019t upload your file. Please check your connection and try again.'
+    // Deliberately does not blame the connection. An upload can also be
+    // rejected outright by storage, and telling someone to check their
+    // network sends them chasing the wrong thing - which is exactly what
+    // happened when an Arabic-named file failed (BUG_HISTORY.md #17).
+    return 'We couldn\u2019t upload your file. Please try again in a moment.'
   }
 
   return 'Something went wrong on our side. Please try again in a moment.'
@@ -120,7 +148,7 @@ export default function SubmissionForm() {
 
     // Random, unguessable path — nothing about it reveals order,
     // timing, or lets someone target another submission's file.
-    const filePath = `${crypto.randomUUID()}-${file.name.replace(/\s+/g, '_')}`
+    const filePath = buildFilePath(file.name)
 
     try {
       // 1. Upload the file first — the RPC below just needs its path
