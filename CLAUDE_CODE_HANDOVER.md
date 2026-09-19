@@ -221,7 +221,13 @@ There is currently **no tool available to verify what's actually set in Vercel's
    e. Run the orchestrator (see §7 for the two-pass logic)
    f. Write ai_generations row(s)
    g. Update papers columns (only for fields with status:'found' — ambiguous/
-      conflicting fields are never silently written into a plain text column)
+      conflicting fields are never silently written into a plain text column).
+      `year` is normalized first: papers.year is an integer and is the ONLY
+      non-text appliable column, so an un-castable value there used to reject
+      the entire UPDATE (BUG_HISTORY.md #18). Every papers write in this route
+      now checks its error and throws; the Supabase client does not throw on a
+      failed statement, and swallowing that error made a stuck row look like a
+      clean HTTP 200 (BUG_HISTORY.md #19).
    h. Set extraction_status = completed | partial | failed
 
 6. /confirm/[token]:
@@ -309,6 +315,8 @@ ELSE:
 
 **See `CURRENT_STATUS.md` for a 2026-09-13 production-data re-verification of this section — items 5 and 6 below have since moved from "unconfirmed" to "confirmed live," and item 3's underlying counts have been refreshed against real data.**
 
+**Superseded again on 2026-09-19.** `CURRENT_STATUS.md` is the live source of truth for what is open; this list is kept for how things were found. Changes since it was written: items 1 and 2 are closed (GitHub access works, and the stray Vercel projects were deleted). Item 5 is closed by evidence — the first-ever `partial` occurred on 2026-09-19 when pass 2 hit a Gemini 429 and pass 1's result was preserved, exactly as designed. **The whole database was rebuilt on 2026-09-18** after the original Supabase project was deleted, so the counts quoted throughout this section are gone and cannot be requeried; see the warning at the top of `CURRENT_STATUS.md` before citing any of them as live evidence. Two new open bugs, both recorded there: **M** (the 429 retry ignores the delay the server states) and **J** (a stalled extraction has no recovery path — now proven materially harmful, not theoretical).
+
 
 1. **GitHub is not connected.** No commit/branch/PR visibility. All code lived only as ZIP handoffs. If Claude Code has direct repo access, use it — this alone would have prevented several rounds of "did the fix actually deploy?" confusion.
 2. **Three Vercel projects are linked to the same GitHub repo** (`research-platform-5zpu`, `research-platform-88r9`, `research-platform`). Only `research-platform-5zpu` (`prj_4N8qhSrKCpNrM73qaYmErJa6cu90`) has been confirmed as the one actually serving traffic. This was never fully resolved — worth cleaning up.
@@ -339,6 +347,8 @@ ELSE:
 13. **DOCX pass-2 excerpt window widened** — the original ±100/+400 character window around a matched keyword was proven (against the real thesis file) to sometimes start after a relevant block of content already began. Widened to −300/+500.
 14. **Supervisor field-name mismatch (confirmed against 12/12 real production records, both PDF and DOCX)** — Gemini consistently, deterministically returned this field as `supervisor`, never `supervisor_name`, because the prompt's section header ("SUPERVISOR:") never stated the intended JSON key explicitly, unlike every other field where the header word happened to already match the key. Fixed at the source (prompt now states the key explicitly) and backstopped with a normalization step applied to every Gemini response.
 15. **DOCX header extraction** — `mammoth.extractRawText()` never reads header or footer XML parts at all. Confirmed by directly unzipping a real production thesis: university, faculty, and degree existed *only* in `word/header2.xml` and were completely absent from mammoth's output, with zero warnings raised. Fixed by reading header parts directly via `jszip` and prepending their text, clearly labeled, to what's sent to Gemini. Wrapped so a header-reading failure can only ever fail to add information, never break an extraction that previously worked.
+16. **Arabic year value stranded an extraction** — `papers.year` is an integer column; a real thesis reporting `٢٠١٩م` made Postgres reject the whole UPDATE, discarding a correct Arabic title, abstract, university and degree and leaving the paper in `processing` behind an HTTP 200. Fixed with a conservative `normalizeYear()` (Arabic-Indic and Persian digits to ASCII, exactly one in-range 4-digit run, 1900–2100, omit rather than guess). `BUG_HISTORY.md` #18.
+17. **Every `papers` update in the extract route discarded its error** — the Supabase client resolves `{ data, error }` rather than throwing, so a rejected UPDATE was indistinguishable from a successful one and the route returned 200. All writes now check and throw through the route's existing failure handling; the CAS claim no longer misreports a query error as a benign race. `BUG_HISTORY.md` #19.
 
 ## Recent fixes and why they were implemented (most recent session)
 
