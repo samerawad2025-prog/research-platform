@@ -24,6 +24,21 @@ function hashToken(token) {
   return crypto.createHash('sha256').update(token).digest('hex')
 }
 
+// A rejected status write used to be swallowed entirely: the row stayed
+// on whatever status it already had, the route carried on and still
+// returned 200, and the paper was stranded in 'processing' with nothing
+// anywhere to diagnose it from. That is how a single bad `year` value
+// cost a real submission (BUG_HISTORY.md #19). Every papers write now
+// goes through here so a failure becomes a real, typed, recorded
+// failure instead of silence.
+function assertPapersWrite(error, stage) {
+  if (!error) return
+  const e = new Error(`Failed to update papers (${stage}): ${error.message}`)
+  e.code = 'internal'
+  e.diagnostics = { stage, pgCode: error.code ?? null, details: error.details ?? null, hint: error.hint ?? null }
+  throw e
+}
+
 function detectFileType(filePath) {
   const lower = filePath.toLowerCase()
   if (lower.endsWith('.pdf')) return 'pdf'
@@ -60,12 +75,20 @@ export async function POST(request) {
   // moves this paper from pending to processing. A second overlapping
   // request finds zero rows updated and stops, rather than running
   // extraction twice and burning quota for nothing.
-  const { data: claimed } = await supabase
+  const { data: claimed, error: claimError } = await supabase
     .from('papers')
     .update({ extraction_status: 'processing' })
     .eq('id', paper.id)
     .eq('extraction_status', 'pending')
     .select('id')
+
+  // A failed claim is not the same as losing the race. Treating an
+  // error as "someone else has it" would leave the paper pending with
+  // nobody working on it and no sign anything went wrong.
+  if (claimError) {
+    console.error(JSON.stringify({ stage: 'claim_failed', paperId: paper.id, message: claimError.message }))
+    return Response.json({ error: 'Could not start extraction. Please try again.' }, { status: 500 })
+  }
 
   if (!claimed || claimed.length === 0) {
     return Response.json({ status: paper.extraction_status, alreadyHandled: true })
@@ -89,10 +112,11 @@ export async function POST(request) {
         .select('id')
         .single()
 
-      await supabase
+      const { error: unsupportedError } = await supabase
         .from('papers')
         .update({ extraction_status: 'failed', last_applied_generation_id: gen?.id ?? null })
         .eq('id', paper.id)
+      assertPapersWrite(unsupportedError, 'unsupported_file_type')
 
       return Response.json({
         status: 'failed',
@@ -195,7 +219,7 @@ export async function POST(request) {
     // confirmation page can't tell "this is a CV" apart from "extraction
     // crashed", which is exactly the generic-error problem being fixed.
     if (extraction.documentType === 'not_research') {
-      await supabase
+      const { error: notResearchError } = await supabase
         .from('papers')
         .update({
           extraction_status: 'failed',
@@ -203,6 +227,7 @@ export async function POST(request) {
           last_applied_generation_id: currentResultGeneration.id,
         })
         .eq('id', paper.id)
+      assertPapersWrite(notResearchError, 'not_research')
 
       return Response.json({
         status: 'failed',
@@ -232,7 +257,8 @@ export async function POST(request) {
     // If already confirmed, the papers columns and
     // last_applied_generation_id are deliberately left untouched.
 
-    await supabase.from('papers').update(papersPatch).eq('id', paper.id)
+    const { error: applyError } = await supabase.from('papers').update(papersPatch).eq('id', paper.id)
+    assertPapersWrite(applyError, 'apply_result')
 
     return Response.json({
       status: extraction.extractionStatus,
@@ -283,7 +309,14 @@ export async function POST(request) {
       .select('id')
       .single()
 
-    await supabase
+    // Deliberately does NOT use assertPapersWrite: this is already the
+    // failure path, and throwing here would escape the catch and return
+    // an empty 500, losing the typed message we are about to send. A
+    // failure to record the failure is logged loudly and no more - the
+    // paper stays 'processing' in that case, which is the one remaining
+    // way to strand one, and is what the recovery path (bug J) exists
+    // to cover.
+    const { error: failWriteError } = await supabase
       .from('papers')
       .update({
         extraction_status: 'failed',
@@ -291,6 +324,15 @@ export async function POST(request) {
         last_applied_generation_id: failGen?.id ?? null,
       })
       .eq('id', paper.id)
+
+    if (failWriteError) {
+      console.error(JSON.stringify({
+        stage: 'failure_status_write_failed',
+        paperId: paper.id,
+        failureCode: code,
+        message: failWriteError.message,
+      }))
+    }
 
     return Response.json({
       status: 'failed',
