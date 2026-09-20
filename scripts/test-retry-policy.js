@@ -116,6 +116,33 @@ check('a 429 with no stated delay does NOT retry blind', () => {
   assert.strictEqual(d.reason, 'quota_exhausted_no_delay_given')
 })
 
+// The literal free-tier 429 that failed a good Arabic DOCX in
+// production on 2026-09-20, stated delay and all.
+const REAL_FREE_TIER_429_BODY = {
+  error: {
+    code: 429,
+    status: 'RESOURCE_EXHAUSTED',
+    message:
+      'You exceeded your current quota, please check your plan and billing details. ' +
+      '\\n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, ' +
+      'limit: 20, model: gemini-3.6-flash\\nPlease retry in 35.260544627s.',
+  },
+}
+
+check('THE REGRESSION: a 35.26s per-minute quota wait is honoured, not refused', () => {
+  // The cap was 30s, so this was refused by 5.26 seconds and the
+  // submission failed outright - even though the per-minute window
+  // resets inside a minute.
+  assert.strictEqual(parseRetryDelayMs({ headers: null, body: REAL_FREE_TIER_429_BODY }), 35261)
+  const d = decideRetry({ status: 429, pass: 1, body: REAL_FREE_TIER_429_BODY, attempt: 1 })
+  assert.strictEqual(d.retry, true, 'a per-minute quota wait must be honoured')
+  assert.ok(d.delayMs > 35261, 'and must still clear the stated window')
+})
+
+check('the cap still covers any per-minute reset with margin', () => {
+  assert.ok(MAX_RETRY_DELAY_MS >= 60_000, 'a per-minute window can state up to ~60s')
+})
+
 check('an hours-long quota delay fails fast instead of hanging the function', () => {
   const body = { error: { details: [{ '@type': 'x/RetryInfo', retryDelay: '3600s' }] } }
   const d = decideRetry({ status: 429, pass: 1, headers: null, body, alreadyRetried: false })

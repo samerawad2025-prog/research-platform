@@ -665,3 +665,30 @@ Nothing was wrong with either document. One was an English PDF, one Arabic; both
 **Regression testing performed:** `scripts/test-retry-policy.js` (38 checks) now builds on the literal production 503 body and asserts that a 503 gets more than one retry, that the waits escalate, that the ladder is bounded, that the whole ladder stays far inside the time budget, and that a 429 still gets exactly one retry. `scripts/test-timing.js` asserts the transient/permanent split of failure codes, the cooldown, the compare-and-swap on the failed-retry claim, and that a claim clears `failure_code`. All 7 suites pass; `eslint` clean; build compiles.
 
 **Not verified in production:** reproducing a 503 on demand would mean waiting for Google to be overloaded again. The ladder and the retry path are proven against the recorded error shape, not against a live outage.
+
+---
+
+## 37. A 35-second quota wait was refused by a 30-second cap
+
+**Root cause:** `MAX_RETRY_DELAY_MS` was 30 s. It was chosen to stop the function honouring an exhausted *daily* quota, which Google states in hours and which would hold a serverless invocation open until the platform killed it. But the limit real submissions actually hit is the *per-minute* one, and that resets inside a minute.
+
+On 2026-09-20 six submissions were made in seven minutes. That exhausted `generativelanguage.googleapis.com/generate_content_free_tier_requests` (limit: 20), and Google replied:
+
+```
+Quota exceeded for metric: ...generate_content_free_tier_requests, limit: 20, model: gemini-3.6-flash
+Please retry in 35.260544627s.
+```
+
+The delay was parsed correctly as 35 261 ms. It was then refused for exceeding the cap **by 5.26 seconds**, and a perfectly good Arabic DOCX (`b36c31ec`) failed outright — despite the window resetting in under a minute and the retry almost certainly succeeding.
+
+**Investigation summary:** reproduced exactly against the stored error body before changing anything: `parseRetryDelayMs` → 35261, cap → 30000, decision → `{retry: false, reason: 'quota_delay_too_long'}`. The parsing was never the problem; only the ceiling was.
+
+**Fix implemented:** `MAX_RETRY_DELAY_MS` raised to 60 s — sized to the per-minute window rather than to an arbitrary round number. A daily quota still fails fast, because it states hours and is nowhere near this. The route's 300 s ceiling is unaffected in practice: a 429 is a rejection, not a generation, so it arrives in well under a second.
+
+Nothing else changed. The 503 ladder, the pass-2 rule, the no-blind-retry rule and the one-retry budget for 429 are all untouched.
+
+**Files modified:** `lib/ai/retryPolicy.js`.
+
+**Regression testing performed:** `scripts/test-retry-policy.js` gained two checks built on the literal production 429 body — that the 35.26 s wait is now honoured and still clears the stated window, and that the cap remains large enough for any per-minute reset. The existing check that an hours-long daily quota is still refused continues to pass. 42 checks, all passing; all 7 suites pass; `eslint` clean; build compiles.
+
+**What this was NOT.** The submission that failed was a DOCX, but DOCX was never implicated. Arabic DOCX `801c1150` completed successfully five minutes earlier with `title_ar` and `abstract_ar` both extracted, and English DOCX `570759a8` completed with 8/10 fields. The format was a coincidence of ordering — the sixth submission in seven minutes was the one that ran out of quota.
