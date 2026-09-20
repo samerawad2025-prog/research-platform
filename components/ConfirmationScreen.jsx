@@ -15,6 +15,7 @@ import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { normalizeYear } from '../lib/extraction/applyResult'
 import { isFieldVisible, needsLanguageLabel, routeByScript } from '../lib/fields/languagePairs'
+import { seedResearchers } from '../lib/fields/researcherSeed'
 import { mark, report } from '../lib/timing'
 import styles from './ConfirmationScreen.module.css'
 
@@ -238,18 +239,17 @@ export default function ConfirmationScreen({ token }) {
       if (!seededRef.current) {
         const detail = data.extraction_detail || {}
 
-        const extracted = detail.researchers
-        const seedResearchers =
-          !data.metadata_confirmed_at && extracted?.status === 'found' && extracted.value?.length > 0
-            ? extracted.value.map((r) => ({ full_name: r.name, author_order: r.author_order, linkedin_url: '', facebook_url: '' }))
-            : (data.researchers || []).map((r) => ({
-                researcher_id: r.researcher_id,
-                full_name: r.full_name,
-                author_order: r.author_order,
-                linkedin_url: r.linkedin_url || '',
-                facebook_url: r.facebook_url || '',
-              }))
-        setResearchers(seedResearchers.length > 0 ? seedResearchers : [{ full_name: '', author_order: 1, linkedin_url: '', facebook_url: '' }])
+        // Carries researcher_id across from anyone already on the
+        // paper whose name extraction also found. Without it the RPC
+        // inserts a duplicate for every author and then deletes the
+        // submitter's own link - see BUG_HISTORY.md #33.
+        setResearchers(
+          seedResearchers({
+            extracted: detail.researchers,
+            existing: data.researchers,
+            alreadyConfirmed: Boolean(data.metadata_confirmed_at),
+          })
+        )
 
         const seedValues = {}
         for (const f of METADATA_FIELDS) {
