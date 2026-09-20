@@ -21,18 +21,6 @@
   align-items: stretch;
 }
 
-.countrySelect {
-  flex: 0 1 11rem;
-  min-width: 0; /* lets the select shrink instead of forcing overflow */
-  padding: 0.6rem 0.5rem;
-  border: 1px solid #ccc;
-  border-radius: 6px;
-  font-size: 0.95rem;
-  font-family: inherit;
-  background: #fff;
-  color: #333;
-}
-
 .numberInput {
   flex: 1 1 auto;
   min-width: 0;
@@ -46,23 +34,19 @@
   direction: ltr;
 }
 
-.countrySelect:focus,
 .numberInput:focus {
   outline: 2px solid #2563eb;
   outline-offset: 1px;
   border-color: #2563eb;
 }
 
-/* The invalid state is carried on the container so BOTH controls are
-   highlighted — the number can be wrong because the wrong country is
-   selected, and outlining only the text box would point at the wrong
-   control. */
-.controlsInvalid .countrySelect,
+/* Only the number input turns red. The country trigger is a separate
+   control with its own popup, and colouring it too reads as "the
+   country is wrong" when almost always the digits are. */
 .controlsInvalid .numberInput {
   border-color: #b91c1c;
 }
 
-.controlsInvalid .countrySelect:focus,
 .controlsInvalid .numberInput:focus {
   outline-color: #b91c1c;
   border-color: #b91c1c;
@@ -82,14 +66,5 @@
   line-height: 1.5;
 }
 
-@media (max-width: 480px) {
-  /* Stack rather than squeeze: a country name plus a dial code does
-     not fit beside a number field at phone width. */
-  .controls {
-    flex-direction: column;
-  }
-
-  .countrySelect {
-    flex: 1 1 auto;
-  }
-}
+/* No stacking at phone width any more: the trigger is now just a flag
+   and a dial code, which sits comfortably beside the number field. */

@@ -353,3 +353,61 @@ Distinct failure types get distinct messages, per `BUG_HISTORY.md` #7: "too shor
 **Files modified:** `components/PhoneField.jsx` (new), `components/PhoneField.module.css` (new), `components/SubmissionForm.jsx`.
 
 **Regression testing performed:** covered by `scripts/test-phone-validation.js` as above — the country list is asserted to be complete, sorted, duplicate-free, and to resolve both English and Arabic names, with Sudan's dial code checked explicitly.
+
+---
+
+## 24. A validation message rendered its own escape sequence as literal text
+
+**Root cause:** the inline email error in `components/SubmissionForm.jsx` was written as JSX *text*:
+
+```jsx
+<p ...>That doesn’t look like an email address. Please check it.</p>
+```
+
+`’` is a JavaScript **string** escape. JSX text is not a string literal, so nothing interprets it — React rendered the six characters `’` verbatim, and the submitter saw *"That doesn’t look like an email address."*
+
+Every other message in the file is correct, because every other one sits inside a real string literal (`setErrorMsg('...isn’t supported...')`), where the escape does apply. The distinction is invisible on a quick read, which is exactly why this one slipped through: the same characters are right in one position and wrong in the other. It was introduced in this session, alongside the field itself.
+
+**Investigation summary:** reported from a screenshot of the live form. A repo-wide grep for `’` found nine occurrences; eight are inside string literals and render correctly, and exactly one — the JSX text node — does not. Confirmed by position rather than by reading each message.
+
+**Fix implemented:** the JSX text node now uses the HTML entity `&rsquo;`, which is the correct mechanism in that position and matches what the rest of the file's JSX already does (`We weren&rsquo;t certain about this one`). The eight string-literal uses were deliberately left alone: they are correct, and rewriting them would be churn.
+
+**Files modified:** `components/SubmissionForm.jsx`.
+
+**Regression testing performed:** re-ran the grep and confirmed the only remaining `’` occurrences are inside string literals, including one inside a JSX `{...}` expression (`{extracting ? '...' : 'Here’s what we found'}`), which is a string literal and renders correctly. `npx eslint` clean, `npm run build` compiles.
+
+---
+
+## 25. The confirmation screen showed two title boxes for a paper written in one language
+
+**Root cause:** fix #20 added `title_ar` and `abstract_ar` to the confirmation screen, which was necessary — they had never been rendered at all — but it rendered them *unconditionally*. So a paper written only in Arabic now showed its Arabic title **and** an empty English title box, and the same for the abstract. That is an improvement on hiding the Arabic title entirely, but it still puts an empty box in front of a submitter for a language their document is not written in, which is the precondition for the original failure: a real submitter answered exactly such a box by typing a sentence into it.
+
+**Fix implemented:** the pair now renders only the languages the paper actually has. One box for a monolingual paper; both for a genuinely bilingual one, so real data is never hidden; and for a pair empty on both sides, exactly one fallback box rather than two.
+
+Because that fallback box has no language attached, what gets typed into it is routed to the matching column by script at confirm time — Arabic text lands in `title_ar`, Latin text in `title` — so the submitter is never asked to pick a language themselves. The routing is deliberately narrow: it acts only when the partner column is empty, because if both boxes were on screen the submitter's own choice of box is authoritative and must not be second-guessed.
+
+A field is also only labelled by language ("Title (English)") when both halves are visible. A lone box labelled that way would invite the same *"so where does my Arabic title go?"* confusion this exists to remove; a lone box is just "Title / العنوان".
+
+The logic was extracted to `lib/fields/languagePairs.js` rather than left inside the component, because it decides whether a submitter is shown a box their document has no content for — the exact thing that went wrong in #20 — and that deserves to be tested directly rather than trusted by reading it.
+
+**Files modified:** `components/ConfirmationScreen.jsx`, `lib/fields/languagePairs.js` (new).
+
+**Regression testing performed:** `scripts/test-field-pairs.js`, 19 checks, all passing, exit 0. Covers the Arabic-only case (one box, the Arabic one), the mirrored English-only case, a bilingual paper (both boxes — real data is never hidden), a pair empty on both sides (exactly one box, never two), whitespace not counting as content, missing keys not throwing, both labelling rules, script detection including Arabic-Indic digits, routing in both directions, routing refusing to overwrite a partner that already has content, and that routing does not mutate its input. One check restates the original failure directly: an Arabic-only paper must render no empty English title box.
+
+---
+
+## 26. The country picker was a native `<select>`, which cannot be searched or styled
+
+**Root cause:** `<option>` content is rendered by the operating system, not the page. 245 countries each rendered as one unbroken line of "flag name +code", with the dial code pushed to wherever the longest country name left room, and no way to find a country except holding down a letter key.
+
+**Fix implemented:** `components/CountrySelect.jsx`, a combobox following the WAI-ARIA pattern rather than an invented one: a compact trigger showing just the flag and dial code (the country name is already implied by the flag, and repeated in the list), and a popup with a search field that matches on country name in English or Arabic, ISO code, or dial code with or without the leading `+` — so "249", "+249", "sd" and "sud" all find Sudan.
+
+Keyboard support is the part that makes it usable rather than decorative: Arrow keys move the active option, Enter selects, Escape closes, Home/End jump, and focus stays in the search input throughout while `aria-activedescendant` tells a screen reader which option is active. The list is a fixed row height with the flag in a fixed-width box, so every row aligns on one edge regardless of how wide a platform draws each emoji.
+
+Two details that are bugs if missed: options commit on `mousedown` rather than `click`, because `click` fires after `blur` and the popup would close before the choice registered; and the popup closes on `pointerdown` outside rather than `click`, so it is gone before a click on something behind it lands. `Enter` calls `preventDefault()` so choosing a country never submits the surrounding form.
+
+The popup animation is disabled under `prefers-reduced-motion`.
+
+**Files modified:** `components/CountrySelect.jsx` (new), `components/CountrySelect.module.css` (new), `components/PhoneField.jsx`, `components/PhoneField.module.css`.
+
+**Regression testing performed:** `npx eslint` clean, `npm run build` compiles. The country data this renders is covered by `scripts/test-phone-validation.js` (complete, sorted, duplicate-free, both name languages resolving). **The interaction itself is not covered by an automated test** — there is no DOM test harness in this project and the build environment cannot reach the deployed app, so the keyboard and pointer behaviour above is reasoned from the ARIA pattern and not empirically verified. Recorded as a real gap rather than glossed over; it is the first thing to exercise by hand on the deployed preview.

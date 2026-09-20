@@ -314,7 +314,7 @@ export default function SubmissionForm() {
         </label>
         {touched.email && form.email.trim() !== '' && !isEmailish(form.email) && (
           <p id="email-error" role="alert" className={styles.fieldError}>
-            That doesn\u2019t look like an email address. Please check it.
+            That doesn&rsquo;t look like an email address. Please check it.
           </p>
         )}
 

@@ -51,6 +51,10 @@
 
 **Closed 2026-09-20**
 
+- **#24** — an inline validation message rendered `\u2019` as literal text (JSX text node vs. string literal).
+- **#25** — the confirmation screen showed two title boxes (and two abstract boxes) for a paper written in one language. Now only the languages the paper actually has; a lone fallback box routes typed text to the right column by script.
+- **#26** — the country picker was a native `<select>`, unsearchable and unstyleable across 245 entries. Replaced with an ARIA combobox with search.
+
 - **#20** — the confirmation screen never rendered `title_ar`/`abstract_ar` and hard-required an English title. Root cause of the reported "Arabic title extraction failed", which was not an extraction failure at all. Frontend-only fix; no migration.
 - **#21** — pass 2 burned a paid Gemini call re-confirming an absent English title on Arabic-only papers.
 - **#22** — WhatsApp numbers had no validation before the upload, and were stored as typed.
@@ -66,8 +70,9 @@
 
 ## Technical debt
 
-- No CI wired to any of the four test scripts (`test-docx-extraction.js`, `test-year-normalization.js`, `test-language-pairs.js`, `test-phone-validation.js`). All pass standalone; none runs on anybody's schedule. This is now the single highest-value piece of technical debt — there are enough tests to be worth running automatically.
+- No CI wired to any of the five test scripts (`test-docx-extraction.js`, `test-year-normalization.js`, `test-language-pairs.js`, `test-phone-validation.js`, `test-field-pairs.js`). All pass standalone; none runs on anybody's schedule. This is now the single highest-value piece of technical debt — there are enough tests to be worth running automatically.
 - `lib/extraction/keywordScan.js` has no markers for `year`, so a DOCX missing only its year falls through to the 12,000-character fallback slice rather than a targeted excerpt. Harmless (the fallback works) but wasteful.
+- **No DOM/component test harness exists.** Pure logic is well covered, but nothing exercises a rendered component, so `CountrySelect`'s keyboard and pointer behaviour is reasoned from the ARIA pattern rather than verified. Exercise it by hand on the preview.
 - The confirmation screen's poll gives up after ~2 minutes and offers a manual retry, which reloads the page. With bug J still open, that retry cannot rescue a paper stuck in `processing`.
 - `README.md` describes the project as "Step 2" and points to a nonexistent `DEPLOYMENT_GUIDE.md` (identified 2026-09-13 in `CLEANUP_PLAN.md`, still unfixed).
 - `.env.local.example`'s `GEMINI_MODEL` comment is stale (`gemini-2.5-flash` vs. the actual default `gemini-3.6-flash`).

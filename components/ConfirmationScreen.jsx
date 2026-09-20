@@ -14,6 +14,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { normalizeYear } from '../lib/extraction/applyResult'
+import { isFieldVisible, needsLanguageLabel, routeByScript } from '../lib/fields/languagePairs'
 import styles from './ConfirmationScreen.module.css'
 
 const POLL_INTERVAL_MS = 2500
@@ -31,28 +32,21 @@ const MAX_POLL_ATTEMPTS = 48 // ~2 minutes, then offer a manual retry
 // Arabic title inside a left-to-right form renders with its
 // punctuation in the wrong place unless the field itself says rtl.
 const METADATA_FIELDS = [
-  { key: 'title', label: 'Title (English)', multiline: true },
-  { key: 'title_ar', label: 'Title (Arabic) / العنوان', multiline: true, dir: 'rtl' },
+  { key: 'title', label: 'Title / العنوان', langLabel: 'Title (English)', multiline: true, pair: 'title_ar', primary: true },
+  { key: 'title_ar', label: 'Title / العنوان', langLabel: 'Title (Arabic) / العنوان', multiline: true, dir: 'rtl', pair: 'title' },
   { key: 'supervisor_name', label: 'Supervisor' },
   { key: 'university', label: 'University' },
   { key: 'faculty', label: 'Faculty or school' },
   { key: 'degree_type', label: 'Degree' },
   { key: 'year', label: 'Year' },
-  { key: 'abstract', label: 'Abstract (English)', multiline: true },
-  { key: 'abstract_ar', label: 'Abstract (Arabic) / الملخص', multiline: true, dir: 'rtl' },
+  { key: 'abstract', label: 'Abstract / الملخص', langLabel: 'Abstract (English)', multiline: true, pair: 'abstract_ar', primary: true },
+  { key: 'abstract_ar', label: 'Abstract / الملخص', langLabel: 'Abstract (Arabic) / الملخص', multiline: true, dir: 'rtl', pair: 'abstract' },
 ]
 
-// A paper written in one language only is the normal case here, not an
-// error. These pairs are "at least one of", so a missing English title
-// on an Arabic thesis is not a gap the submitter has to fill in.
-const LANGUAGE_PAIRS = [
-  { keys: ['title', 'title_ar'], label: 'title' },
-  { keys: ['abstract', 'abstract_ar'], label: 'abstract' },
-]
+const FIELD_BY_KEY = Object.fromEntries(METADATA_FIELDS.map((f) => [f.key, f]))
 
 function pairPartner(key) {
-  const pair = LANGUAGE_PAIRS.find((p) => p.keys.includes(key))
-  return pair ? pair.keys.find((k) => k !== key) : null
+  return FIELD_BY_KEY[key]?.pair || null
 }
 
 function firstCandidateValue(entry) {
@@ -337,10 +331,17 @@ export default function ConfirmationScreen({ token }) {
     // was wrong and there is no correct value", which the RPC treats
     // as a real correction. Omitting empties instead would silently
     // discard that, leaving a hallucinated value in place.
-    const corrections = {}
+    let corrections = {}
     for (const f of METADATA_FIELDS) {
       corrections[f.key] = (values[f.key] || '').trim()
     }
+    // When a pair was empty and the submitter typed into the single
+    // fallback box, put the text in the column that matches the script
+    // they actually used. Without this an Arabic title typed into the
+    // one visible box would land in `title` and the Arabic column
+    // would stay empty, which is the same split this change removes.
+    corrections = routeByScript(corrections, METADATA_FIELDS)
+
     // confirm_researcher_metadata only accepts a year matching
     // ^[0-9]{4}$ and silently keeps the old value otherwise, so an
     // Arabic-Indic year typed here has to be converted to ASCII before
@@ -493,7 +494,12 @@ export default function ConfirmationScreen({ token }) {
   }
   const attentionCount = extracting
     ? 0
-    : METADATA_FIELDS.filter((f) => needsAttention(detail[f.key]) && !satisfiedByPartner(f.key)).length
+    : METADATA_FIELDS.filter(
+        (f) =>
+          isFieldVisible(f, values) &&
+          needsAttention(detail[f.key]) &&
+          !satisfiedByPartner(f.key)
+      ).length
 
   return (
     <form onSubmit={handleConfirm} className={styles.page}>
@@ -557,17 +563,23 @@ export default function ConfirmationScreen({ token }) {
 
       <section className={styles.section}>
         <h2>Research details</h2>
-        {METADATA_FIELDS.map((f) => (
+        {METADATA_FIELDS.filter((f) => isFieldVisible(f, values)).map((f) => (
           <InlineField
             key={f.key}
-            label={f.label}
+            // Only qualify by language when BOTH halves of a pair are
+            // on screen. A lone box saying "Title (English)" invites
+            // the same "where do I put my Arabic title?" confusion
+            // this change exists to remove.
+            label={needsLanguageLabel(f, values) ? f.langLabel : f.label}
             value={values[f.key] || ''}
             entry={satisfiedByPartner(f.key) ? { status: 'found' } : detail[f.key]}
             multiline={f.multiline}
             dir={f.dir}
             disabled={extracting}
             emptyHint={
-              pairPartner(f.key)
+              // Only the language wording when the OTHER language is
+              // also on screen; a lone box is just "we didn't find it".
+              f.pair && (values[f.pair] || '').trim()
                 ? 'Your paper doesn\u2019t appear to have this in this language. You can leave it empty.'
                 : 'Not found in your paper. Tap to add it.'
             }
