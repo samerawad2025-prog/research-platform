@@ -14,9 +14,11 @@
 
 ## Deployment state — read this first
 
-**Production serves `83a56e59` (PR #3).** PR #4 and everything in this session after it is **merged to the branch but was not in production at the time of this audit**. Anything below marked "verified in production" was verified against `83a56e59` unless it says otherwise.
+**Production now serves `4c2f9755` (PR #4, merged 2026-09-20).** Deployment `dpl_4mPPSz2t` is READY on the production alias.
 
-**Migration `0008` (`papers.extraction_started_at`) IS applied to the production database**, ahead of the code that writes it. That is safe — the column is nullable, nothing reads it on `83a56e59` — but it is a schema-ahead-of-code state worth knowing about.
+**Important for reading everything below:** the audit that produced these findings was carried out while production still served `83a56e59` (PR #3), because PR #4 had never been merged. So a finding marked "verified in production" was verified against `83a56e59` unless it says otherwise, and the fixes merged in PR #4 are **deployed but not yet exercised by a real submission**. The first real submission after this deploy is the evidence that closes them.
+
+**Migration `0008` (`papers.extraction_started_at`) was applied to the production database before the code that writes it.** The code is now live, so the gap is closed. No existing row carries a claim timestamp yet (verified: 0 of 10), which is expected — the column is populated on the next claim.
 
 ## Measured stage timings (2026-09-20)
 
