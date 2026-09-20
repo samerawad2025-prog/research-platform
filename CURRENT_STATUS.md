@@ -12,10 +12,12 @@
 
 ---
 
-## Production status (live snapshot, 2026-09-19)
+## Production status (live snapshot, 2026-09-20)
 
-- **7 total papers**: 5 `completed`, 1 `failed` (a CV, correctly classified `not_research`), 1 stuck in `processing` (see bug K/L below — repaired after the fix deployed).
-- **One completed paper has `title_ar` populated** from a real Arabic document — the first time the bilingual mapping has been exercised end to end in production.
+- **8 total papers**: 6 `completed`, 1 `failed` (a CV, correctly classified `not_research`), 1 back at `pending` (`bb6db427`, the paper stranded by bug K — reset after the fix deployed, awaiting a visit to its confirmation link to re-trigger).
+- **The K/L fix is confirmed working on real data.** Paper `d5c7b51e`, submitted after the deploy, is the same Arabic thesis that stranded `bb6db427`. It completed, and `year` was written as **2019** from the cover page's `٢٠١٩م` — the exact value that previously rejected the whole UPDATE.
+- **Two completed papers have `title_ar` populated** from real Arabic documents.
+- **One paper carries a typed placeholder as its title.** `d5c7b51e`'s `title` is the literal sentence `"No title appeared for this research"`, typed by the submitter because the confirmation form would not let them leave an English title empty (bug #20, now fixed). It is confirmed submitter data, so it is theirs to correct — the screen now shows the Arabic title beside it.
 - Documents covered so far: English thesis (PDF and DOCX), an Arabic-named file, an Arabic-content research report, an Arabic thesis, and a CV correctly rejected as `not_research`.
 
 ## Confirmed working on the rebuilt database
@@ -34,6 +36,8 @@
 | F | No tool reads Vercel environment variables remotely | Re-confirmed 2026-09-18 with live Vercel access (`get_project`, `list_deployments`, `get_deployment` — none expose env vars). | **Open, structural.** Check the dashboard directly. |
 | M | **Gemini 429 handling ignores the delay the server states** | On 2026-09-19 a 429 said *"Please retry in 12.577097057s"*; the code retried after a fixed 1500 ms. The second 429 then said *"retry in 10.830900339s"* — the 1.746 s difference proves a rolling window and proves the retry landed **inside** it. It could not have succeeded. `response.headers` is never read (so `Retry-After` is discarded) and the body is truncated at 500 chars, cutting off `RetryInfo.retryDelay`. `RETRYABLE_STATUSES = [503, 429]` also conflates two different failures: a 503 retry is free, but a 429 retry **spends more of the quota you just exhausted**. | **Open.** *Supersedes bug I* — generic backoff (2s/8s = 10s cumulative) would also have failed here; honouring the server's stated delay is strictly better. Fix: split 429 from 503, honour `Retry-After` → `RetryInfo.retryDelay` → message text, **cap at ~20–30 s** (an exhausted daily quota returns an hours-long delay that would hang the function), and don't retry 429 on pass 2 at all — degrade to `partial` immediately. |
 | J | **A failed or stalled extraction has no recovery path** | The CAS guard in `app/api/extract/route.js` only claims papers where `extraction_status = 'pending'`. Proven materially harmful on 2026-09-19: paper `bb6db427` stranded in `processing` could not be rescued by the confirmation page's own safety-net re-trigger, because that calls `/api/extract`, which refuses to claim anything not `pending`. | **Open.** The safety net is structurally unable to help the exact case it exists for. Needs its own decision (route + RPC + confirmation UI). |
+| O | **`confirm_researcher_metadata` silently drops a year it doesn't like** | The RPC accepts a corrected year only when it matches `^[0-9]{4}$` and otherwise keeps the old value, returning no error. So an Arabic-Indic year typed on the confirmation screen was discarded without telling anyone. Worked around on the client (the year is now normalized to ASCII before being sent, bug #20), but the RPC itself is unchanged. | **Open, medium.** Needs a migration to either accept Arabic-Indic digits or raise a real error instead of failing silently. The client-side workaround means no user-visible impact today. |
+| P | **Preview deployments write to the production database** | Only one Supabase project exists, so any branch preview's test submission lands in the real `papers` table. Accepted near-zero-budget tradeoff, recorded here as a risk rather than a bug. | **Open, accepted.** Revisit if a second environment ever becomes affordable. |
 | N | `not_research` path never sets `failure_code` | `app/api/extract/route.js` sets `extraction_status='failed'` and `document_type='not_research'` but leaves `failure_code` null, contradicting `CLAUDE_CODE_HANDOVER.md` §4, which lists `not_research` as a valid value. Live evidence: the CV submitted 2026-09-19 has `failure_code: null`. | **Open, cosmetic.** No user-facing impact — the 422 message is still correct and specific. Diagnostic/contract inconsistency only. |
 
 ## Items closed
@@ -45,6 +49,14 @@
 - **A** — typed `failure_code`, closed by real production evidence (above).
 - **`BUG_HISTORY.md` #17** — Arabic/non-ASCII filenames failed to upload silently. Fixed in `components/SubmissionForm.jsx`.
 
+**Closed 2026-09-20**
+
+- **#20** — the confirmation screen never rendered `title_ar`/`abstract_ar` and hard-required an English title. Root cause of the reported "Arabic title extraction failed", which was not an extraction failure at all. Frontend-only fix; no migration.
+- **#21** — pass 2 burned a paid Gemini call re-confirming an absent English title on Arabic-only papers.
+- **#22** — WhatsApp numbers had no validation before the upload, and were stored as typed.
+- **#23** — no country picker existed; the dial code was a placeholder hint.
+- **G** — WhatsApp field was plain text rather than a proper picker (carried from `CLAUDE_CODE_HANDOVER.md` §8 item 9). Closed by #22/#23.
+
 **Closed 2026-09-19**
 
 - **B** — missing `maxDuration` / stuck-`processing` risk. `export const maxDuration = 300` merged in PR #1 (`5b28d1e8`) and deployed; see the caveat under "Confirmed working" about reading the value back.
@@ -54,7 +66,9 @@
 
 ## Technical debt
 
-- No CI wired to `scripts/test-docx-extraction.js` or `scripts/test-year-normalization.js` — both exist, both pass standalone, neither runs on anybody's schedule.
+- No CI wired to any of the four test scripts (`test-docx-extraction.js`, `test-year-normalization.js`, `test-language-pairs.js`, `test-phone-validation.js`). All pass standalone; none runs on anybody's schedule. This is now the single highest-value piece of technical debt — there are enough tests to be worth running automatically.
+- `lib/extraction/keywordScan.js` has no markers for `year`, so a DOCX missing only its year falls through to the 12,000-character fallback slice rather than a targeted excerpt. Harmless (the fallback works) but wasteful.
+- The confirmation screen's poll gives up after ~2 minutes and offers a manual retry, which reloads the page. With bug J still open, that retry cannot rescue a paper stuck in `processing`.
 - `README.md` describes the project as "Step 2" and points to a nonexistent `DEPLOYMENT_GUIDE.md` (identified 2026-09-13 in `CLEANUP_PLAN.md`, still unfixed).
 - `.env.local.example`'s `GEMINI_MODEL` comment is stale (`gemini-2.5-flash` vs. the actual default `gemini-3.6-flash`).
 - `GEMINI_MODEL` appears unset in production — failure rows recorded `model_used: null`. Harmless (the code default applies) but failure rows don't self-document which model failed.
@@ -64,7 +78,7 @@
 
 ## Next recommended priorities
 
-1. **Repair paper `bb6db427`** — *only after the K/L fix is live in production.* Set it back to `pending` so the confirmation page's own safety-net re-trigger can claim it. Repairing it before the fix deploys would strand it again on the identical value, since the extraction would re-read the same `٢٠١٩م`.
+1. **Finish repairing `bb6db427`** — it is back at `pending` and needs its confirmation link opened once to re-trigger extraction. Verified safe: the same document now extracts correctly (`d5c7b51e`).
 2. **Fix the 429 retry (bug M).** Contained to `callGemini()` in `lib/ai/providers/gemini.js`: split 429 from 503, honour the server-stated delay, cap it, and don't retry a 429 on pass 2 at all. Zero token cost; supersedes the earlier bug I.
 3. **Decide on a recovery path for stalled or failed extractions (bug J)** — now proven materially harmful, not theoretical. Needs a deliberate decision across the route, an RPC, and the confirmation UI.
 4. **Bug N** — set `failure_code` on the `not_research` path. Cosmetic; do it whenever that file is next open.

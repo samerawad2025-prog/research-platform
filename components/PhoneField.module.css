@@ -1,0 +1,95 @@
+/* Matches SubmissionForm.module.css conventions: same border, radius,
+   focus ring and muted-hint colours, so the picker doesn't read as a
+   bolted-on third-party widget. */
+
+.wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-bottom: 1rem;
+  font-size: 0.9rem;
+  color: #333;
+}
+
+.label {
+  display: block;
+}
+
+.controls {
+  display: flex;
+  gap: 0.5rem;
+  align-items: stretch;
+}
+
+.countrySelect {
+  flex: 0 1 11rem;
+  min-width: 0; /* lets the select shrink instead of forcing overflow */
+  padding: 0.6rem 0.5rem;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  font-size: 0.95rem;
+  font-family: inherit;
+  background: #fff;
+  color: #333;
+}
+
+.numberInput {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  font-size: 1rem;
+  font-family: inherit;
+  /* A phone number is always read left-to-right, even on an Arabic
+     page, so it is pinned regardless of the surrounding direction. */
+  direction: ltr;
+}
+
+.countrySelect:focus,
+.numberInput:focus {
+  outline: 2px solid #2563eb;
+  outline-offset: 1px;
+  border-color: #2563eb;
+}
+
+/* The invalid state is carried on the container so BOTH controls are
+   highlighted — the number can be wrong because the wrong country is
+   selected, and outlining only the text box would point at the wrong
+   control. */
+.controlsInvalid .countrySelect,
+.controlsInvalid .numberInput {
+  border-color: #b91c1c;
+}
+
+.controlsInvalid .countrySelect:focus,
+.controlsInvalid .numberInput:focus {
+  outline-color: #b91c1c;
+  border-color: #b91c1c;
+}
+
+.error {
+  color: #b91c1c;
+  font-size: 0.82rem;
+  margin: 0.35rem 0 0;
+  line-height: 1.5;
+}
+
+.hint {
+  font-size: 0.82rem;
+  color: #666;
+  margin: 0.35rem 0 0;
+  line-height: 1.5;
+}
+
+@media (max-width: 480px) {
+  /* Stack rather than squeeze: a country name plus a dial code does
+     not fit beside a number field at phone width. */
+  .controls {
+    flex-direction: column;
+  }
+
+  .countrySelect {
+    flex: 1 1 auto;
+  }
+}

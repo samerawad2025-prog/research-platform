@@ -277,3 +277,79 @@ This entry documents the investigation itself, since it produced four distinct d
 **Files modified:** `app/api/extract/route.js`.
 
 **Regression testing performed:** Audited all seven `papers` accesses in the route and confirmed every one now destructures an error. Simulated the #18 control flow and confirmed a write error now surfaces as `code = 'internal'`, `pgCode = '22P02'`, `stage = 'apply_result'`, HTTP 500, with the user-facing message unchanged. `npx eslint` clean; `npm run build` compiles. Scope was held deliberately: adding `failure_code` to the `not_research` path is a real inconsistency but is tracked separately as open bug N, not folded in here.
+
+---
+
+## 20. The confirmation screen never showed the Arabic title, so a submitter typed a sentence into the English one
+
+**Root cause:** Two independent faults in `components/ConfirmationScreen.jsx`, compounding.
+
+First, its local `METADATA_FIELDS` list — which drives both what is rendered and what is sent back as corrections — contained `title` and `abstract` but **not** `title_ar` or `abstract_ar`. Every other layer already handled them: `lib/ai/schema.js` asks for them, `buildPapersUpdate()` applies them, `papers` has the columns, `get_paper_for_confirmation` returns them in its allowlist, and `confirm_researcher_metadata` accepts them as corrections. The confirmation screen was the only place they were missing, so an Arabic title was extracted correctly, stored correctly, returned correctly by the RPC — and then never rendered.
+
+Second, `handleConfirm()` hard-required an English title: `if (!values.title?.trim())` blocked submission entirely. For a paper written only in Arabic there is no English title to give, so the form could not be completed honestly.
+
+Together these produced the failure exactly: the submitter saw an empty **Title** field labelled *"Not found in your paper. Tap to add it."*, could not proceed without filling it, and could not see that their real title had in fact been found.
+
+**Investigation summary:** The reported symptom was "title extraction failed on my Arabic paper". The stored data said otherwise. For paper `d5c7b51e`, all three `ai_generations` rows (pass 1, pass 2, merged) recorded `title: {"status":"not_found"}` and `title_ar: {"status":"found", value: "دور التمويل الزراعي في التنمية الاقتصادية في السودان (دراسة حالة ولاية الخرطوم (١٩٩٥ – ٢٠١٧م))", source: "title page"}`. `papers.title_ar` held that value. So extraction did not fail — it was correct, and correct to report no English title, because the document has none.
+
+`papers.title` held the literal string `"No title appeared for this research"`, quote marks included. That string appears nowhere in the codebase and in no `result_data`, and `buildPapersUpdate()` cannot write a field whose status is `not_found`. The only remaining writer was `confirm_researcher_metadata`, and `metadata_confirmed_at` was set to 19 minutes after the paper was created — a human typing into the box the form would not let them leave empty.
+
+**Fix implemented:** `title_ar` and `abstract_ar` added to `METADATA_FIELDS` with bilingual labels and per-field `dir="rtl"` (an Arabic title in a left-to-right form renders its punctuation in the wrong place otherwise). The confirm guard now requires a title **in either language**. A new `LANGUAGE_PAIRS` concept marks `title`/`title_ar` and `abstract`/`abstract_ar` as "at least one of": when one side is found, a plain absence on the other is no longer flagged, no longer counted in the "N fields need your attention" banner, and shows *"Your paper doesn't appear to have this in this language. You can leave it empty."* instead of an instruction to add it. That suppression is deliberately narrow — it applies only to `not_found`, so an `ambiguous` or `conflicting` entry keeps its flag and its candidate chips, because those mean the model really did find competing values a human still has to resolve.
+
+Two related corrections went in alongside. The client-side year check was `^\d{4}$`, which rejects the Arabic-Indic digits this platform's own documents use; it now runs the same `normalizeYear()` the server does. And `confirm_researcher_metadata` only accepts a year matching `^[0-9]{4}$`, silently keeping the old value otherwise, so the year is now normalized to ASCII before being sent rather than being dropped without an error.
+
+**Files modified:** `components/ConfirmationScreen.jsx`.
+
+**Regression testing performed:** `npx eslint` clean, `npm run build` compiles. The language-pair rule is covered by `scripts/test-language-pairs.js` (11 checks) at the orchestrator level, including the real payload from `d5c7b51e`, the mirrored English-only case, a title missing in both languages (still chased), and the ambiguous/conflicting boundaries. No database change was required — every RPC already supported these fields, which is what made this a frontend-only fix.
+
+**Not fixed here:** `papers.title` on `d5c7b51e` still holds the typed sentence. It is the submitter's own confirmed data, so it is theirs to correct on the confirmation screen, which now shows the Arabic title beside it.
+
+---
+
+## 21. Pass 2 spent a paid provider call re-confirming an absence that was already correct
+
+**Root cause:** `getMissingCriticalFields()` in `lib/extraction/orchestrator.js` treated `title` as unconditionally critical: a `not_found` there always triggered a second Gemini call. For a paper written only in Arabic, `title` is *correctly* `not_found` and always will be, so the second call could only ever return `not_found` again.
+
+**Investigation summary:** Visible directly in the stored record for paper `d5c7b51e`, whose pass-2 row is annotated `"Pass 2, targeted at: title"` and returned `title: {"status":"not_found"}` — the same answer pass 1 gave, from a document that does not contain an English title. Pass 1 had already found `title_ar`, `abstract`, `abstract_ar`, `university`, `faculty`, `degree_type`, `year` and `researchers`, so nothing else needed chasing; the entire second call existed to re-confirm one absence.
+
+**Fix implemented:** `isMissingConsideringLanguage()` treats `title`/`title_ar` and `abstract`/`abstract_ar` as one requirement each: a field counts as missing only when **neither** language has it. Both `getMissingCriticalFields()` (which decides whether pass 2 runs at all) and `getAllMissingFields()` (which decides what it is asked about) now use it. On this project's budget a call avoided is the point, not a micro-optimisation. The two-call ceiling is unchanged — this only ever reduces calls, never adds one.
+
+**Files modified:** `lib/extraction/orchestrator.js`.
+
+**Regression testing performed:** `scripts/test-language-pairs.js`, 11 checks, all passing, exit 0. Asserts the real Arabic thesis now triggers no second call; the mirrored English-only case likewise; a title absent in both languages is still chased; `year`, `researchers` and `supervisor_name` (no language partner) are unaffected; an `ambiguous` partner does **not** satisfy the pair, while a `conflicting` one does; and `not_research` still short-circuits before any of this runs.
+
+---
+
+## 22. The submission form accepted any WhatsApp number and reported the rejection only after upload
+
+**Root cause:** `components/SubmissionForm.jsx` rendered the WhatsApp field as a bare `<input type="tel">` with a `+249...` placeholder and no validation of any kind. The only check anywhere was the SQL pattern `^[+0-9][0-9+\-\s()]{5,24}$` inside `submit_paper`, which is a shape check rather than a validity check — it accepts `00000000000` — and, critically, it runs **after** the file has already been uploaded to storage. A number it rejected therefore cost a full upload first, then surfaced as a late form-level error, and the successful upload had to be rolled back.
+
+The number was also stored exactly as typed, so `0912345678`, `+249912345678` and `09 123 456 78` were three different strings for one phone number, with nothing able to tell they matched.
+
+**Fix implemented:** A shared `lib/validation/phone.js` built on `libphonenumber-js/min`, which carries Google's own per-country numbering metadata — phone validity is genuinely not a regex problem, and Sudan's own mobile prefixes have been renumbered. It exposes one entry point returning `empty` / `valid` / `invalid`, where `empty` is valid because the field is optional. Numbers are normalized to E.164 for storage, so one phone number now has one representation.
+
+The form validates live from the first keystroke, marks the field with `aria-invalid`, shows the message directly beneath the field it refers to, and keeps the submit button disabled until every required field is genuinely valid. Because a disabled button with no explanation is a dead end, a line underneath lists exactly what is still outstanding. Errors are only *displayed* once a field has been touched, so the form does not open covered in red, while validity itself is computed immediately — which is what keeps the button honest.
+
+Distinct failure types get distinct messages, per `BUG_HISTORY.md` #7: "too short" and "not valid for the country selected" send someone to different fixes.
+
+**Database compatibility:** no migration. An E.164 string always satisfies the existing SQL check — it starts with `+` and its 7–15 remaining digits sit inside the 5–24 window — and numbers already stored in the looser format keep validating. This is asserted by the test suite rather than assumed, and `lib/validation/phone.js` carries a warning not to tighten the SQL pattern without first migrating the existing rows.
+
+**Files modified:** `components/SubmissionForm.jsx`, `components/PhoneField.jsx` (new), `components/PhoneField.module.css` (new), `lib/validation/phone.js` (new), `package.json`.
+
+**Regression testing performed:** `scripts/test-phone-validation.js`, 23 checks, all passing, exit 0. Covers the optional-empty cases; Sudanese numbers with and without the national leading zero and with human-typed spaces; an already-E.164 value; numbers whose own `+` prefix must override the selected country; five rejection cases including the shape-valid-but-impossible `00000000000` that the SQL check alone lets through; that the two rejection messages differ; the full country list; round-tripping a stored number back to its country; and that as-you-type formatting never drops a digit. One check exists purely to guard the migration-free claim: every number the module is willing to store is run against the live `submit_paper` pattern.
+
+---
+
+## 23. Country code was a free-text placeholder rather than a picker
+
+**Root cause:** there was no country control at all — just the hint `+249...` in the placeholder attribute, leaving the submitter to know and type their own international dialling code.
+
+**Fix implemented:** `components/PhoneField.jsx`, a native `<select>` of all 245 countries with flag, English name and dial code, paired with a national-format number input.
+
+**Library recommendation and why:** the validation metadata comes from **`libphonenumber-js`** (the `/min` build, its smallest), which is the right dependency because it is pure data — no UI, no CSS, no runtime service — and correct phone validation genuinely cannot be hand-rolled. The **dropdown itself is deliberately not** a packaged component. `react-phone-number-input` and its peers ship their own stylesheet, their own flag sprite or SVG set, and their own focus and keyboard behaviour to override, all of which this bilingual form would then have to fight for visual consistency. A native `<select>` is already accessible, keyboard-navigable, and on a phone opens the OS picker, which is better than any custom listbox. Flags are regional-indicator emoji derived from the ISO code, so there is no image asset to ship or fail to load. Measured cost: the largest client chunk is ~70 KB gzipped. This tradeoff is recorded explicitly because `CLAUDE.md` requires dependency weight to be a deliberate decision.
+
+**A hazard deliberately avoided:** formatting the number as the person types inserts and removes spaces while the caret sits mid-string, which makes backspace jump in a controlled React input unless the caret is restored by hand. Since this change could not be exercised in a real browser from the build environment, formatting is applied on blur instead, where caret position does not matter. Validation remains live on every keystroke, which is the part the person actually needs.
+
+**Files modified:** `components/PhoneField.jsx` (new), `components/PhoneField.module.css` (new), `components/SubmissionForm.jsx`.
+
+**Regression testing performed:** covered by `scripts/test-phone-validation.js` as above — the country list is asserted to be complete, sorted, duplicate-free, and to resolve both English and Arabic names, with Sudan's dial code checked explicitly.

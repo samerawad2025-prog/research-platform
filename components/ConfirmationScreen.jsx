@@ -13,20 +13,47 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabaseClient'
+import { normalizeYear } from '../lib/extraction/applyResult'
 import styles from './ConfirmationScreen.module.css'
 
 const POLL_INTERVAL_MS = 2500
 const MAX_POLL_ATTEMPTS = 48 // ~2 minutes, then offer a manual retry
 
+// title_ar and abstract_ar were extracted, stored, and returned by
+// get_paper_for_confirmation from the start - but were missing from
+// THIS list, so the confirmation screen never rendered them. On an
+// Arabic-only paper that meant the submitter saw an empty "Title"
+// field inviting them to type one, while their real (correctly
+// extracted) Arabic title sat invisible in the database. See
+// BUG_HISTORY.md #20 for the production evidence.
+//
+// `dir` is per-field, not per-page: the form is bilingual and an
+// Arabic title inside a left-to-right form renders with its
+// punctuation in the wrong place unless the field itself says rtl.
 const METADATA_FIELDS = [
-  { key: 'title', label: 'Title', multiline: true },
+  { key: 'title', label: 'Title (English)', multiline: true },
+  { key: 'title_ar', label: 'Title (Arabic) / العنوان', multiline: true, dir: 'rtl' },
   { key: 'supervisor_name', label: 'Supervisor' },
   { key: 'university', label: 'University' },
   { key: 'faculty', label: 'Faculty or school' },
   { key: 'degree_type', label: 'Degree' },
   { key: 'year', label: 'Year' },
-  { key: 'abstract', label: 'Abstract', multiline: true },
+  { key: 'abstract', label: 'Abstract (English)', multiline: true },
+  { key: 'abstract_ar', label: 'Abstract (Arabic) / الملخص', multiline: true, dir: 'rtl' },
 ]
+
+// A paper written in one language only is the normal case here, not an
+// error. These pairs are "at least one of", so a missing English title
+// on an Arabic thesis is not a gap the submitter has to fill in.
+const LANGUAGE_PAIRS = [
+  { keys: ['title', 'title_ar'], label: 'title' },
+  { keys: ['abstract', 'abstract_ar'], label: 'abstract' },
+]
+
+function pairPartner(key) {
+  const pair = LANGUAGE_PAIRS.find((p) => p.keys.includes(key))
+  return pair ? pair.keys.find((k) => k !== key) : null
+}
 
 function firstCandidateValue(entry) {
   if (!entry?.candidates?.length) return ''
@@ -50,7 +77,7 @@ function needsAttention(entry) {
   return !entry || entry.status !== 'found'
 }
 
-function InlineField({ label, value, entry, multiline, onChange, disabled }) {
+function InlineField({ label, value, entry, multiline, dir, onChange, disabled, emptyHint }) {
   const [editing, setEditing] = useState(false)
   const attention = needsAttention(entry)
 
@@ -77,6 +104,7 @@ function InlineField({ label, value, entry, multiline, onChange, disabled }) {
             className={styles.editInput}
             value={value}
             rows={4}
+            dir={dir}
             autoFocus
             onChange={(e) => onChange(e.target.value)}
             onBlur={() => setEditing(false)}
@@ -85,6 +113,7 @@ function InlineField({ label, value, entry, multiline, onChange, disabled }) {
           <input
             className={styles.editInput}
             value={value}
+            dir={dir}
             autoFocus
             onChange={(e) => onChange(e.target.value)}
             onBlur={() => setEditing(false)}
@@ -93,9 +122,15 @@ function InlineField({ label, value, entry, multiline, onChange, disabled }) {
       ) : (
         <button type="button" className={styles.valueButton} onClick={() => setEditing(true)}>
           {value ? (
-            <span className={styles.value}>{value}</span>
+            <span className={styles.value} dir={dir}>{value}</span>
           ) : (
-            <span className={styles.emptyValue}>Not found in your paper. Tap to add it.</span>
+            // The old text said "Not found in your paper. Tap to add
+            // it." for EVERY empty field. On a field that legitimately
+            // does not exist in a one-language paper that reads as an
+            // instruction, and a real submitter answered it by typing
+            // a sentence explaining the absence, which then became the
+            // paper's permanent title (BUG_HISTORY.md #20).
+            <span className={styles.emptyValue}>{emptyHint || 'Not found in your paper. Tap to add it.'}</span>
           )}
           <span className={styles.editHint} aria-hidden="true">Edit</span>
         </button>
@@ -275,11 +310,21 @@ export default function ConfirmationScreen({ token }) {
       setErrorMsg('Please fill in every researcher\u2019s name, or remove the empty row.')
       return
     }
-    if (!values.title?.trim()) {
-      setErrorMsg('Please add the title of your research before confirming.')
+    // "A title in at least one language", not "an English title".
+    // Requiring values.title specifically made an Arabic-only paper
+    // impossible to confirm honestly: the field could not be left
+    // empty, so a real submitter typed "No title appeared for this
+    // research" into it and that became the paper's title, while the
+    // correctly extracted Arabic title sat unused (BUG_HISTORY.md #20).
+    if (!values.title?.trim() && !values.title_ar?.trim()) {
+      setErrorMsg('Please add the title of your research, in English or Arabic, before confirming.')
       return
     }
-    if (values.year && !/^\d{4}$/.test(values.year.trim())) {
+    // Accepts Arabic-Indic digits, matching how the server normalizes
+    // a year (lib/extraction/applyResult.js). Rejecting "٢٠١٩" here
+    // while the extractor happily reads it would be the form telling
+    // the submitter their own document's year is invalid.
+    if (values.year?.trim() && normalizeYear(values.year) === null) {
       setErrorMsg('Please enter the year as four digits, for example 2023.')
       return
     }
@@ -295,6 +340,14 @@ export default function ConfirmationScreen({ token }) {
     const corrections = {}
     for (const f of METADATA_FIELDS) {
       corrections[f.key] = (values[f.key] || '').trim()
+    }
+    // confirm_researcher_metadata only accepts a year matching
+    // ^[0-9]{4}$ and silently keeps the old value otherwise, so an
+    // Arabic-Indic year typed here has to be converted to ASCII before
+    // it is sent or the correction is dropped without any error.
+    if (corrections.year) {
+      const y = normalizeYear(corrections.year)
+      corrections.year = y === null ? '' : String(y)
     }
 
     const { error } = await supabase.rpc('confirm_researcher_metadata', {
@@ -343,14 +396,21 @@ export default function ConfirmationScreen({ token }) {
     )
   }
 
-  const detail = paper?.extraction_detail || {}
   // Backward compatibility only: records stored before this fix used
   // the key "supervisor" (confirmed directly against production data).
   // New extractions never produce this anymore - see gemini.js - so
   // this only ever applies to already-stored historical records.
-  if (!detail.supervisor_name && detail.supervisor) {
-    detail.supervisor_name = detail.supervisor
-  }
+  //
+  // Built as a NEW object rather than by assigning onto
+  // paper.extraction_detail: that object belongs to React state, and
+  // mutating it in the render path is a real hazard (a later render
+  // reading the same object would see the patch already applied and
+  // could not tell a stored value from a derived one).
+  const rawDetail = paper?.extraction_detail || {}
+  const detail =
+    !rawDetail.supervisor_name && rawDetail.supervisor
+      ? { ...rawDetail, supervisor_name: rawDetail.supervisor }
+      : rawDetail
   // document_type is specified and returned as a plain string, not a
   // {status, value} object (see lib/ai/schema.js). Reading .value off
   // it was always undefined, so this check could never actually fire.
@@ -394,7 +454,7 @@ export default function ConfirmationScreen({ token }) {
         <p>This document is password-protected and cannot be processed automatically.</p>
         <p>
           Please remove the password from the file and submit it again. If you&rsquo;re not sure how,
-          most word processors offer this under a "Protect Document" or "Encrypt" setting when saving.
+          most word processors offer this under a &ldquo;Protect Document&rdquo; or &ldquo;Encrypt&rdquo; setting when saving.
         </p>
         <a href="/submit" className={styles.primaryLink}>Start a new submission</a>
       </div>
@@ -415,9 +475,25 @@ export default function ConfirmationScreen({ token }) {
   }
 
   const showSocialLinks = paper?.publication_scope?.includes('metadata_and_article')
+  // A not_found English title on a paper that HAS an Arabic title is
+  // not something the submitter needs to act on, so it must not be
+  // counted or flagged - otherwise every Arabic paper opens claiming
+  // two fields are wrong when nothing is.
+  // Narrow on purpose: this only ever downgrades a plain ABSENCE.
+  // An 'ambiguous' or 'conflicting' entry means the model did find
+  // competing values and the submitter still needs to resolve them,
+  // so those keep their flag and their candidate chips regardless of
+  // what the other language's field says.
+  const satisfiedByPartner = (key) => {
+    const entry = detail[key]
+    const absent = !entry || entry.status === 'not_found'
+    if (!absent) return false
+    const partner = pairPartner(key)
+    return Boolean(partner) && !needsAttention(detail[partner])
+  }
   const attentionCount = extracting
     ? 0
-    : METADATA_FIELDS.filter((f) => needsAttention(detail[f.key])).length
+    : METADATA_FIELDS.filter((f) => needsAttention(detail[f.key]) && !satisfiedByPartner(f.key)).length
 
   return (
     <form onSubmit={handleConfirm} className={styles.page}>
@@ -486,9 +562,15 @@ export default function ConfirmationScreen({ token }) {
             key={f.key}
             label={f.label}
             value={values[f.key] || ''}
-            entry={detail[f.key]}
+            entry={satisfiedByPartner(f.key) ? { status: 'found' } : detail[f.key]}
             multiline={f.multiline}
+            dir={f.dir}
             disabled={extracting}
+            emptyHint={
+              pairPartner(f.key)
+                ? 'Your paper doesn\u2019t appear to have this in this language. You can leave it empty.'
+                : 'Not found in your paper. Tap to add it.'
+            }
             onChange={(v) => setValue(f.key, v)}
           />
         ))}
