@@ -277,3 +277,269 @@ This entry documents the investigation itself, since it produced four distinct d
 **Files modified:** `app/api/extract/route.js`.
 
 **Regression testing performed:** Audited all seven `papers` accesses in the route and confirmed every one now destructures an error. Simulated the #18 control flow and confirmed a write error now surfaces as `code = 'internal'`, `pgCode = '22P02'`, `stage = 'apply_result'`, HTTP 500, with the user-facing message unchanged. `npx eslint` clean; `npm run build` compiles. Scope was held deliberately: adding `failure_code` to the `not_research` path is a real inconsistency but is tracked separately as open bug N, not folded in here.
+
+---
+
+## 20. The confirmation screen never showed the Arabic title, so a submitter typed a sentence into the English one
+
+**Root cause:** Two independent faults in `components/ConfirmationScreen.jsx`, compounding.
+
+First, its local `METADATA_FIELDS` list — which drives both what is rendered and what is sent back as corrections — contained `title` and `abstract` but **not** `title_ar` or `abstract_ar`. Every other layer already handled them: `lib/ai/schema.js` asks for them, `buildPapersUpdate()` applies them, `papers` has the columns, `get_paper_for_confirmation` returns them in its allowlist, and `confirm_researcher_metadata` accepts them as corrections. The confirmation screen was the only place they were missing, so an Arabic title was extracted correctly, stored correctly, returned correctly by the RPC — and then never rendered.
+
+Second, `handleConfirm()` hard-required an English title: `if (!values.title?.trim())` blocked submission entirely. For a paper written only in Arabic there is no English title to give, so the form could not be completed honestly.
+
+Together these produced the failure exactly: the submitter saw an empty **Title** field labelled *"Not found in your paper. Tap to add it."*, could not proceed without filling it, and could not see that their real title had in fact been found.
+
+**Investigation summary:** The reported symptom was "title extraction failed on my Arabic paper". The stored data said otherwise. For paper `d5c7b51e`, all three `ai_generations` rows (pass 1, pass 2, merged) recorded `title: {"status":"not_found"}` and `title_ar: {"status":"found", value: "دور التمويل الزراعي في التنمية الاقتصادية في السودان (دراسة حالة ولاية الخرطوم (١٩٩٥ – ٢٠١٧م))", source: "title page"}`. `papers.title_ar` held that value. So extraction did not fail — it was correct, and correct to report no English title, because the document has none.
+
+`papers.title` held the literal string `"No title appeared for this research"`, quote marks included. That string appears nowhere in the codebase and in no `result_data`, and `buildPapersUpdate()` cannot write a field whose status is `not_found`. The only remaining writer was `confirm_researcher_metadata`, and `metadata_confirmed_at` was set to 19 minutes after the paper was created — a human typing into the box the form would not let them leave empty.
+
+**Fix implemented:** `title_ar` and `abstract_ar` added to `METADATA_FIELDS` with bilingual labels and per-field `dir="rtl"` (an Arabic title in a left-to-right form renders its punctuation in the wrong place otherwise). The confirm guard now requires a title **in either language**. A new `LANGUAGE_PAIRS` concept marks `title`/`title_ar` and `abstract`/`abstract_ar` as "at least one of": when one side is found, a plain absence on the other is no longer flagged, no longer counted in the "N fields need your attention" banner, and shows *"Your paper doesn't appear to have this in this language. You can leave it empty."* instead of an instruction to add it. That suppression is deliberately narrow — it applies only to `not_found`, so an `ambiguous` or `conflicting` entry keeps its flag and its candidate chips, because those mean the model really did find competing values a human still has to resolve.
+
+Two related corrections went in alongside. The client-side year check was `^\d{4}$`, which rejects the Arabic-Indic digits this platform's own documents use; it now runs the same `normalizeYear()` the server does. And `confirm_researcher_metadata` only accepts a year matching `^[0-9]{4}$`, silently keeping the old value otherwise, so the year is now normalized to ASCII before being sent rather than being dropped without an error.
+
+**Files modified:** `components/ConfirmationScreen.jsx`.
+
+**Regression testing performed:** `npx eslint` clean, `npm run build` compiles. The language-pair rule is covered by `scripts/test-language-pairs.js` (11 checks) at the orchestrator level, including the real payload from `d5c7b51e`, the mirrored English-only case, a title missing in both languages (still chased), and the ambiguous/conflicting boundaries. No database change was required — every RPC already supported these fields, which is what made this a frontend-only fix.
+
+**Not fixed here:** `papers.title` on `d5c7b51e` still holds the typed sentence. It is the submitter's own confirmed data, so it is theirs to correct on the confirmation screen, which now shows the Arabic title beside it.
+
+---
+
+## 21. Pass 2 spent a paid provider call re-confirming an absence that was already correct
+
+**Root cause:** `getMissingCriticalFields()` in `lib/extraction/orchestrator.js` treated `title` as unconditionally critical: a `not_found` there always triggered a second Gemini call. For a paper written only in Arabic, `title` is *correctly* `not_found` and always will be, so the second call could only ever return `not_found` again.
+
+**Investigation summary:** Visible directly in the stored record for paper `d5c7b51e`, whose pass-2 row is annotated `"Pass 2, targeted at: title"` and returned `title: {"status":"not_found"}` — the same answer pass 1 gave, from a document that does not contain an English title. Pass 1 had already found `title_ar`, `abstract`, `abstract_ar`, `university`, `faculty`, `degree_type`, `year` and `researchers`, so nothing else needed chasing; the entire second call existed to re-confirm one absence.
+
+**Fix implemented:** `isMissingConsideringLanguage()` treats `title`/`title_ar` and `abstract`/`abstract_ar` as one requirement each: a field counts as missing only when **neither** language has it. Both `getMissingCriticalFields()` (which decides whether pass 2 runs at all) and `getAllMissingFields()` (which decides what it is asked about) now use it. On this project's budget a call avoided is the point, not a micro-optimisation. The two-call ceiling is unchanged — this only ever reduces calls, never adds one.
+
+**Files modified:** `lib/extraction/orchestrator.js`.
+
+**Regression testing performed:** `scripts/test-language-pairs.js`, 11 checks, all passing, exit 0. Asserts the real Arabic thesis now triggers no second call; the mirrored English-only case likewise; a title absent in both languages is still chased; `year`, `researchers` and `supervisor_name` (no language partner) are unaffected; an `ambiguous` partner does **not** satisfy the pair, while a `conflicting` one does; and `not_research` still short-circuits before any of this runs.
+
+---
+
+## 22. The submission form accepted any WhatsApp number and reported the rejection only after upload
+
+**Root cause:** `components/SubmissionForm.jsx` rendered the WhatsApp field as a bare `<input type="tel">` with a `+249...` placeholder and no validation of any kind. The only check anywhere was the SQL pattern `^[+0-9][0-9+\-\s()]{5,24}$` inside `submit_paper`, which is a shape check rather than a validity check — it accepts `00000000000` — and, critically, it runs **after** the file has already been uploaded to storage. A number it rejected therefore cost a full upload first, then surfaced as a late form-level error, and the successful upload had to be rolled back.
+
+The number was also stored exactly as typed, so `0912345678`, `+249912345678` and `09 123 456 78` were three different strings for one phone number, with nothing able to tell they matched.
+
+**Fix implemented:** A shared `lib/validation/phone.js` built on `libphonenumber-js/min`, which carries Google's own per-country numbering metadata — phone validity is genuinely not a regex problem, and Sudan's own mobile prefixes have been renumbered. It exposes one entry point returning `empty` / `valid` / `invalid`, where `empty` is valid because the field is optional. Numbers are normalized to E.164 for storage, so one phone number now has one representation.
+
+The form validates live from the first keystroke, marks the field with `aria-invalid`, shows the message directly beneath the field it refers to, and keeps the submit button disabled until every required field is genuinely valid. Because a disabled button with no explanation is a dead end, a line underneath lists exactly what is still outstanding. Errors are only *displayed* once a field has been touched, so the form does not open covered in red, while validity itself is computed immediately — which is what keeps the button honest.
+
+Distinct failure types get distinct messages, per `BUG_HISTORY.md` #7: "too short" and "not valid for the country selected" send someone to different fixes.
+
+**Database compatibility:** no migration. An E.164 string always satisfies the existing SQL check — it starts with `+` and its 7–15 remaining digits sit inside the 5–24 window — and numbers already stored in the looser format keep validating. This is asserted by the test suite rather than assumed, and `lib/validation/phone.js` carries a warning not to tighten the SQL pattern without first migrating the existing rows.
+
+**Files modified:** `components/SubmissionForm.jsx`, `components/PhoneField.jsx` (new), `components/PhoneField.module.css` (new), `lib/validation/phone.js` (new), `package.json`.
+
+**Regression testing performed:** `scripts/test-phone-validation.js`, 23 checks, all passing, exit 0. Covers the optional-empty cases; Sudanese numbers with and without the national leading zero and with human-typed spaces; an already-E.164 value; numbers whose own `+` prefix must override the selected country; five rejection cases including the shape-valid-but-impossible `00000000000` that the SQL check alone lets through; that the two rejection messages differ; the full country list; round-tripping a stored number back to its country; and that as-you-type formatting never drops a digit. One check exists purely to guard the migration-free claim: every number the module is willing to store is run against the live `submit_paper` pattern.
+
+---
+
+## 23. Country code was a free-text placeholder rather than a picker
+
+**Root cause:** there was no country control at all — just the hint `+249...` in the placeholder attribute, leaving the submitter to know and type their own international dialling code.
+
+**Fix implemented:** `components/PhoneField.jsx`, a native `<select>` of all 245 countries with flag, English name and dial code, paired with a national-format number input.
+
+**Library recommendation and why:** the validation metadata comes from **`libphonenumber-js`** (the `/min` build, its smallest), which is the right dependency because it is pure data — no UI, no CSS, no runtime service — and correct phone validation genuinely cannot be hand-rolled. The **dropdown itself is deliberately not** a packaged component. `react-phone-number-input` and its peers ship their own stylesheet, their own flag sprite or SVG set, and their own focus and keyboard behaviour to override, all of which this bilingual form would then have to fight for visual consistency. A native `<select>` is already accessible, keyboard-navigable, and on a phone opens the OS picker, which is better than any custom listbox. Flags are regional-indicator emoji derived from the ISO code, so there is no image asset to ship or fail to load. Measured cost: the largest client chunk is ~70 KB gzipped. This tradeoff is recorded explicitly because `CLAUDE.md` requires dependency weight to be a deliberate decision.
+
+**A hazard deliberately avoided:** formatting the number as the person types inserts and removes spaces while the caret sits mid-string, which makes backspace jump in a controlled React input unless the caret is restored by hand. Since this change could not be exercised in a real browser from the build environment, formatting is applied on blur instead, where caret position does not matter. Validation remains live on every keystroke, which is the part the person actually needs.
+
+**Files modified:** `components/PhoneField.jsx` (new), `components/PhoneField.module.css` (new), `components/SubmissionForm.jsx`.
+
+**Regression testing performed:** covered by `scripts/test-phone-validation.js` as above — the country list is asserted to be complete, sorted, duplicate-free, and to resolve both English and Arabic names, with Sudan's dial code checked explicitly.
+
+---
+
+## 24. A validation message rendered its own escape sequence as literal text
+
+**Root cause:** the inline email error in `components/SubmissionForm.jsx` was written as JSX *text*:
+
+```jsx
+<p ...>That doesn’t look like an email address. Please check it.</p>
+```
+
+`’` is a JavaScript **string** escape. JSX text is not a string literal, so nothing interprets it — React rendered the six characters `’` verbatim, and the submitter saw *"That doesn’t look like an email address."*
+
+Every other message in the file is correct, because every other one sits inside a real string literal (`setErrorMsg('...isn’t supported...')`), where the escape does apply. The distinction is invisible on a quick read, which is exactly why this one slipped through: the same characters are right in one position and wrong in the other. It was introduced in this session, alongside the field itself.
+
+**Investigation summary:** reported from a screenshot of the live form. A repo-wide grep for `’` found nine occurrences; eight are inside string literals and render correctly, and exactly one — the JSX text node — does not. Confirmed by position rather than by reading each message.
+
+**Fix implemented:** the JSX text node now uses the HTML entity `&rsquo;`, which is the correct mechanism in that position and matches what the rest of the file's JSX already does (`We weren&rsquo;t certain about this one`). The eight string-literal uses were deliberately left alone: they are correct, and rewriting them would be churn.
+
+**Files modified:** `components/SubmissionForm.jsx`.
+
+**Regression testing performed:** re-ran the grep and confirmed the only remaining `’` occurrences are inside string literals, including one inside a JSX `{...}` expression (`{extracting ? '...' : 'Here’s what we found'}`), which is a string literal and renders correctly. `npx eslint` clean, `npm run build` compiles.
+
+---
+
+## 25. The confirmation screen showed two title boxes for a paper written in one language
+
+**Root cause:** fix #20 added `title_ar` and `abstract_ar` to the confirmation screen, which was necessary — they had never been rendered at all — but it rendered them *unconditionally*. So a paper written only in Arabic now showed its Arabic title **and** an empty English title box, and the same for the abstract. That is an improvement on hiding the Arabic title entirely, but it still puts an empty box in front of a submitter for a language their document is not written in, which is the precondition for the original failure: a real submitter answered exactly such a box by typing a sentence into it.
+
+**Fix implemented:** the pair now renders only the languages the paper actually has. One box for a monolingual paper; both for a genuinely bilingual one, so real data is never hidden; and for a pair empty on both sides, exactly one fallback box rather than two.
+
+Because that fallback box has no language attached, what gets typed into it is routed to the matching column by script at confirm time — Arabic text lands in `title_ar`, Latin text in `title` — so the submitter is never asked to pick a language themselves. The routing is deliberately narrow: it acts only when the partner column is empty, because if both boxes were on screen the submitter's own choice of box is authoritative and must not be second-guessed.
+
+A field is also only labelled by language ("Title (English)") when both halves are visible. A lone box labelled that way would invite the same *"so where does my Arabic title go?"* confusion this exists to remove; a lone box is just "Title / العنوان".
+
+The logic was extracted to `lib/fields/languagePairs.js` rather than left inside the component, because it decides whether a submitter is shown a box their document has no content for — the exact thing that went wrong in #20 — and that deserves to be tested directly rather than trusted by reading it.
+
+**Files modified:** `components/ConfirmationScreen.jsx`, `lib/fields/languagePairs.js` (new).
+
+**Regression testing performed:** `scripts/test-field-pairs.js`, 19 checks, all passing, exit 0. Covers the Arabic-only case (one box, the Arabic one), the mirrored English-only case, a bilingual paper (both boxes — real data is never hidden), a pair empty on both sides (exactly one box, never two), whitespace not counting as content, missing keys not throwing, both labelling rules, script detection including Arabic-Indic digits, routing in both directions, routing refusing to overwrite a partner that already has content, and that routing does not mutate its input. One check restates the original failure directly: an Arabic-only paper must render no empty English title box.
+
+---
+
+## 26. The country picker was a native `<select>`, which cannot be searched or styled
+
+**Root cause:** `<option>` content is rendered by the operating system, not the page. 245 countries each rendered as one unbroken line of "flag name +code", with the dial code pushed to wherever the longest country name left room, and no way to find a country except holding down a letter key.
+
+**Fix implemented:** `components/CountrySelect.jsx`, a combobox following the WAI-ARIA pattern rather than an invented one: a compact trigger showing just the flag and dial code (the country name is already implied by the flag, and repeated in the list), and a popup with a search field that matches on country name in English or Arabic, ISO code, or dial code with or without the leading `+` — so "249", "+249", "sd" and "sud" all find Sudan.
+
+Keyboard support is the part that makes it usable rather than decorative: Arrow keys move the active option, Enter selects, Escape closes, Home/End jump, and focus stays in the search input throughout while `aria-activedescendant` tells a screen reader which option is active. The list is a fixed row height with the flag in a fixed-width box, so every row aligns on one edge regardless of how wide a platform draws each emoji.
+
+Two details that are bugs if missed: options commit on `mousedown` rather than `click`, because `click` fires after `blur` and the popup would close before the choice registered; and the popup closes on `pointerdown` outside rather than `click`, so it is gone before a click on something behind it lands. `Enter` calls `preventDefault()` so choosing a country never submits the surrounding form.
+
+The popup animation is disabled under `prefers-reduced-motion`.
+
+**Files modified:** `components/CountrySelect.jsx` (new), `components/CountrySelect.module.css` (new), `components/PhoneField.jsx`, `components/PhoneField.module.css`.
+
+**Regression testing performed:** `npx eslint` clean, `npm run build` compiles. The country data this renders is covered by `scripts/test-phone-validation.js` (complete, sorted, duplicate-free, both name languages resolving). **The interaction itself is not covered by an automated test** — there is no DOM test harness in this project and the build environment cannot reach the deployed app, so the keyboard and pointer behaviour above is reasoned from the ARIA pattern and not empirically verified. Recorded as a real gap rather than glossed over; it is the first thing to exercise by hand on the deployed preview.
+
+---
+
+## 27. An extraction that lost its function was stuck in `processing` forever
+
+**Root cause:** the claim in `app/api/extract/route.js` is a compare-and-swap that only ever matched `extraction_status = 'pending'`. That is right for preventing a double extraction, but it also meant a paper that reached `processing` and then lost its function — a timeout, an instance killed mid-run, a deploy landing mid-extraction — could never be claimed by anything again. The confirmation page's own "Try again" could not rescue it either, because that called the same route and hit the same guard; it only reloaded the page and polled for another two minutes.
+
+**Why this is the amplifier behind the "six minutes" report.** The server has never taken more than 32 seconds. But a stuck paper produced this loop: poll for ~2 minutes → "This is taking longer than usual" → "Try again" → full page reload → poll for another ~2 minutes → and so on. Two or three rounds of that is a five-to-six-minute wait on top of an extraction that either finished in seconds or was never going to finish at all. This was the open bug **J**, proven materially harmful on paper `bb6db427`, which had to be repaired by hand with a direct database write.
+
+**Fix implemented:** `papers.extraction_started_at` records when the route claimed a paper (migration `0008`). A paper in `processing` whose claim is older than `STALE_CLAIM_MS` may be claimed again.
+
+Two constraints shaped this and both matter:
+
+- **`STALE_CLAIM_MS` (360s) must stay strictly greater than `maxDuration` (300s).** At 300s the platform has already killed the original invocation, so reclaiming at 360s cannot produce two live extractions of the same paper. If that ordering were ever reversed, a retry could start a second extraction while the first was still running, doubling the provider calls and breaking the two-call ceiling this project enforces everywhere else. There is a test asserting the inequality directly against the source, because the invariant is not obvious from either constant alone.
+- **A new column rather than reusing `created_at`.** The two are usually seconds apart but not always — `bb6db427` was claimed a day after submission. Judging staleness from `created_at` would let a second request reclaim a paper whose first extraction was still legitimately running. The claim time is the only honest basis for "has this been running too long".
+
+The reclaim is itself an exact compare-and-swap: it matches on the prior status **and** on the exact `extraction_started_at` it read, so two requests racing to reclaim the same abandoned paper cannot both win. Rows claimed before the column existed carry null, and fall back to `created_at` — safe, because such a row can only have been claimed by code that is no longer deployed. Reclaims are logged as `stale_claim_reclaimed`: if that line starts appearing often it means extractions are dying, not that the recovery is working well.
+
+"Try again" now asks the server to restart extraction and resumes polling in place, instead of reloading the page.
+
+**Files modified:** `app/api/extract/route.js`, `components/ConfirmationScreen.jsx`, `supabase/migrations/0008_extraction_claim_timestamp.sql` (new), `supabase/schema.sql`, `supabase/migrations/README.md`.
+
+**Migration applied to production** on 2026-09-20: additive, nullable, no default, no backfill, no rewrite of existing rows. Reversible with `alter table papers drop column extraction_started_at`.
+
+**Regression testing performed:** `scripts/test-timing.js` asserts the `STALE_CLAIM_MS > maxDuration` inequality, that the reclaim still matches on both the prior status and the exact claim timestamp, and that every claim records its own time. Column type and nullability verified against the live database after the migration. `npx eslint` clean, `npm run build` compiles. **The reclaim path itself has not been exercised end to end in production** — doing so requires an extraction to actually die, which cannot be staged from here. Recorded as a real gap.
+
+---
+
+## 28. Nothing measured the part of the wait the submitter actually experiences
+
+**Root cause:** every timestamp the system had was server-side, and the earliest of them — `papers.created_at` — is written by `submit_paper`, which runs **after** the file has finished uploading. So the two stages most likely to be slow for this platform's own users, on Sudanese connections, were invisible: the click itself, and pushing a multi-megabyte PDF up. "The logs say 11 seconds" was being compared against a wall-clock experience that included stages the system had never observed.
+
+Measured server-side times, from real production rows (`papers.created_at` → first `ai_generations` row, all ten submissions to date): 5.2s, 8.8s, 13.1s, 14.2s, 15.2s, 16.1s, 17.1s, 23.4s, 23.8s, 32.0s. Median ~16s. Nothing anywhere near six minutes. The gap was never in the extraction.
+
+**Fix implemented:** `lib/timing.js` marks eight stages in the browser — `submit_clicked`, `upload_complete`, `paper_created`, `extract_triggered`, `confirm_page_mounted`, `first_poll_response`, `extraction_observed`, `fields_visible` — and posts the per-stage durations to `/api/timing`, which writes them to the function log so client-observed and server-observed time finally appear in the same place.
+
+Details that are bugs if missed: the marks cross a navigation (`/submit` → `/confirm/[token]`), so they live in `sessionStorage` keyed by the confirmation token, with the pre-token marks held in memory and adopted once `submit_paper` returns one. Safari in private mode *throws* on `sessionStorage` access rather than returning null, so every read and write is guarded — losing a measurement must never break a submission. The report uses `keepalive`, since it fires exactly when someone might navigate away. The token is truncated to 8 characters before it can reach a log, and truncated again server-side because a client is not a trustworthy place to enforce that. A stage never reached is reported as `missing` rather than as a zero duration, because a zero reads as "instant" when it means "never happened". `/api/timing` stores nothing and takes no credential; its entire job is to turn a measurement into a log line.
+
+**Three real delays were found and removed while instrumenting:**
+
+1. **The extraction trigger could be cancelled by its own navigation.** `SubmissionForm` fires `fetch('/api/extract')` without awaiting it and immediately navigates. Without `keepalive`, the browser is entitled to cancel that request as the page unloads — so extraction would not start until the confirmation page's safety net fired seconds later. Now `keepalive: true`.
+2. **Two `/api/extract` invocations raced on every single submission.** The form fired one; the confirmation page fired another immediately at poll attempt 0. Only one could ever win the CAS. The safety net is now delayed by 2.5s and re-checks `pending` at fire time, so it only fires when the form's call genuinely did not land.
+3. **A flat 2500 ms poll added up to 2.5s of pure lag to every submission**, waiting on an answer already sitting in the database. Polling now backs off — 600 ms for the first 6s, 1.2s to ~30s, then 3s — which covers the entire measured distribution tightly while keeping the same overall ~2 minute budget and *fewer* total requests on a metered plan.
+
+**Files modified:** `lib/timing.js` (new), `app/api/timing/route.js` (new), `components/SubmissionForm.jsx`, `components/ConfirmationScreen.jsx`.
+
+**Regression testing performed:** `scripts/test-timing.js`, 10 checks, all passing, exit 0. Covers the no-storage path (the same path private mode takes), token truncation, durations being taken between consecutive reached stages, unreached stages appearing as `missing` rather than zero, the file size riding along with the upload mark, fewer-than-two-marks yielding no summary at all (run in a clean subprocess, since the module holds pre-token marks in memory), and the stage ordering that puts the upload before the paper row. `npx eslint` clean, `npm run build` compiles, `/api/timing` present in the route manifest.
+
+---
+
+## 29. The 429 retry ignored the delay the server stated, and spent quota proving it
+
+**Root cause:** `lib/ai/providers/gemini.js` treated 503 and 429 as one class (`RETRYABLE_STATUSES = [503, 429]`) and retried both after a fixed `RETRY_DELAY_MS = 1500`. It never read `response.headers`, so `Retry-After` was discarded, and it truncated the error body to 500 characters for logging without parsing it first, so `RetryInfo.retryDelay` was thrown away before anything could use it.
+
+Those two statuses are not the same failure. A 503 means Google is overloaded: the failed call consumed nothing, and a quick retry is free. A 429 means quota is exhausted: a retry that arrives too early **fails and spends more of the quota that was just exhausted**.
+
+**Investigation summary:** on 2026-09-19 a 429 said *"Please retry in 12.577097057s"* and the code retried after 1500 ms — roughly an eighth of the stated wait. The retry produced a second 429 stating *"retry in 10.830900339s"*. The 1.746 s difference between those two figures is the evidence: the window was rolling, and the retry landed inside it. It could not have succeeded.
+
+**Fix implemented:** the policy moved to `lib/ai/retryPolicy.js`, separate from the transport so it can be tested against the error bodies Google actually returns.
+
+- **503** → a short 2 s backoff with ±15 % jitter, so simultaneous submissions don't come back in lockstep.
+- **429 on pass 1** → wait the server's stated delay, read from `Retry-After`, then `RetryInfo.retryDelay`, then the message text (which is where the real production 429 carried it). The body is now parsed **before** truncation.
+- **429 on pass 2** → do not retry at all. Pass 1's result is already in hand and the run degrades to `partial` (`BUG_HISTORY.md` #10); spending more of an exhausted quota, and up to 30 s of the person's time, to improve an already-usable outcome is the wrong trade.
+- **429 with no stated delay** → do not retry. Retrying blind against a quota limit is the exact mistake this exists to stop.
+- **A stated delay above 30 s** → do not retry. An exhausted *daily* quota returns a delay measured in hours; honouring it would hold a serverless function open until the platform kills it, turning a clean failure into a stuck paper.
+
+**A bug in the fix, caught by its own test.** The quota wait was initially jittered symmetrically, which on a 12.577 s stated delay produced a 12.029 s wait — back inside the very window the fix exists to clear. Jitter on a server-stated delay is now upward-only. A test draws 1000 times and asserts the wait always exceeds the stated delay.
+
+**Cost and latency.** The retry budget is unchanged at one per pass, so the worst case is still 2 extraction calls and at most 2 HTTP attempts each. A pass-1 429 now costs up to ~15 s of added latency instead of a guaranteed-useless 1.5 s; a pass-2 429 costs *less* than before, since it no longer retries at all. `.retryable` was removed from `ExtractionError` — a boolean cannot carry a decision that depends on status, pass, and a server-stated delay.
+
+**Files modified:** `lib/ai/retryPolicy.js` (new), `lib/ai/providers/gemini.js`, `lib/extraction/errors.js`.
+
+**Regression testing performed:** `scripts/test-retry-policy.js`, 33 checks, all passing, exit 0. Built on the literal production 429 body. Covers all three delay sources and their precedence, an HTTP-date `Retry-After`, malformed and absent delays, every non-retryable status, the pass-1/pass-2 asymmetry, the 30 s cap, the one-retry budget, and the upward-jitter invariant. **Not verified in production:** reproducing a 429 on demand would mean deliberately exhausting the quota, which costs real money and real availability. The behaviour is proven against the recorded error shape, not against a live 429.
+
+---
+
+## 30. Preview deployments write to the production database, and it has already happened
+
+**Root cause:** every environment variable on the Vercel project is scoped to **both** `production` and `preview`. Verified directly against the Vercel API on 2026-09-20: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `GEMINI_API_KEY`, `AI_PROVIDER`, and the four `GEMINI_*` tuning vars all carry `target: ["production", "preview"]`. There is one Supabase project and one Gemini key, so a preview build of any branch talks to the real database — with the service-role credential, which bypasses RLS entirely — and spends the real AI quota.
+
+This was previously recorded as bug **P**, an accepted tradeoff. It is not a theoretical tradeoff.
+
+**Proof that it has already occurred.** Two papers in the production `papers` table were written by preview deployments running unmerged code:
+
+| paper | created | preview deployment | deployed at | passes |
+|---|---|---|---|---|
+| `0906ebe0` | 00:55:55Z | `4c47e352` | 00:40:20Z | 1 |
+| `f8676a50` | 01:15:26Z | `e7797321` | 01:11:11Z | 1 |
+
+Both are Arabic-only theses where `title` is `not_found` and `title_ar` is `found`. Production code (`83a56e59`) treats a missing English title as a critical gap and runs a second Gemini call; these ran **one**. One pass on that input is the behaviour of the unmerged language-pair fix (`BUG_HISTORY.md` #21) and of nothing else. Each was submitted minutes after the corresponding preview went live.
+
+**Severity:** high for the credential exposure (any branch build holds a key that bypasses every RLS policy), medium for the data and quota effects today, given a single-maintainer repository with no outside contributors. The blast radius grows the moment anyone else can open a pull request.
+
+**Fix implemented:** `lib/env.js` reads `VERCEL_ENV`, and `app/api/extract/route.js` refuses to run on a preview deployment before it touches the database or the provider, returning 503 with a specific reason and logging `extraction_blocked`. An explicit `ALLOW_PREVIEW_EXTRACTION=true` overrides it per deployment for the times that is genuinely wanted.
+
+This is deliberately **not** a blanket block on database access. The submission form must still work on a preview for a preview to be worth having, and a submitted row is visible and attributable. What it stops is the expensive, mutating, hard-to-notice half: AI calls and the writes that follow them.
+
+**What this does NOT fix, and why it needs a decision.** The service-role key is still present in the preview environment; any code on any branch could use it directly. Closing that means removing `SUPABASE_SERVICE_ROLE_KEY` and `GEMINI_API_KEY` from the preview target in Vercel, which would break preview extraction entirely even with the override, and/or creating a second Supabase project for preview (the free tier allows two). Both change the project owner's workflow, so both are recorded as recommendations rather than applied unilaterally.
+
+**Files modified:** `lib/env.js` (new), `app/api/extract/route.js`.
+
+**Regression testing performed:** `scripts/test-timing.js` asserts the guard exists and runs *before* the claim, not after. `npx eslint` clean, `npm run build` compiles. The block itself has not been exercised on a live preview deployment.
+
+---
+
+## 31. A run that extracted nothing at all was recorded as `completed`
+
+**Root cause:** `extraction_status` answers "did the pipeline finish", not "did it find anything". Those are different questions and only the first was ever recorded, so a run that returned `not_found` for every single field was stored identically to one that found everything.
+
+**Investigation summary:** paper `bdc6d112` was classified `research_report`, ran **two** passes over 21.3 s, and returned `not_found` for title, title_ar, abstract, abstract_ar, year, supervisor, university, faculty, degree and researchers — every field. It is stored as `completed`. Separately, paper `6e0d9728`'s pass-1 row contains parseable JSON with **none** of the expected keys present at all, and the pipeline carried on silently and relied on pass 2 to supply them.
+
+**Fix implemented:** `extractionYield()` in the orchestrator counts how many fields a run actually resolved. The count is written into the merged generation's notes (`Fields found: 3/10.`) and a zero-yield run on a research document — `not_research` correctly yields nothing and is excluded — emits a `extraction_zero_yield` warning. Deliberately observability only: no status value changes, no UI changes, no behaviour changes. It makes "how often does extraction return nothing useful" answerable, which it previously was not.
+
+**Higher-risk option, not taken:** a distinct `extraction_status` value for a zero-yield run would be more honest but touches the status CHECK constraint, both RPCs, and the confirmation UI's branching. Recorded in `CURRENT_STATUS.md` as a recommendation.
+
+**Files modified:** `lib/extraction/orchestrator.js`, `app/api/extract/route.js`.
+
+**Regression testing performed:** `npx eslint` clean, `npm run build` compiles. The yield figure will appear on the next real extraction; it has not yet been observed in production.
+
+---
+
+## 32. A stuck paper had no automatic recovery, only a button nobody might press
+
+**Root cause:** the reclaim added in #27 works, but nothing calls it on its own. The confirmation page's safety-net trigger fires only when the paper is `pending`; a paper stuck in `processing` got no automatic re-trigger at all. Recovery depended entirely on a human noticing the page had stalled and pressing "Try again" — and if they closed the tab, the paper stayed stuck forever.
+
+**Fix implemented:** once polling has run past the point where a healthy extraction would have finished (~30 s), the confirmation page re-triggers periodically, about once a minute. The **server** decides whether the claim is actually stale, so a nudge arriving too early is refused cheaply as `alreadyHandled` — it can never shorten the staleness window or cause a duplicate extraction.
+
+**A second weakness fixed at the same time.** The reclaim originally matched on the exact `extraction_started_at` value it had read. Postgres stores microseconds and a JS ISO string carries milliseconds, so an equality match across that boundary is a quiet way to never match at all — the reclaim could have silently never fired. It now matches on `extraction_started_at < staleBefore`, which is equally atomic (once one request wins, the row's timestamp becomes `now()`, which is no longer inside the stale window, so a second concurrent request matches zero rows) and does not depend on a timestamp round-tripping byte-for-byte through PostgREST.
+
+**Files modified:** `components/ConfirmationScreen.jsx`, `app/api/extract/route.js`, `scripts/test-timing.js`.
+
+**Regression testing performed:** `scripts/test-timing.js` asserts the CAS matches on the staleness window, that the equality form is not reintroduced, that a null (pre-migration) claim timestamp is still reclaimable, and that `STALE_CLAIM_MS` still exceeds `maxDuration`. 12 checks, all passing. **Still not proven end to end in production** — see the assessment in `CURRENT_STATUS.md`.

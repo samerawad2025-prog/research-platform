@@ -76,6 +76,15 @@ create table papers (
   extraction_status text not null default 'pending'
     check (extraction_status in ('pending', 'processing', 'completed', 'partial', 'failed')),
 
+  -- When the extract route CLAIMED this paper, not when it was
+  -- submitted. The two are usually seconds apart but not always: the
+  -- confirmation page can trigger extraction long after submission.
+  -- This is the only honest basis for "has this been running too
+  -- long", which is what lets an abandoned extraction be picked back
+  -- up instead of being stuck in 'processing' forever.
+  -- See BUG_HISTORY.md #27 and migration 0008.
+  extraction_started_at timestamptz,
+
   -- Null until the submitter reviews the extraction and confirms it.
   -- One holistic timestamp for the whole confirmation screen, not
   -- tracked per field — the UI itself doesn't split that finely, so

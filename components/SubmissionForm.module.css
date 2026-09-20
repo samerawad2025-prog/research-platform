@@ -114,3 +114,24 @@
     padding: 1rem;
   }
 }
+
+/* Inline, per-field error text. Distinct from .errorMessage, which is
+   the single form-level message shown after a failed submit: this one
+   sits directly under the field it refers to, which is the whole point
+   of showing it at all. */
+.fieldError {
+  color: #b91c1c;
+  font-size: 0.82rem;
+  margin: 0.35rem 0 0;
+  line-height: 1.5;
+}
+
+/* A disabled submit button with no explanation is a dead end - the
+   person can see they cannot continue but not why. This lists what is
+   still outstanding. */
+.pendingNote {
+  font-size: 0.82rem;
+  color: #666;
+  margin: 0.6rem 0 0;
+  line-height: 1.5;
+}

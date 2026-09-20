@@ -10,6 +10,7 @@ import { getSupabaseAdmin } from '../../../lib/supabaseAdminClient'
 import { runExtraction } from '../../../lib/extraction/orchestrator'
 import { decideApplication } from '../../../lib/extraction/applyResult'
 import { getProvider } from '../../../lib/ai'
+import { extractionAllowed } from '../../../lib/env'
 
 // Without this, the platform's own default function timeout (well under
 // GEMINI_TIMEOUT_MS x up to 2 calls x up to 2 attempts each) can kill this
@@ -19,6 +20,19 @@ import { getProvider } from '../../../lib/ai'
 // plan limit - verify against whichever Vercel project actually serves
 // production (see docs/deployment.md, three projects are linked).
 export const maxDuration = 300
+
+// How long after CLAIMING a paper we treat its extraction as abandoned
+// and allow another request to take it over.
+//
+// Must be strictly greater than maxDuration. At 300s the platform has
+// already killed the original invocation, so reclaiming after 360s
+// cannot produce two live extractions of the same paper - which would
+// double the provider calls and break the two-call ceiling this
+// project enforces everywhere else. The margin is deliberately
+// generous rather than tuned: the cost of reclaiming too early is a
+// duplicate paid extraction, the cost of reclaiming too late is a
+// minute of waiting.
+const STALE_CLAIM_MS = 360_000
 
 function hashToken(token) {
   return crypto.createHash('sha256').update(token).digest('hex')
@@ -53,6 +67,17 @@ export async function POST(request) {
     return Response.json({ error: 'Missing confirmation token.' }, { status: 400 })
   }
 
+  // Checked before anything else touches the database or the AI
+  // provider. Every env var on this project is scoped to preview as
+  // well as production, including the service-role key, so without
+  // this a branch preview writes to the real papers table and spends
+  // the real Gemini quota (BUG_HISTORY.md #30).
+  const envCheck = extractionAllowed()
+  if (!envCheck.allowed) {
+    console.warn(JSON.stringify({ stage: 'extraction_blocked', reason: envCheck.reason }))
+    return Response.json({ error: envCheck.detail, reason: envCheck.reason }, { status: 503 })
+  }
+
   let supabase
   try {
     supabase = getSupabaseAdmin()
@@ -63,7 +88,7 @@ export async function POST(request) {
 
   const { data: paper, error: lookupError } = await supabase
     .from('papers')
-    .select('id, file_path, metadata_confirmed_at, extraction_status')
+    .select('id, file_path, metadata_confirmed_at, extraction_status, extraction_started_at, created_at')
     .eq('confirmation_token_hash', hashToken(token))
     .maybeSingle()
 
@@ -71,16 +96,63 @@ export async function POST(request) {
     return Response.json({ error: 'Invalid confirmation link.' }, { status: 404 })
   }
 
-  // Concurrency guard: only proceed if we're the request that actually
-  // moves this paper from pending to processing. A second overlapping
-  // request finds zero rows updated and stops, rather than running
-  // extraction twice and burning quota for nothing.
-  const { data: claimed, error: claimError } = await supabase
+  // Concurrency guard, with one deliberate exception: a paper sitting
+  // in 'processing' for longer than the platform will let any function
+  // live is not being worked on by anybody. Before this, such a paper
+  // was stuck permanently - the route refused to claim anything not
+  // 'pending', so even the confirmation page's own "Try again" could
+  // not rescue it, and it needed manual database surgery
+  // (BUG_HISTORY.md #27, closing the open bug J).
+  //
+  // extraction_started_at is null on rows claimed before that column
+  // existed. Such a row can only have been claimed by code that is no
+  // longer deployed, so its own created_at is a safe fallback basis.
+  function isAbandoned(row) {
+    const basis = row.extraction_started_at || row.created_at
+    if (!basis) return false
+    return Date.now() - new Date(basis).getTime() > STALE_CLAIM_MS
+  }
+
+  const staleBefore = new Date(Date.now() - STALE_CLAIM_MS).toISOString()
+  const reclaiming = paper.extraction_status === 'processing' && isAbandoned(paper)
+
+  if (paper.extraction_status !== 'pending' && !reclaiming) {
+    return Response.json({ status: paper.extraction_status, alreadyHandled: true })
+  }
+
+  // Built as an exact compare-and-swap in both cases: the update only
+  // matches if the row still looks the way it did when it was read, so
+  // two requests racing to reclaim the same abandoned paper cannot both
+  // win. Deliberately two explicit branches rather than one composed
+  // `.or()` filter - that would mean interpolating a timestamp into a
+  // PostgREST filter string, which is both harder to reason about and
+  // easy to get subtly wrong.
+  let claimQuery = supabase
     .from('papers')
-    .update({ extraction_status: 'processing' })
+    .update({ extraction_status: 'processing', extraction_started_at: new Date().toISOString() })
     .eq('id', paper.id)
-    .eq('extraction_status', 'pending')
-    .select('id')
+
+  if (reclaiming) {
+    claimQuery = claimQuery.eq('extraction_status', 'processing')
+    // Matching on "still stale" rather than on the exact timestamp
+    // read. Both are correct compare-and-swaps - once one request wins,
+    // the row's timestamp becomes now(), which is neither equal to the
+    // old value nor less than staleBefore, so a second request matches
+    // zero rows either way.
+    //
+    // This form is preferred because it does not depend on a timestamptz
+    // round-tripping through PostgREST's text encoding byte-for-byte.
+    // Postgres stores microseconds; a JS ISO string carries
+    // milliseconds; an equality match across that boundary is a subtle
+    // way to silently never match.
+    claimQuery = paper.extraction_started_at
+      ? claimQuery.lt('extraction_started_at', staleBefore)
+      : claimQuery.is('extraction_started_at', null)
+  } else {
+    claimQuery = claimQuery.eq('extraction_status', 'pending')
+  }
+
+  const { data: claimed, error: claimError } = await claimQuery.select('id')
 
   // A failed claim is not the same as losing the race. Treating an
   // error as "someone else has it" would leave the paper pending with
@@ -92,6 +164,13 @@ export async function POST(request) {
 
   if (!claimed || claimed.length === 0) {
     return Response.json({ status: paper.extraction_status, alreadyHandled: true })
+  }
+
+  if (paper.extraction_status === 'processing') {
+    // Worth its own line: this is the abandoned-extraction path, and
+    // if it starts appearing often it means extractions are dying
+    // rather than that the recovery is working well.
+    console.log(JSON.stringify({ stage: 'stale_claim_reclaimed', paperId: paper.id, staleAfterMs: STALE_CLAIM_MS }))
   }
 
   try {
@@ -169,6 +248,20 @@ export async function POST(request) {
       notes: g.pass === 2 ? `Pass 2, targeted at: ${(g.missingFieldsRequested || []).join(', ')}` : 'Pass 1',
     }))
 
+    // A research document that yielded nothing is worth a log line of
+    // its own. It is stored as 'completed' - which is honest, the run
+    // did complete - but in the status column it is indistinguishable
+    // from a run that found everything, and that is how paper bdc6d112
+    // (two passes, zero fields) went unnoticed.
+    if (extraction.extractionYield.zeroYield && extraction.documentType !== 'not_research') {
+      console.warn(JSON.stringify({
+        stage: 'extraction_zero_yield',
+        paperId: paper.id,
+        documentType: extraction.documentType,
+        passesRun: extraction.passesRun,
+      }))
+    }
+
     // A "merged" row only makes sense when there's an actual merge to
     // represent. On a partial outcome, pass 1's own row already IS the
     // current best result - there is nothing to merge it with.
@@ -180,7 +273,10 @@ export async function POST(request) {
         model_used: extraction.model,
         status: 'success',
         result_data: extraction.finalResult,
-        notes: `Merged result after ${extraction.passesRun} pass(es) in ${extractionDurationMs}ms. Document type: ${extraction.documentType || 'unknown'}.`,
+        notes:
+          `Merged result after ${extraction.passesRun} pass(es) in ${extractionDurationMs}ms. ` +
+          `Document type: ${extraction.documentType || 'unknown'}. ` +
+          `Fields found: ${extraction.extractionYield.foundCount}/${extraction.extractionYield.totalFields}.`,
       })
     }
 

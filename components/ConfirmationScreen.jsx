@@ -13,20 +13,74 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabaseClient'
+import { normalizeYear } from '../lib/extraction/applyResult'
+import { isFieldVisible, needsLanguageLabel, routeByScript } from '../lib/fields/languagePairs'
+import { mark, report } from '../lib/timing'
 import styles from './ConfirmationScreen.module.css'
 
-const POLL_INTERVAL_MS = 2500
-const MAX_POLL_ATTEMPTS = 48 // ~2 minutes, then offer a manual retry
+// Extraction completes in 5-32 seconds in every production run
+// measured so far (median ~16s). A flat 2500ms poll therefore spent
+// most of its budget waiting on an answer that was already sitting in
+// the database, and added up to 2.5s of pure lag to every submission.
+//
+// This backs off instead: tight while the answer is plausibly imminent,
+// then relaxed so a genuinely slow run doesn't hammer a metered plan.
+// Totals ~2 minutes, the same overall budget as before.
+function pollDelayMs(attempt) {
+  if (attempt < 10) return 600 // first 6s - covers a fast DOCX run
+  if (attempt < 30) return 1200 // to ~30s - covers the median and the tail
+  return 3000
+}
 
+const MAX_POLL_ATTEMPTS = 60 // ~2 minutes, then offer a real retry
+
+// How long to wait before firing the safety-net trigger. The
+// submission form already fired one with keepalive; firing a second
+// immediately just put two invocations of a 300s-maxDuration function
+// in flight against a CAS guard that only one could ever win. This
+// gives the form's call time to land first.
+const SAFETY_NET_DELAY_MS = 2500
+
+// A paper stuck in 'processing' gets no automatic rescue from the
+// safety net above, because that only fires on 'pending'. Without this,
+// an abandoned extraction waits for a human to notice and click "Try
+// again" - and if nobody does, it is stuck forever. So once the poll
+// has run long enough that a healthy extraction would have finished,
+// re-trigger periodically and let the SERVER decide whether the claim
+// is actually stale. A call that arrives too early is refused cheaply
+// (alreadyHandled), so this can never shorten the staleness window or
+// cause a duplicate extraction.
+const STUCK_RETRIGGER_AFTER_ATTEMPTS = 24 // ~30s of polling
+const STUCK_RETRIGGER_EVERY_ATTEMPTS = 20 // then roughly once a minute
+
+// title_ar and abstract_ar were extracted, stored, and returned by
+// get_paper_for_confirmation from the start - but were missing from
+// THIS list, so the confirmation screen never rendered them. On an
+// Arabic-only paper that meant the submitter saw an empty "Title"
+// field inviting them to type one, while their real (correctly
+// extracted) Arabic title sat invisible in the database. See
+// BUG_HISTORY.md #20 for the production evidence.
+//
+// `dir` is per-field, not per-page: the form is bilingual and an
+// Arabic title inside a left-to-right form renders with its
+// punctuation in the wrong place unless the field itself says rtl.
 const METADATA_FIELDS = [
-  { key: 'title', label: 'Title', multiline: true },
+  { key: 'title', label: 'Title / العنوان', langLabel: 'Title (English)', multiline: true, pair: 'title_ar', primary: true },
+  { key: 'title_ar', label: 'Title / العنوان', langLabel: 'Title (Arabic) / العنوان', multiline: true, dir: 'rtl', pair: 'title' },
   { key: 'supervisor_name', label: 'Supervisor' },
   { key: 'university', label: 'University' },
   { key: 'faculty', label: 'Faculty or school' },
   { key: 'degree_type', label: 'Degree' },
   { key: 'year', label: 'Year' },
-  { key: 'abstract', label: 'Abstract', multiline: true },
+  { key: 'abstract', label: 'Abstract / الملخص', langLabel: 'Abstract (English)', multiline: true, pair: 'abstract_ar', primary: true },
+  { key: 'abstract_ar', label: 'Abstract / الملخص', langLabel: 'Abstract (Arabic) / الملخص', multiline: true, dir: 'rtl', pair: 'abstract' },
 ]
+
+const FIELD_BY_KEY = Object.fromEntries(METADATA_FIELDS.map((f) => [f.key, f]))
+
+function pairPartner(key) {
+  return FIELD_BY_KEY[key]?.pair || null
+}
 
 function firstCandidateValue(entry) {
   if (!entry?.candidates?.length) return ''
@@ -50,7 +104,7 @@ function needsAttention(entry) {
   return !entry || entry.status !== 'found'
 }
 
-function InlineField({ label, value, entry, multiline, onChange, disabled }) {
+function InlineField({ label, value, entry, multiline, dir, onChange, disabled, emptyHint }) {
   const [editing, setEditing] = useState(false)
   const attention = needsAttention(entry)
 
@@ -77,6 +131,7 @@ function InlineField({ label, value, entry, multiline, onChange, disabled }) {
             className={styles.editInput}
             value={value}
             rows={4}
+            dir={dir}
             autoFocus
             onChange={(e) => onChange(e.target.value)}
             onBlur={() => setEditing(false)}
@@ -85,6 +140,7 @@ function InlineField({ label, value, entry, multiline, onChange, disabled }) {
           <input
             className={styles.editInput}
             value={value}
+            dir={dir}
             autoFocus
             onChange={(e) => onChange(e.target.value)}
             onBlur={() => setEditing(false)}
@@ -93,9 +149,15 @@ function InlineField({ label, value, entry, multiline, onChange, disabled }) {
       ) : (
         <button type="button" className={styles.valueButton} onClick={() => setEditing(true)}>
           {value ? (
-            <span className={styles.value}>{value}</span>
+            <span className={styles.value} dir={dir}>{value}</span>
           ) : (
-            <span className={styles.emptyValue}>Not found in your paper. Tap to add it.</span>
+            // The old text said "Not found in your paper. Tap to add
+            // it." for EVERY empty field. On a field that legitimately
+            // does not exist in a one-language paper that reads as an
+            // instruction, and a real submitter answered it by typing
+            // a sentence explaining the absence, which then became the
+            // paper's permanent title (BUG_HISTORY.md #20).
+            <span className={styles.emptyValue}>{emptyHint || 'Not found in your paper. Tap to add it.'}</span>
           )}
           <span className={styles.editHint} aria-hidden="true">Edit</span>
         </button>
@@ -157,6 +219,10 @@ export default function ConfirmationScreen({ token }) {
   const [status, setStatus] = useState('idle') // idle | saving | done | error
   const [errorMsg, setErrorMsg] = useState('')
   const [pollTimedOut, setPollTimedOut] = useState(false)
+  const [retrying, setRetrying] = useState(false)
+  // Bumped by a manual retry to re-run the polling effect in place,
+  // rather than reloading the page.
+  const [retryNonce, setRetryNonce] = useState(0)
   const seededRef = useRef(false)
 
   useEffect(() => {
@@ -204,6 +270,16 @@ export default function ConfirmationScreen({ token }) {
       return stillWorking
     }
 
+    function triggerExtraction(by) {
+      fetch('/api/extract', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token }),
+        keepalive: true,
+      }).catch(() => {})
+      mark(token, 'extract_triggered', { by })
+    }
+
     async function pollLoop(attempt) {
       if (cancelled) return
 
@@ -215,32 +291,85 @@ export default function ConfirmationScreen({ token }) {
         return
       }
 
-      const stillWorking = applyPaperData(data)
-      if (!stillWorking) return
+      if (attempt === 0) mark(token, 'first_poll_response')
 
-      if (attempt === 0) {
-        // Make sure extraction was actually triggered. Safe to call
-        // even if it's already running: the server only ever acts on a
-        // paper genuinely still 'pending'.
-        fetch('/api/extract', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ token }),
-        }).catch(() => {})
+      const stillWorking = applyPaperData(data)
+
+      if (!stillWorking) {
+        // The moment the client can actually see a finished extraction.
+        // This is the number to compare against the server's own
+        // duration - the gap between them is the lag this page adds.
+        mark(token, 'extraction_observed', {
+          poll_attempts: attempt + 1,
+          extraction_status: data.extraction_status,
+        })
+        mark(token, 'fields_visible')
+        report(token)
+        return
+      }
+
+      // Safety net in case the form's trigger never landed. Delayed
+      // rather than immediate: the form already fired one with
+      // keepalive, and firing a second straight away only raced it.
+      // Re-checks `pending` at fire time so a paper already claimed in
+      // the meantime is left alone.
+      if (attempt === 0 && data.extraction_status === 'pending') {
+        setTimeout(() => {
+          if (cancelled) return
+          triggerExtraction('confirm_page')
+        }, SAFETY_NET_DELAY_MS)
+      }
+
+      // Periodic nudge for a paper that has been 'processing' too long.
+      // The server enforces the staleness rule, so an early nudge is a
+      // cheap no-op rather than a duplicate extraction.
+      if (
+        attempt >= STUCK_RETRIGGER_AFTER_ATTEMPTS &&
+        (attempt - STUCK_RETRIGGER_AFTER_ATTEMPTS) % STUCK_RETRIGGER_EVERY_ATTEMPTS === 0
+      ) {
+        triggerExtraction('stuck_nudge')
       }
 
       if (attempt >= MAX_POLL_ATTEMPTS) {
         setPollTimedOut(true)
+        // Report what we have even on a timeout. A submission that
+        // never finished is exactly the one whose stage timings are
+        // worth having.
+        mark(token, 'extraction_observed', {
+          poll_attempts: attempt + 1,
+          extraction_status: `timeout:${data.extraction_status}`,
+        })
+        report(token)
         return
       }
 
-      await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS))
+      await new Promise((resolve) => setTimeout(resolve, pollDelayMs(attempt)))
       pollLoop(attempt + 1)
     }
 
+    mark(token, 'confirm_page_mounted')
     pollLoop(0)
     return () => { cancelled = true }
-  }, [token])
+  }, [token, retryNonce])
+
+  // Asks the server to restart extraction, then restarts the poll
+  // without a page reload so the timings already recorded for this
+  // submission survive.
+  async function retryExtraction() {
+    setPollTimedOut(false)
+    setRetrying(true)
+    try {
+      await fetch('/api/extract', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token }),
+      })
+    } catch {
+      // Nothing to show: the poll below reports the real outcome.
+    }
+    setRetrying(false)
+    setRetryNonce((n) => n + 1) // re-runs the polling effect
+  }
 
   function setValue(key, v) {
     setValues((prev) => ({ ...prev, [key]: v }))
@@ -275,11 +404,21 @@ export default function ConfirmationScreen({ token }) {
       setErrorMsg('Please fill in every researcher\u2019s name, or remove the empty row.')
       return
     }
-    if (!values.title?.trim()) {
-      setErrorMsg('Please add the title of your research before confirming.')
+    // "A title in at least one language", not "an English title".
+    // Requiring values.title specifically made an Arabic-only paper
+    // impossible to confirm honestly: the field could not be left
+    // empty, so a real submitter typed "No title appeared for this
+    // research" into it and that became the paper's title, while the
+    // correctly extracted Arabic title sat unused (BUG_HISTORY.md #20).
+    if (!values.title?.trim() && !values.title_ar?.trim()) {
+      setErrorMsg('Please add the title of your research, in English or Arabic, before confirming.')
       return
     }
-    if (values.year && !/^\d{4}$/.test(values.year.trim())) {
+    // Accepts Arabic-Indic digits, matching how the server normalizes
+    // a year (lib/extraction/applyResult.js). Rejecting "٢٠١٩" here
+    // while the extractor happily reads it would be the form telling
+    // the submitter their own document's year is invalid.
+    if (values.year?.trim() && normalizeYear(values.year) === null) {
       setErrorMsg('Please enter the year as four digits, for example 2023.')
       return
     }
@@ -292,9 +431,24 @@ export default function ConfirmationScreen({ token }) {
     // was wrong and there is no correct value", which the RPC treats
     // as a real correction. Omitting empties instead would silently
     // discard that, leaving a hallucinated value in place.
-    const corrections = {}
+    let corrections = {}
     for (const f of METADATA_FIELDS) {
       corrections[f.key] = (values[f.key] || '').trim()
+    }
+    // When a pair was empty and the submitter typed into the single
+    // fallback box, put the text in the column that matches the script
+    // they actually used. Without this an Arabic title typed into the
+    // one visible box would land in `title` and the Arabic column
+    // would stay empty, which is the same split this change removes.
+    corrections = routeByScript(corrections, METADATA_FIELDS)
+
+    // confirm_researcher_metadata only accepts a year matching
+    // ^[0-9]{4}$ and silently keeps the old value otherwise, so an
+    // Arabic-Indic year typed here has to be converted to ASCII before
+    // it is sent or the correction is dropped without any error.
+    if (corrections.year) {
+      const y = normalizeYear(corrections.year)
+      corrections.year = y === null ? '' : String(y)
     }
 
     const { error } = await supabase.rpc('confirm_researcher_metadata', {
@@ -343,14 +497,21 @@ export default function ConfirmationScreen({ token }) {
     )
   }
 
-  const detail = paper?.extraction_detail || {}
   // Backward compatibility only: records stored before this fix used
   // the key "supervisor" (confirmed directly against production data).
   // New extractions never produce this anymore - see gemini.js - so
   // this only ever applies to already-stored historical records.
-  if (!detail.supervisor_name && detail.supervisor) {
-    detail.supervisor_name = detail.supervisor
-  }
+  //
+  // Built as a NEW object rather than by assigning onto
+  // paper.extraction_detail: that object belongs to React state, and
+  // mutating it in the render path is a real hazard (a later render
+  // reading the same object would see the patch already applied and
+  // could not tell a stored value from a derived one).
+  const rawDetail = paper?.extraction_detail || {}
+  const detail =
+    !rawDetail.supervisor_name && rawDetail.supervisor
+      ? { ...rawDetail, supervisor_name: rawDetail.supervisor }
+      : rawDetail
   // document_type is specified and returned as a plain string, not a
   // {status, value} object (see lib/ai/schema.js). Reading .value off
   // it was always undefined, so this check could never actually fire.
@@ -394,7 +555,7 @@ export default function ConfirmationScreen({ token }) {
         <p>This document is password-protected and cannot be processed automatically.</p>
         <p>
           Please remove the password from the file and submit it again. If you&rsquo;re not sure how,
-          most word processors offer this under a "Protect Document" or "Encrypt" setting when saving.
+          most word processors offer this under a &ldquo;Protect Document&rdquo; or &ldquo;Encrypt&rdquo; setting when saving.
         </p>
         <a href="/submit" className={styles.primaryLink}>Start a new submission</a>
       </div>
@@ -415,9 +576,30 @@ export default function ConfirmationScreen({ token }) {
   }
 
   const showSocialLinks = paper?.publication_scope?.includes('metadata_and_article')
+  // A not_found English title on a paper that HAS an Arabic title is
+  // not something the submitter needs to act on, so it must not be
+  // counted or flagged - otherwise every Arabic paper opens claiming
+  // two fields are wrong when nothing is.
+  // Narrow on purpose: this only ever downgrades a plain ABSENCE.
+  // An 'ambiguous' or 'conflicting' entry means the model did find
+  // competing values and the submitter still needs to resolve them,
+  // so those keep their flag and their candidate chips regardless of
+  // what the other language's field says.
+  const satisfiedByPartner = (key) => {
+    const entry = detail[key]
+    const absent = !entry || entry.status === 'not_found'
+    if (!absent) return false
+    const partner = pairPartner(key)
+    return Boolean(partner) && !needsAttention(detail[partner])
+  }
   const attentionCount = extracting
     ? 0
-    : METADATA_FIELDS.filter((f) => needsAttention(detail[f.key])).length
+    : METADATA_FIELDS.filter(
+        (f) =>
+          isFieldVisible(f, values) &&
+          needsAttention(detail[f.key]) &&
+          !satisfiedByPartner(f.key)
+      ).length
 
   return (
     <form onSubmit={handleConfirm} className={styles.page}>
@@ -481,14 +663,26 @@ export default function ConfirmationScreen({ token }) {
 
       <section className={styles.section}>
         <h2>Research details</h2>
-        {METADATA_FIELDS.map((f) => (
+        {METADATA_FIELDS.filter((f) => isFieldVisible(f, values)).map((f) => (
           <InlineField
             key={f.key}
-            label={f.label}
+            // Only qualify by language when BOTH halves of a pair are
+            // on screen. A lone box saying "Title (English)" invites
+            // the same "where do I put my Arabic title?" confusion
+            // this change exists to remove.
+            label={needsLanguageLabel(f, values) ? f.langLabel : f.label}
             value={values[f.key] || ''}
-            entry={detail[f.key]}
+            entry={satisfiedByPartner(f.key) ? { status: 'found' } : detail[f.key]}
             multiline={f.multiline}
+            dir={f.dir}
             disabled={extracting}
+            emptyHint={
+              // Only the language wording when the OTHER language is
+              // also on screen; a lone box is just "we didn't find it".
+              f.pair && (values[f.pair] || '').trim()
+                ? 'Your paper doesn\u2019t appear to have this in this language. You can leave it empty.'
+                : 'Not found in your paper. Tap to add it.'
+            }
             onChange={(v) => setValue(f.key, v)}
           />
         ))}
@@ -501,7 +695,18 @@ export default function ConfirmationScreen({ token }) {
       {pollTimedOut && extracting && (
         <p className={styles.timeoutNote}>
           This is taking longer than usual.{' '}
-          <button type="button" className={styles.linkButton} onClick={() => window.location.reload()}>Try again</button>
+          {/*
+            Reloading used to be the whole retry. It re-ran the poll but
+            could not restart a stalled extraction, because the route
+            refused to claim any paper not 'pending' - so a stuck paper
+            just waited out another two minutes, and the person did it
+            again. That loop is what turned a 15-second extraction into
+            a multi-minute wait. This asks the server to actually pick
+            the work back up, then resumes polling in place.
+          */}
+          <button type="button" className={styles.linkButton} onClick={retryExtraction} disabled={retrying}>
+            {retrying ? 'Restarting…' : 'Try again'}
+          </button>
         </p>
       )}
 

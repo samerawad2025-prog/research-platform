@@ -1,0 +1,70 @@
+/* Matches SubmissionForm.module.css conventions: same border, radius,
+   focus ring and muted-hint colours, so the picker doesn't read as a
+   bolted-on third-party widget. */
+
+.wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-bottom: 1rem;
+  font-size: 0.9rem;
+  color: #333;
+}
+
+.label {
+  display: block;
+}
+
+.controls {
+  display: flex;
+  gap: 0.5rem;
+  align-items: stretch;
+}
+
+.numberInput {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  font-size: 1rem;
+  font-family: inherit;
+  /* A phone number is always read left-to-right, even on an Arabic
+     page, so it is pinned regardless of the surrounding direction. */
+  direction: ltr;
+}
+
+.numberInput:focus {
+  outline: 2px solid #2563eb;
+  outline-offset: 1px;
+  border-color: #2563eb;
+}
+
+/* Only the number input turns red. The country trigger is a separate
+   control with its own popup, and colouring it too reads as "the
+   country is wrong" when almost always the digits are. */
+.controlsInvalid .numberInput {
+  border-color: #b91c1c;
+}
+
+.controlsInvalid .numberInput:focus {
+  outline-color: #b91c1c;
+  border-color: #b91c1c;
+}
+
+.error {
+  color: #b91c1c;
+  font-size: 0.82rem;
+  margin: 0.35rem 0 0;
+  line-height: 1.5;
+}
+
+.hint {
+  font-size: 0.82rem;
+  color: #666;
+  margin: 0.35rem 0 0;
+  line-height: 1.5;
+}
+
+/* No stacking at phone width any more: the trigger is now just a flag
+   and a dial code, which sits comfortably beside the number field. */

@@ -6,8 +6,12 @@
 // academic (title, authors, abstract, etc.) is filled in later
 // by AI extraction (Step 3) or by an admin — never typed here.
 
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
+import { useRouter } from 'next/navigation'
 import { supabase } from '../lib/supabaseClient'
+import PhoneField from './PhoneField'
+import { DEFAULT_COUNTRY, validateWhatsApp, formatAsYouType } from '../lib/validation/phone'
+import { mark, adoptPendingMarks } from '../lib/timing'
 import styles from './SubmissionForm.module.css'
 
 const SCOPE_OPTIONS = [
@@ -88,17 +92,71 @@ function userFacingError(err) {
 const initialForm = {
   full_name: '',
   email: '',
-  whatsapp_number: '',
+  whatsapp_number: '', // as typed, in national format
+  whatsapp_country: DEFAULT_COUNTRY,
   permission_to_process: false,
   publication_scope: [], // array — select all that apply
   website: '', // honeypot
 }
 
+// Email is checked here as well as by the browser's own type="email"
+// so the submit button's enabled state and the browser agree. It is
+// deliberately permissive - the only authority on whether an address
+// works is whether mail to it arrives, and a strict pattern rejects
+// real addresses.
+function isEmailish(value) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim())
+}
+
 export default function SubmissionForm() {
+  const router = useRouter()
   const [form, setForm] = useState(initialForm)
   const [file, setFile] = useState(null)
   const [status, setStatus] = useState('idle') // idle | submitting | extracting | error
   const [errorMsg, setErrorMsg] = useState('')
+  // Which fields the person has already interacted with. An error is
+  // only SHOWN once a field has been touched, so the form doesn't open
+  // covered in red before anyone has typed anything - but validity
+  // itself is computed from the first keystroke, which is what keeps
+  // the submit button honest.
+  const [touched, setTouched] = useState({})
+
+  const whatsapp = useMemo(
+    () => validateWhatsApp(form.whatsapp_number, form.whatsapp_country),
+    [form.whatsapp_number, form.whatsapp_country]
+  )
+
+  // Every condition the submit button depends on, in one place, so the
+  // button's disabled state and the checks inside handleSubmit can
+  // never disagree about what "ready" means.
+  const fileOk =
+    Boolean(file) &&
+    file.size <= MAX_FILE_BYTES &&
+    ACCEPTED_EXTENSIONS.some((ext) => file.name.toLowerCase().endsWith(ext))
+
+  const canSubmit =
+    form.full_name.trim().length > 0 &&
+    isEmailish(form.email) &&
+    whatsapp.state !== 'invalid' && // 'empty' is fine - the field is optional
+    fileOk &&
+    form.permission_to_process &&
+    form.publication_scope.length > 0 &&
+    status !== 'submitting'
+
+  // What is still outstanding, in the order the form presents it.
+  // Shown under the submit button so a disabled button is never a dead
+  // end the person has to guess their way out of.
+  const outstanding = []
+  if (!form.full_name.trim()) outstanding.push('your name')
+  if (!isEmailish(form.email)) outstanding.push('a valid email address')
+  if (whatsapp.state === 'invalid') outstanding.push('a valid WhatsApp number (or clear the field)')
+  if (!fileOk) outstanding.push('a PDF or DOCX file under 20 MB')
+  if (!form.permission_to_process) outstanding.push('your permission to process the file')
+  if (!form.publication_scope.length) outstanding.push('at least one publishing choice')
+
+  function touch(field) {
+    setTouched((t) => ({ ...t, [field]: true }))
+  }
 
   function update(field, value) {
     setForm((f) => ({ ...f, [field]: value }))
@@ -142,9 +200,23 @@ export default function SubmissionForm() {
       setErrorMsg('Please choose at least one thing you\u2019re comfortable with us publishing.')
       return
     }
+    if (whatsapp.state === 'invalid') {
+      // Reachable only if the button was bypassed (an Enter key on a
+      // stale render, or scripted input). Kept as a real guard rather
+      // than trusting the disabled attribute as a security boundary.
+      setTouched((t) => ({ ...t, whatsapp: true }))
+      setErrorMsg(whatsapp.error)
+      return
+    }
 
     setStatus('submitting')
     setErrorMsg('')
+
+    // Stage 1 begins here, at the click, not at the first server
+    // timestamp. Everything before papers.created_at used to be
+    // invisible, which is most of what a person on a slow connection
+    // actually waits through.
+    mark(null, 'submit_clicked')
 
     // Random, unguessable path — nothing about it reveals order,
     // timing, or lets someone target another submission's file.
@@ -156,6 +228,9 @@ export default function SubmissionForm() {
         .from('papers')
         .upload(filePath, file)
       if (uploadError) throw { __stage: 'upload', ...uploadError }
+      // File size is recorded with the mark: upload duration is
+      // meaningless without knowing how many bytes went up.
+      mark(null, 'upload_complete', { file_bytes: file.size })
 
       // 2. One atomic call creates the researcher, the paper, and
       //    links the submitter as a researcher on it — all or nothing.
@@ -165,27 +240,41 @@ export default function SubmissionForm() {
         p_file_path: filePath,
         p_permission_to_process: form.permission_to_process,
         p_publication_scope: form.publication_scope,
-        p_whatsapp_number: form.whatsapp_number || null,
+        // Stored in E.164, never as typed. See lib/validation/phone.js
+        // on why this stays compatible with the existing SQL check.
+        p_whatsapp_number: whatsapp.e164,
       })
       if (rpcError) throw { __stage: 'rpc', ...rpcError }
 
       const token = data.confirmation_token
+      // The marks so far were held in memory because there was no
+      // token to key them by yet; hand them over now.
+      adoptPendingMarks(token)
+      mark(token, 'paper_created')
       setStatus('extracting')
 
       // 3. Kick off extraction now that the paper exists. The
       //    confirmation page polls for the result and handles a
       //    still-processing state on its own, so we don't block
       //    navigation on it completing first.
+      // keepalive is load-bearing, not a nicety. This fetch is
+      // deliberately not awaited and is immediately followed by a
+      // navigation; without keepalive the browser is entitled to
+      // cancel it as the page unloads, and extraction would not start
+      // until the confirmation page's own safety net fired seconds
+      // later. That delay was invisible because nothing measured it.
       fetch('/api/extract', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ token }),
+        keepalive: true,
       }).catch(() => {
         // If this fails to even fire, the paper still exists and stays
         // in "pending" — the confirmation page retries, nothing is lost.
       })
+      mark(token, 'extract_triggered', { by: 'form' })
 
-      window.location.href = `/confirm/${token}`
+      router.push(`/confirm/${token}`)
     } catch (err) {
       console.error(err)
       // Don't leave an orphaned file behind if a later step failed
@@ -227,7 +316,9 @@ export default function SubmissionForm() {
           <input
             required
             value={form.full_name}
-            onChange={(e) => update('full_name', e.target.value)}
+            onChange={(e) => { update('full_name', e.target.value); touch('full_name') }}
+            onBlur={() => touch('full_name')}
+            aria-invalid={touched.full_name && !form.full_name.trim() ? true : undefined}
           />
         </label>
 
@@ -237,22 +328,43 @@ export default function SubmissionForm() {
             type="email"
             required
             value={form.email}
-            onChange={(e) => update('email', e.target.value)}
+            onChange={(e) => { update('email', e.target.value); touch('email') }}
+            onBlur={() => touch('email')}
+            aria-invalid={touched.email && !isEmailish(form.email) ? true : undefined}
+            aria-describedby={touched.email && !isEmailish(form.email) ? 'email-error' : undefined}
           />
         </label>
+        {touched.email && form.email.trim() !== '' && !isEmailish(form.email) && (
+          <p id="email-error" role="alert" className={styles.fieldError}>
+            That doesn&rsquo;t look like an email address. Please check it.
+          </p>
+        )}
 
-        <label className={styles.field}>
-          WhatsApp number (optional)
-          <input
-            type="tel"
-            value={form.whatsapp_number}
-            onChange={(e) => update('whatsapp_number', e.target.value)}
-            placeholder="+249..."
-          />
-        </label>
-        <p className={styles.hint}>
-          We may use this only to contact you about your research submission if necessary.
-        </p>
+        <PhoneField
+          label="WhatsApp number (optional) / رقم الواتساب (اختياري)"
+          hint="We may use this only to contact you about your research submission if necessary."
+          country={form.whatsapp_country}
+          onCountryChange={(c) => {
+            // Reformat what is already typed for the newly chosen
+            // country, so the displayed number and the country it is
+            // being validated against never disagree.
+            setForm((f) => ({
+              ...f,
+              whatsapp_country: c,
+              whatsapp_number: f.whatsapp_number.trim()
+                ? formatAsYouType(f.whatsapp_number, c)
+                : f.whatsapp_number,
+            }))
+          }}
+          value={form.whatsapp_number}
+          onValueChange={(v) => {
+            update('whatsapp_number', v)
+            touch('whatsapp') // live from the first keystroke, not only on blur
+          }}
+          validation={whatsapp}
+          showError={Boolean(touched.whatsapp)}
+          onBlur={() => touch('whatsapp')}
+        />
       </fieldset>
 
       <fieldset className={styles.section}>
@@ -309,9 +421,15 @@ export default function SubmissionForm() {
         ))}
       </fieldset>
 
-      <button type="submit" disabled={status === 'submitting'} className={styles.submitButton}>
+      <button type="submit" disabled={!canSubmit} className={styles.submitButton}>
         {status === 'submitting' ? 'Submitting…' : 'Submit my research'}
       </button>
+
+      {!canSubmit && status !== 'submitting' && outstanding.length > 0 && (
+        <p className={styles.pendingNote}>
+          Still needed: {outstanding.join(', ')}.
+        </p>
+      )}
 
       {errorMsg && (
         <p role="alert" className={styles.errorMessage}>
