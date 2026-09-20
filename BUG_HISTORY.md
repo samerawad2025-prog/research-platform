@@ -543,3 +543,87 @@ This is deliberately **not** a blanket block on database access. The submission 
 **Files modified:** `components/ConfirmationScreen.jsx`, `app/api/extract/route.js`, `scripts/test-timing.js`.
 
 **Regression testing performed:** `scripts/test-timing.js` asserts the CAS matches on the staleness window, that the equality form is not reintroduced, that a null (pre-migration) claim timestamp is still reclaimable, and that `STALE_CLAIM_MS` still exceeds `maxDuration`. 12 checks, all passing. **Still not proven end to end in production** — see the assessment in `CURRENT_STATUS.md`.
+
+---
+
+## 33. Confirming a paper detached its own submitter from it
+
+**Root cause:** `components/ConfirmationScreen.jsx` seeded its researcher list from extraction whenever extraction had found one — and that mapping dropped `researcher_id`:
+
+```js
+extracted.value.map((r) => ({ full_name: r.name, author_order: r.author_order, ... }))
+```
+
+`confirm_researcher_metadata` only takes its "update the existing row" branch when an id is supplied. With none, it **inserts** a brand-new researcher for every name, and then runs its reconciliation delete:
+
+```sql
+delete from paper_researchers
+where paper_id = v_paper.id and researcher_id <> all(v_kept_ids);
+```
+
+Since the submitter's id was never in `v_kept_ids`, their link to their own paper was deleted — and replaced by a fresh, email-less duplicate of their name.
+
+`CLAUDE_CODE_HANDOVER.md` §4 claimed this RPC "preserves the submitter's own email by matching on `researcher_id`, not by delete-and-recreate". The RPC does exactly that. **The client never gave it an id to match on**, so the guarantee never actually held in the one path that mattered. A correct statement about one layer hid a defect in another.
+
+**Investigation summary:** confirmed across the entire production table, with a clean split and no exceptions.
+
+| paper | confirmed | submitter still linked | linked researchers carrying an email |
+|---|---|---|---|
+| `f8676a50` | yes | **no** | 0 |
+| `d5c7b51e` | yes | **no** | 0 |
+| `c71a48b9` | yes | **no** | 0 of 6 |
+| the other 7 | no | yes | 1 |
+
+Three of three confirmed papers detached; zero of seven unconfirmed. The arithmetic corroborates it exactly: 18 researcher rows for 10 papers, of which 10 carry an email (one per paper) and **8 do not** — which is 1 + 1 + 6, precisely the three confirmations.
+
+**Impact.** Not data loss: `papers.submitted_by` still points at the right researcher, so contact details remain recoverable. But `paper_researchers` — the join the confirmation RPC reads and any future admin view will read — no longer contains the submitter, the authorship graph accumulates a duplicate of every author on every confirmation, and any social links previously stored against the real row are orphaned. On a platform whose completion screen promises "We'll reach out using the details you provided", the list that says who is on a paper silently stopped including the person who submitted it.
+
+**Fix implemented:** `lib/fields/researcherSeed.js` carries `researcher_id` across wherever an extracted name matches somebody already on the paper, along with that person's stored social links. Name matching is deliberately conservative — trimmed, whitespace-collapsed, case-folded, nothing cleverer — because a *wrong* match would attach one person's contact details to another person's name, which is far worse than the current behaviour of failing to match. Each existing researcher can be claimed at most once, so two genuine authors sharing a name cannot collapse onto one row. A name extraction found that the paper does not already know stays id-less, which is correct: that author really is new and should be inserted.
+
+**Residual, documented not fixed:** if the submitter *is* an author but their name is spelled differently in the document than in the form, they still get a duplicate and still lose the link. Contact remains recoverable via `papers.submitted_by`. Closing that completely means either fuzzy name matching (which risks the wrong match described above) or an RPC change that never deletes the `submitted_by` link (which would keep a non-author submitter in the authorship list). Both are judgement calls above the bar for a low-risk fix.
+
+**Files modified:** `lib/fields/researcherSeed.js` (new), `components/ConfirmationScreen.jsx`, `CLAUDE_CODE_HANDOVER.md` (the false guarantee corrected).
+
+**Regression testing performed:** `scripts/test-researcher-seed.js`, 17 checks, all passing, exit 0. Covers the submitter keeping their id and their social links, a genuinely new co-author correctly getting none, case/whitespace/Arabic matching, a different person *not* being matched, two authors sharing a name not collapsing, one row not being claimed twice, a confirmed paper never being reshaped by a later extraction, every fallback path, malformed input not throwing, and the real six-author `c71a48b9` shape end to end.
+
+**Not repaired:** the three already-confirmed papers still have detached submitters and duplicate researcher rows. Repairing them means re-linking by `submitted_by` and deleting the duplicates — a data migration over real records, which needs the owner's decision rather than a unilateral write.
+
+---
+
+## 34. Correction: bug O nulls the year, it does not preserve it
+
+**What was previously recorded.** `CURRENT_STATUS.md` described bug O as: `confirm_researcher_metadata` "accepts a corrected year only when it matches `^[0-9]{4}$` and otherwise **keeps the old value**, returning no error."
+
+**What the live function actually does**, read from `pg_get_functiondef` on 2026-09-20:
+
+```sql
+year = case
+         when p_corrections ? 'year' then
+           case when nullif(trim(p_corrections->>'year'), '') ~ '^[0-9]{4}$'
+                then (p_corrections->>'year')::int
+                else null end          -- <-- nulls it
+         else year
+       end
+```
+
+The inner `CASE` has an explicit `else null`. A year that fails the pattern is **erased**, not preserved. The earlier description was wrong, and wrong in the safer direction, which is the worst way for a description to be wrong.
+
+**Confirmed empirically** against the live database: `'٢٠١٩' ~ '^[0-9]{4}$'` → false, `'۲۰۱۹'` → false, `'٢٠١٩م'` → false, `'2019'` → true. So a submitter typing their own document's Arabic-Indic year would have had a correctly extracted year wiped.
+
+**Why it is not currently reachable.** Since `BUG_HISTORY.md` #20, the confirmation screen normalizes the year through the same `normalizeYear()` the server uses before sending it, so `corrections.year` is now always either an ASCII four-digit string or an empty string. The empty string is the deliberate "the submitter cleared this" signal, and nulling is the correct response to it. The destructive branch is unreachable from the only client that exists.
+
+**Status:** still open, severity reduced from "medium, silent data drop" to "low, unreachable from the current client, but a trap for any future caller". A proper fix is a migration that either accepts Arabic-Indic digits server-side or raises a real error instead of nulling silently. Recorded rather than applied, because it changes RPC behaviour and this audit's remit was low-risk fixes.
+
+---
+
+## 35. The last function without a pinned search_path
+
+**Root cause:** `prevent_premature_publish()` — the trigger that stops a paper reaching `published` without passing through review — had no `search_path` set. Flagged by Supabase's own database linter (`0011_function_search_path_mutable`) during this audit.
+
+Materially lower risk than `BUG_HISTORY.md` #1, because this one is `SECURITY INVOKER`: it runs as the calling role, so a mutable `search_path` cannot be used to escalate the way it could in a `SECURITY DEFINER` function. Still worth closing — a trigger that resolves its own table and operator references through a caller-controlled path is a latent correctness problem as much as a security one, and the fix is one line.
+
+**Fix implemented:** migration `0009` sets `search_path = public`. Deliberately **not** `public, extensions`: unlike the three RPCs, this function calls nothing from pgcrypto, and granting it a wider path than it needs would be the opposite of the point.
+
+**Files modified:** `supabase/migrations/0009_trigger_search_path.sql` (new), `supabase/migrations/README.md`.
+
+**Migration applied to production** on 2026-09-20. Verified after: the linter no longer reports `function_search_path_mutable`, and all three `SECURITY DEFINER` RPCs were re-confirmed as carrying `search_path=public, extensions` in `pg_proc.proconfig` — so `BUG_HISTORY.md` #1 remains structurally prevented, not merely absent.

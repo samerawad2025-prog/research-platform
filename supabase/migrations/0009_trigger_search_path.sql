@@ -1,0 +1,24 @@
+-- 0009_trigger_search_path.sql
+--
+-- Pins search_path on prevent_premature_publish().
+--
+-- Flagged by Supabase's own database linter
+-- (0011_function_search_path_mutable) on 2026-09-20. It is the last
+-- function in this schema without a fixed search_path; all three
+-- SECURITY DEFINER RPCs already carry `search_path = public,
+-- extensions` (verified directly against pg_proc.proconfig the same
+-- day).
+--
+-- Lower risk than BUG_HISTORY.md #1 was, because this one is SECURITY
+-- INVOKER: it runs as the calling role, so a mutable search_path
+-- cannot be used to escalate the way it could in a DEFINER function.
+-- It is still worth closing - a trigger that resolves its own table
+-- and operator references through a caller-controlled search_path is a
+-- latent correctness problem, not only a security one, and the fix is
+-- one line.
+--
+-- `extensions` is deliberately NOT included: unlike the RPCs, this
+-- function calls nothing from pgcrypto. Granting it a wider path than
+-- it needs would be the opposite of the point.
+
+alter function public.prevent_premature_publish() set search_path = public;
