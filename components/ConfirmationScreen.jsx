@@ -15,10 +15,31 @@ import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { normalizeYear } from '../lib/extraction/applyResult'
 import { isFieldVisible, needsLanguageLabel, routeByScript } from '../lib/fields/languagePairs'
+import { mark, report } from '../lib/timing'
 import styles from './ConfirmationScreen.module.css'
 
-const POLL_INTERVAL_MS = 2500
-const MAX_POLL_ATTEMPTS = 48 // ~2 minutes, then offer a manual retry
+// Extraction completes in 5-32 seconds in every production run
+// measured so far (median ~16s). A flat 2500ms poll therefore spent
+// most of its budget waiting on an answer that was already sitting in
+// the database, and added up to 2.5s of pure lag to every submission.
+//
+// This backs off instead: tight while the answer is plausibly imminent,
+// then relaxed so a genuinely slow run doesn't hammer a metered plan.
+// Totals ~2 minutes, the same overall budget as before.
+function pollDelayMs(attempt) {
+  if (attempt < 10) return 600 // first 6s - covers a fast DOCX run
+  if (attempt < 30) return 1200 // to ~30s - covers the median and the tail
+  return 3000
+}
+
+const MAX_POLL_ATTEMPTS = 60 // ~2 minutes, then offer a real retry
+
+// How long to wait before firing the safety-net trigger. The
+// submission form already fired one with keepalive; firing a second
+// immediately just put two invocations of a 300s-maxDuration function
+// in flight against a CAS guard that only one could ever win. This
+// gives the form's call time to land first.
+const SAFETY_NET_DELAY_MS = 2500
 
 // title_ar and abstract_ar were extracted, stored, and returned by
 // get_paper_for_confirmation from the start - but were missing from
@@ -186,6 +207,10 @@ export default function ConfirmationScreen({ token }) {
   const [status, setStatus] = useState('idle') // idle | saving | done | error
   const [errorMsg, setErrorMsg] = useState('')
   const [pollTimedOut, setPollTimedOut] = useState(false)
+  const [retrying, setRetrying] = useState(false)
+  // Bumped by a manual retry to re-run the polling effect in place,
+  // rather than reloading the page.
+  const [retryNonce, setRetryNonce] = useState(0)
   const seededRef = useRef(false)
 
   useEffect(() => {
@@ -244,32 +269,81 @@ export default function ConfirmationScreen({ token }) {
         return
       }
 
-      const stillWorking = applyPaperData(data)
-      if (!stillWorking) return
+      if (attempt === 0) mark(token, 'first_poll_response')
 
-      if (attempt === 0) {
-        // Make sure extraction was actually triggered. Safe to call
-        // even if it's already running: the server only ever acts on a
-        // paper genuinely still 'pending'.
-        fetch('/api/extract', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ token }),
-        }).catch(() => {})
+      const stillWorking = applyPaperData(data)
+
+      if (!stillWorking) {
+        // The moment the client can actually see a finished extraction.
+        // This is the number to compare against the server's own
+        // duration - the gap between them is the lag this page adds.
+        mark(token, 'extraction_observed', {
+          poll_attempts: attempt + 1,
+          extraction_status: data.extraction_status,
+        })
+        mark(token, 'fields_visible')
+        report(token)
+        return
+      }
+
+      // Safety net in case the form's trigger never landed. Delayed
+      // rather than immediate: the form already fired one with
+      // keepalive, and firing a second straight away only raced it.
+      // Re-checks `pending` at fire time so a paper already claimed in
+      // the meantime is left alone.
+      if (attempt === 0 && data.extraction_status === 'pending') {
+        setTimeout(() => {
+          if (cancelled) return
+          fetch('/api/extract', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token }),
+            keepalive: true,
+          }).catch(() => {})
+          mark(token, 'extract_triggered', { by: 'confirm_page' })
+        }, SAFETY_NET_DELAY_MS)
       }
 
       if (attempt >= MAX_POLL_ATTEMPTS) {
         setPollTimedOut(true)
+        // Report what we have even on a timeout. A submission that
+        // never finished is exactly the one whose stage timings are
+        // worth having.
+        mark(token, 'extraction_observed', {
+          poll_attempts: attempt + 1,
+          extraction_status: `timeout:${data.extraction_status}`,
+        })
+        report(token)
         return
       }
 
-      await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS))
+      await new Promise((resolve) => setTimeout(resolve, pollDelayMs(attempt)))
       pollLoop(attempt + 1)
     }
 
+    mark(token, 'confirm_page_mounted')
     pollLoop(0)
     return () => { cancelled = true }
-  }, [token])
+  }, [token, retryNonce])
+
+  // Asks the server to restart extraction, then restarts the poll
+  // without a page reload so the timings already recorded for this
+  // submission survive.
+  async function retryExtraction() {
+    setPollTimedOut(false)
+    setRetrying(true)
+    try {
+      await fetch('/api/extract', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token }),
+      })
+    } catch {
+      // Nothing to show: the poll below reports the real outcome.
+    }
+    setRetrying(false)
+    setRetryNonce((n) => n + 1) // re-runs the polling effect
+  }
 
   function setValue(key, v) {
     setValues((prev) => ({ ...prev, [key]: v }))
@@ -595,7 +669,18 @@ export default function ConfirmationScreen({ token }) {
       {pollTimedOut && extracting && (
         <p className={styles.timeoutNote}>
           This is taking longer than usual.{' '}
-          <button type="button" className={styles.linkButton} onClick={() => window.location.reload()}>Try again</button>
+          {/*
+            Reloading used to be the whole retry. It re-ran the poll but
+            could not restart a stalled extraction, because the route
+            refused to claim any paper not 'pending' - so a stuck paper
+            just waited out another two minutes, and the person did it
+            again. That loop is what turned a 15-second extraction into
+            a multi-minute wait. This asks the server to actually pick
+            the work back up, then resumes polling in place.
+          */}
+          <button type="button" className={styles.linkButton} onClick={retryExtraction} disabled={retrying}>
+            {retrying ? 'Restarting…' : 'Try again'}
+          </button>
         </p>
       )}
 

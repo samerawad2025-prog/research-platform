@@ -411,3 +411,50 @@ The popup animation is disabled under `prefers-reduced-motion`.
 **Files modified:** `components/CountrySelect.jsx` (new), `components/CountrySelect.module.css` (new), `components/PhoneField.jsx`, `components/PhoneField.module.css`.
 
 **Regression testing performed:** `npx eslint` clean, `npm run build` compiles. The country data this renders is covered by `scripts/test-phone-validation.js` (complete, sorted, duplicate-free, both name languages resolving). **The interaction itself is not covered by an automated test** — there is no DOM test harness in this project and the build environment cannot reach the deployed app, so the keyboard and pointer behaviour above is reasoned from the ARIA pattern and not empirically verified. Recorded as a real gap rather than glossed over; it is the first thing to exercise by hand on the deployed preview.
+
+---
+
+## 27. An extraction that lost its function was stuck in `processing` forever
+
+**Root cause:** the claim in `app/api/extract/route.js` is a compare-and-swap that only ever matched `extraction_status = 'pending'`. That is right for preventing a double extraction, but it also meant a paper that reached `processing` and then lost its function — a timeout, an instance killed mid-run, a deploy landing mid-extraction — could never be claimed by anything again. The confirmation page's own "Try again" could not rescue it either, because that called the same route and hit the same guard; it only reloaded the page and polled for another two minutes.
+
+**Why this is the amplifier behind the "six minutes" report.** The server has never taken more than 32 seconds. But a stuck paper produced this loop: poll for ~2 minutes → "This is taking longer than usual" → "Try again" → full page reload → poll for another ~2 minutes → and so on. Two or three rounds of that is a five-to-six-minute wait on top of an extraction that either finished in seconds or was never going to finish at all. This was the open bug **J**, proven materially harmful on paper `bb6db427`, which had to be repaired by hand with a direct database write.
+
+**Fix implemented:** `papers.extraction_started_at` records when the route claimed a paper (migration `0008`). A paper in `processing` whose claim is older than `STALE_CLAIM_MS` may be claimed again.
+
+Two constraints shaped this and both matter:
+
+- **`STALE_CLAIM_MS` (360s) must stay strictly greater than `maxDuration` (300s).** At 300s the platform has already killed the original invocation, so reclaiming at 360s cannot produce two live extractions of the same paper. If that ordering were ever reversed, a retry could start a second extraction while the first was still running, doubling the provider calls and breaking the two-call ceiling this project enforces everywhere else. There is a test asserting the inequality directly against the source, because the invariant is not obvious from either constant alone.
+- **A new column rather than reusing `created_at`.** The two are usually seconds apart but not always — `bb6db427` was claimed a day after submission. Judging staleness from `created_at` would let a second request reclaim a paper whose first extraction was still legitimately running. The claim time is the only honest basis for "has this been running too long".
+
+The reclaim is itself an exact compare-and-swap: it matches on the prior status **and** on the exact `extraction_started_at` it read, so two requests racing to reclaim the same abandoned paper cannot both win. Rows claimed before the column existed carry null, and fall back to `created_at` — safe, because such a row can only have been claimed by code that is no longer deployed. Reclaims are logged as `stale_claim_reclaimed`: if that line starts appearing often it means extractions are dying, not that the recovery is working well.
+
+"Try again" now asks the server to restart extraction and resumes polling in place, instead of reloading the page.
+
+**Files modified:** `app/api/extract/route.js`, `components/ConfirmationScreen.jsx`, `supabase/migrations/0008_extraction_claim_timestamp.sql` (new), `supabase/schema.sql`, `supabase/migrations/README.md`.
+
+**Migration applied to production** on 2026-09-20: additive, nullable, no default, no backfill, no rewrite of existing rows. Reversible with `alter table papers drop column extraction_started_at`.
+
+**Regression testing performed:** `scripts/test-timing.js` asserts the `STALE_CLAIM_MS > maxDuration` inequality, that the reclaim still matches on both the prior status and the exact claim timestamp, and that every claim records its own time. Column type and nullability verified against the live database after the migration. `npx eslint` clean, `npm run build` compiles. **The reclaim path itself has not been exercised end to end in production** — doing so requires an extraction to actually die, which cannot be staged from here. Recorded as a real gap.
+
+---
+
+## 28. Nothing measured the part of the wait the submitter actually experiences
+
+**Root cause:** every timestamp the system had was server-side, and the earliest of them — `papers.created_at` — is written by `submit_paper`, which runs **after** the file has finished uploading. So the two stages most likely to be slow for this platform's own users, on Sudanese connections, were invisible: the click itself, and pushing a multi-megabyte PDF up. "The logs say 11 seconds" was being compared against a wall-clock experience that included stages the system had never observed.
+
+Measured server-side times, from real production rows (`papers.created_at` → first `ai_generations` row, all ten submissions to date): 5.2s, 8.8s, 13.1s, 14.2s, 15.2s, 16.1s, 17.1s, 23.4s, 23.8s, 32.0s. Median ~16s. Nothing anywhere near six minutes. The gap was never in the extraction.
+
+**Fix implemented:** `lib/timing.js` marks eight stages in the browser — `submit_clicked`, `upload_complete`, `paper_created`, `extract_triggered`, `confirm_page_mounted`, `first_poll_response`, `extraction_observed`, `fields_visible` — and posts the per-stage durations to `/api/timing`, which writes them to the function log so client-observed and server-observed time finally appear in the same place.
+
+Details that are bugs if missed: the marks cross a navigation (`/submit` → `/confirm/[token]`), so they live in `sessionStorage` keyed by the confirmation token, with the pre-token marks held in memory and adopted once `submit_paper` returns one. Safari in private mode *throws* on `sessionStorage` access rather than returning null, so every read and write is guarded — losing a measurement must never break a submission. The report uses `keepalive`, since it fires exactly when someone might navigate away. The token is truncated to 8 characters before it can reach a log, and truncated again server-side because a client is not a trustworthy place to enforce that. A stage never reached is reported as `missing` rather than as a zero duration, because a zero reads as "instant" when it means "never happened". `/api/timing` stores nothing and takes no credential; its entire job is to turn a measurement into a log line.
+
+**Three real delays were found and removed while instrumenting:**
+
+1. **The extraction trigger could be cancelled by its own navigation.** `SubmissionForm` fires `fetch('/api/extract')` without awaiting it and immediately navigates. Without `keepalive`, the browser is entitled to cancel that request as the page unloads — so extraction would not start until the confirmation page's safety net fired seconds later. Now `keepalive: true`.
+2. **Two `/api/extract` invocations raced on every single submission.** The form fired one; the confirmation page fired another immediately at poll attempt 0. Only one could ever win the CAS. The safety net is now delayed by 2.5s and re-checks `pending` at fire time, so it only fires when the form's call genuinely did not land.
+3. **A flat 2500 ms poll added up to 2.5s of pure lag to every submission**, waiting on an answer already sitting in the database. Polling now backs off — 600 ms for the first 6s, 1.2s to ~30s, then 3s — which covers the entire measured distribution tightly while keeping the same overall ~2 minute budget and *fewer* total requests on a metered plan.
+
+**Files modified:** `lib/timing.js` (new), `app/api/timing/route.js` (new), `components/SubmissionForm.jsx`, `components/ConfirmationScreen.jsx`.
+
+**Regression testing performed:** `scripts/test-timing.js`, 10 checks, all passing, exit 0. Covers the no-storage path (the same path private mode takes), token truncation, durations being taken between consecutive reached stages, unreached stages appearing as `missing` rather than zero, the file size riding along with the upload mark, fewer-than-two-marks yielding no summary at all (run in a clean subprocess, since the module holds pre-token marks in memory), and the stage ordering that puts the upload before the paper row. `npx eslint` clean, `npm run build` compiles, `/api/timing` present in the route manifest.

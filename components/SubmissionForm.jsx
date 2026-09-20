@@ -11,6 +11,7 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '../lib/supabaseClient'
 import PhoneField from './PhoneField'
 import { DEFAULT_COUNTRY, validateWhatsApp, formatAsYouType } from '../lib/validation/phone'
+import { mark, adoptPendingMarks } from '../lib/timing'
 import styles from './SubmissionForm.module.css'
 
 const SCOPE_OPTIONS = [
@@ -211,6 +212,12 @@ export default function SubmissionForm() {
     setStatus('submitting')
     setErrorMsg('')
 
+    // Stage 1 begins here, at the click, not at the first server
+    // timestamp. Everything before papers.created_at used to be
+    // invisible, which is most of what a person on a slow connection
+    // actually waits through.
+    mark(null, 'submit_clicked')
+
     // Random, unguessable path — nothing about it reveals order,
     // timing, or lets someone target another submission's file.
     const filePath = buildFilePath(file.name)
@@ -221,6 +228,9 @@ export default function SubmissionForm() {
         .from('papers')
         .upload(filePath, file)
       if (uploadError) throw { __stage: 'upload', ...uploadError }
+      // File size is recorded with the mark: upload duration is
+      // meaningless without knowing how many bytes went up.
+      mark(null, 'upload_complete', { file_bytes: file.size })
 
       // 2. One atomic call creates the researcher, the paper, and
       //    links the submitter as a researcher on it — all or nothing.
@@ -237,20 +247,32 @@ export default function SubmissionForm() {
       if (rpcError) throw { __stage: 'rpc', ...rpcError }
 
       const token = data.confirmation_token
+      // The marks so far were held in memory because there was no
+      // token to key them by yet; hand them over now.
+      adoptPendingMarks(token)
+      mark(token, 'paper_created')
       setStatus('extracting')
 
       // 3. Kick off extraction now that the paper exists. The
       //    confirmation page polls for the result and handles a
       //    still-processing state on its own, so we don't block
       //    navigation on it completing first.
+      // keepalive is load-bearing, not a nicety. This fetch is
+      // deliberately not awaited and is immediately followed by a
+      // navigation; without keepalive the browser is entitled to
+      // cancel it as the page unloads, and extraction would not start
+      // until the confirmation page's own safety net fired seconds
+      // later. That delay was invisible because nothing measured it.
       fetch('/api/extract', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ token }),
+        keepalive: true,
       }).catch(() => {
         // If this fails to even fire, the paper still exists and stays
         // in "pending" — the confirmation page retries, nothing is lost.
       })
+      mark(token, 'extract_triggered', { by: 'form' })
 
       router.push(`/confirm/${token}`)
     } catch (err) {
