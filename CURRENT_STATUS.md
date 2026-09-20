@@ -12,6 +12,12 @@
 
 ---
 
+## Deployment state — read this first
+
+**Production serves `83a56e59` (PR #3).** PR #4 and everything in this session after it is **merged to the branch but was not in production at the time of this audit**. Anything below marked "verified in production" was verified against `83a56e59` unless it says otherwise.
+
+**Migration `0008` (`papers.extraction_started_at`) IS applied to the production database**, ahead of the code that writes it. That is safe — the column is nullable, nothing reads it on `83a56e59` — but it is a schema-ahead-of-code state worth knowing about.
+
 ## Measured stage timings (2026-09-20)
 
 Server-side, `papers.created_at` → first `ai_generations` row, all ten submissions to date: **5.2, 8.8, 13.1, 14.2, 15.2, 16.1, 17.1, 23.4, 23.8, 32.0 seconds** (median ~16s). Pure Gemini time, from the merged-row notes: 3.0–29.3s.
@@ -42,9 +48,8 @@ Vercel runtime logs for the relevant window are **not recoverable** — the logs
 | # | Symptom | Evidence | Status |
 |---|---|---|---|
 | F | No tool reads Vercel environment variables remotely | Re-confirmed 2026-09-18 with live Vercel access (`get_project`, `list_deployments`, `get_deployment` — none expose env vars). | **Open, structural.** Check the dashboard directly. |
-| M | **Gemini 429 handling ignores the delay the server states** | On 2026-09-19 a 429 said *"Please retry in 12.577097057s"*; the code retried after a fixed 1500 ms. The second 429 then said *"retry in 10.830900339s"* — the 1.746 s difference proves a rolling window and proves the retry landed **inside** it. It could not have succeeded. `response.headers` is never read (so `Retry-After` is discarded) and the body is truncated at 500 chars, cutting off `RetryInfo.retryDelay`. `RETRYABLE_STATUSES = [503, 429]` also conflates two different failures: a 503 retry is free, but a 429 retry **spends more of the quota you just exhausted**. | **Open.** *Supersedes bug I* — generic backoff (2s/8s = 10s cumulative) would also have failed here; honouring the server's stated delay is strictly better. Fix: split 429 from 503, honour `Retry-After` → `RetryInfo.retryDelay` → message text, **cap at ~20–30 s** (an exhausted daily quota returns an hours-long delay that would hang the function), and don't retry 429 on pass 2 at all — degrade to `partial` immediately. |
 | O | **`confirm_researcher_metadata` silently drops a year it doesn't like** | The RPC accepts a corrected year only when it matches `^[0-9]{4}$` and otherwise keeps the old value, returning no error. So an Arabic-Indic year typed on the confirmation screen was discarded without telling anyone. Worked around on the client (the year is now normalized to ASCII before being sent, bug #20), but the RPC itself is unchanged. | **Open, medium.** Needs a migration to either accept Arabic-Indic digits or raise a real error instead of failing silently. The client-side workaround means no user-visible impact today. |
-| P | **Preview deployments write to the production database** | Only one Supabase project exists, so any branch preview's test submission lands in the real `papers` table. Accepted near-zero-budget tradeoff, recorded here as a risk rather than a bug. | **Open, accepted.** Revisit if a second environment ever becomes affordable. |
+| P | **Preview deployments write to the production database — CONFIRMED, not theoretical** | Every Vercel env var targets `production` AND `preview`, including `SUPABASE_SERVICE_ROLE_KEY` (bypasses RLS) and `GEMINI_API_KEY` — verified against the Vercel API 2026-09-20. **Two production papers were written by preview deployments**: `0906ebe0` (00:55:55Z, after preview `4c47e352` at 00:40:20Z) and `f8676a50` (01:15:26Z, after preview `e7797321` at 01:11:11Z), both running 1 pass on an Arabic-only thesis — behaviour only the unmerged language-pair fix produces. | **Partially fixed.** Extraction is now blocked on preview (`BUG_HISTORY.md` #30). **The service-role key is still scoped to preview and needs an owner decision** — see Recommendations. |
 | N | `not_research` path never sets `failure_code` | `app/api/extract/route.js` sets `extraction_status='failed'` and `document_type='not_research'` but leaves `failure_code` null, contradicting `CLAUDE_CODE_HANDOVER.md` §4, which lists `not_research` as a valid value. Live evidence: the CV submitted 2026-09-19 has `failure_code: null`. | **Open, cosmetic.** No user-facing impact — the 422 message is still correct and specific. Diagnostic/contract inconsistency only. |
 
 ## Items closed
@@ -57,6 +62,10 @@ Vercel runtime logs for the relevant window are **not recoverable** — the logs
 - **`BUG_HISTORY.md` #17** — Arabic/non-ASCII filenames failed to upload silently. Fixed in `components/SubmissionForm.jsx`.
 
 **Closed 2026-09-20**
+
+- **M** — the 429 retry ignored the server-stated delay. Split from 503, honours `Retry-After` → `RetryInfo` → message text, caps at 30s, never retries a 429 on pass 2, never retries blind. `BUG_HISTORY.md` #29. *Proven against the recorded production error body; not reproducible live without deliberately exhausting quota.*
+- **#31** — a run that extracted nothing was stored identically to one that found everything (`bdc6d112`: 2 passes, 0/10 fields, `completed`). Field yield is now recorded and zero-yield runs are logged.
+- **#32** — a stuck paper had no automatic recovery, only a button. The confirmation page now re-triggers periodically and the server decides staleness. Also fixed a latent flaw in the reclaim's own compare-and-swap.
 
 - **J** — a stalled extraction had no recovery path. A paper in `processing` whose claim is older than 360s (strictly above the 300s function ceiling) can now be claimed again, and "Try again" restarts extraction instead of reloading the page. `BUG_HISTORY.md` #27. **Migration 0008 applied to production.**
 - **#28** — nothing measured the stages the submitter actually experiences. The upload was entirely invisible because the first server timestamp is written after it completes. Eight client-side stages now reported to `/api/timing`.
@@ -78,9 +87,16 @@ Vercel runtime logs for the relevant window are **not recoverable** — the logs
 - **K** — year coercion stranding an extraction. Fixed; `BUG_HISTORY.md` #18.
 - **L** — unchecked `papers` updates swallowing write errors. Fixed; `BUG_HISTORY.md` #19.
 
+## Recommendations needing an owner decision
+
+1. **Remove `SUPABASE_SERVICE_ROLE_KEY` and `GEMINI_API_KEY` from the `preview` target in Vercel.** This is the only thing that actually closes the credential half of bug P; the code guard stops the pipeline but cannot un-issue a key that is present in the environment. It breaks preview extraction entirely, even with `ALLOW_PREVIEW_EXTRACTION=true`, which is why it is not applied unilaterally.
+2. **Create a second Supabase project for preview.** The free tier allows two. This is the real fix, and it also removes the "test submissions land in the real papers table" problem. Costs setup time, not money.
+3. **A distinct `extraction_status` for a zero-yield run.** More honest than `completed`, but touches the status CHECK constraint, both RPCs, and the confirmation UI's branching — medium risk, deferred deliberately (`BUG_HISTORY.md` #31).
+4. **Bug O** — `confirm_researcher_metadata` silently drops a year that isn't `^[0-9]{4}$`. Worked around client-side; a proper fix needs a migration.
+
 ## Technical debt
 
-- No CI wired to any of the six test scripts (`test-docx-extraction.js`, `test-year-normalization.js`, `test-language-pairs.js`, `test-phone-validation.js`, `test-field-pairs.js`, `test-timing.js`). All pass standalone; none runs on anybody's schedule. This is now the single highest-value piece of technical debt — there are enough tests to be worth running automatically.
+- No CI wired to any of the seven test scripts (`test-year-normalization.js`, `test-language-pairs.js`, `test-phone-validation.js`, `test-field-pairs.js`, `test-timing.js`, `test-retry-policy.js` — all self-contained and passing; plus `test-docx-extraction.js`, which **cannot run unattended**: it requires a real `.docx` path as an argument and there is no fixture in the repo). All pass standalone; none runs on anybody's schedule. This is now the single highest-value piece of technical debt — there are enough tests to be worth running automatically.
 - `lib/extraction/keywordScan.js` has no markers for `year`, so a DOCX missing only its year falls through to the 12,000-character fallback slice rather than a targeted excerpt. Harmless (the fallback works) but wasteful.
 - **No DOM/component test harness exists.** Pure logic is well covered, but nothing exercises a rendered component, so `CountrySelect`'s keyboard and pointer behaviour is reasoned from the ARIA pattern rather than verified. Exercise it by hand on the preview.
 - The confirmation screen's poll gives up after ~2 minutes and offers a manual retry, which reloads the page. With bug J still open, that retry cannot rescue a paper stuck in `processing`.

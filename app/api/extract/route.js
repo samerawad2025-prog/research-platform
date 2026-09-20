@@ -10,6 +10,7 @@ import { getSupabaseAdmin } from '../../../lib/supabaseAdminClient'
 import { runExtraction } from '../../../lib/extraction/orchestrator'
 import { decideApplication } from '../../../lib/extraction/applyResult'
 import { getProvider } from '../../../lib/ai'
+import { extractionAllowed } from '../../../lib/env'
 
 // Without this, the platform's own default function timeout (well under
 // GEMINI_TIMEOUT_MS x up to 2 calls x up to 2 attempts each) can kill this
@@ -66,6 +67,17 @@ export async function POST(request) {
     return Response.json({ error: 'Missing confirmation token.' }, { status: 400 })
   }
 
+  // Checked before anything else touches the database or the AI
+  // provider. Every env var on this project is scoped to preview as
+  // well as production, including the service-role key, so without
+  // this a branch preview writes to the real papers table and spends
+  // the real Gemini quota (BUG_HISTORY.md #30).
+  const envCheck = extractionAllowed()
+  if (!envCheck.allowed) {
+    console.warn(JSON.stringify({ stage: 'extraction_blocked', reason: envCheck.reason }))
+    return Response.json({ error: envCheck.detail, reason: envCheck.reason }, { status: 503 })
+  }
+
   let supabase
   try {
     supabase = getSupabaseAdmin()
@@ -101,6 +113,7 @@ export async function POST(request) {
     return Date.now() - new Date(basis).getTime() > STALE_CLAIM_MS
   }
 
+  const staleBefore = new Date(Date.now() - STALE_CLAIM_MS).toISOString()
   const reclaiming = paper.extraction_status === 'processing' && isAbandoned(paper)
 
   if (paper.extraction_status !== 'pending' && !reclaiming) {
@@ -121,8 +134,19 @@ export async function POST(request) {
 
   if (reclaiming) {
     claimQuery = claimQuery.eq('extraction_status', 'processing')
+    // Matching on "still stale" rather than on the exact timestamp
+    // read. Both are correct compare-and-swaps - once one request wins,
+    // the row's timestamp becomes now(), which is neither equal to the
+    // old value nor less than staleBefore, so a second request matches
+    // zero rows either way.
+    //
+    // This form is preferred because it does not depend on a timestamptz
+    // round-tripping through PostgREST's text encoding byte-for-byte.
+    // Postgres stores microseconds; a JS ISO string carries
+    // milliseconds; an equality match across that boundary is a subtle
+    // way to silently never match.
     claimQuery = paper.extraction_started_at
-      ? claimQuery.eq('extraction_started_at', paper.extraction_started_at)
+      ? claimQuery.lt('extraction_started_at', staleBefore)
       : claimQuery.is('extraction_started_at', null)
   } else {
     claimQuery = claimQuery.eq('extraction_status', 'pending')
@@ -224,6 +248,20 @@ export async function POST(request) {
       notes: g.pass === 2 ? `Pass 2, targeted at: ${(g.missingFieldsRequested || []).join(', ')}` : 'Pass 1',
     }))
 
+    // A research document that yielded nothing is worth a log line of
+    // its own. It is stored as 'completed' - which is honest, the run
+    // did complete - but in the status column it is indistinguishable
+    // from a run that found everything, and that is how paper bdc6d112
+    // (two passes, zero fields) went unnoticed.
+    if (extraction.extractionYield.zeroYield && extraction.documentType !== 'not_research') {
+      console.warn(JSON.stringify({
+        stage: 'extraction_zero_yield',
+        paperId: paper.id,
+        documentType: extraction.documentType,
+        passesRun: extraction.passesRun,
+      }))
+    }
+
     // A "merged" row only makes sense when there's an actual merge to
     // represent. On a partial outcome, pass 1's own row already IS the
     // current best result - there is nothing to merge it with.
@@ -235,7 +273,10 @@ export async function POST(request) {
         model_used: extraction.model,
         status: 'success',
         result_data: extraction.finalResult,
-        notes: `Merged result after ${extraction.passesRun} pass(es) in ${extractionDurationMs}ms. Document type: ${extraction.documentType || 'unknown'}.`,
+        notes:
+          `Merged result after ${extraction.passesRun} pass(es) in ${extractionDurationMs}ms. ` +
+          `Document type: ${extraction.documentType || 'unknown'}. ` +
+          `Fields found: ${extraction.extractionYield.foundCount}/${extraction.extractionYield.totalFields}.`,
       })
     }
 

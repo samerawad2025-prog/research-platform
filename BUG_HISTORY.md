@@ -458,3 +458,88 @@ Details that are bugs if missed: the marks cross a navigation (`/submit` → `/c
 **Files modified:** `lib/timing.js` (new), `app/api/timing/route.js` (new), `components/SubmissionForm.jsx`, `components/ConfirmationScreen.jsx`.
 
 **Regression testing performed:** `scripts/test-timing.js`, 10 checks, all passing, exit 0. Covers the no-storage path (the same path private mode takes), token truncation, durations being taken between consecutive reached stages, unreached stages appearing as `missing` rather than zero, the file size riding along with the upload mark, fewer-than-two-marks yielding no summary at all (run in a clean subprocess, since the module holds pre-token marks in memory), and the stage ordering that puts the upload before the paper row. `npx eslint` clean, `npm run build` compiles, `/api/timing` present in the route manifest.
+
+---
+
+## 29. The 429 retry ignored the delay the server stated, and spent quota proving it
+
+**Root cause:** `lib/ai/providers/gemini.js` treated 503 and 429 as one class (`RETRYABLE_STATUSES = [503, 429]`) and retried both after a fixed `RETRY_DELAY_MS = 1500`. It never read `response.headers`, so `Retry-After` was discarded, and it truncated the error body to 500 characters for logging without parsing it first, so `RetryInfo.retryDelay` was thrown away before anything could use it.
+
+Those two statuses are not the same failure. A 503 means Google is overloaded: the failed call consumed nothing, and a quick retry is free. A 429 means quota is exhausted: a retry that arrives too early **fails and spends more of the quota that was just exhausted**.
+
+**Investigation summary:** on 2026-09-19 a 429 said *"Please retry in 12.577097057s"* and the code retried after 1500 ms — roughly an eighth of the stated wait. The retry produced a second 429 stating *"retry in 10.830900339s"*. The 1.746 s difference between those two figures is the evidence: the window was rolling, and the retry landed inside it. It could not have succeeded.
+
+**Fix implemented:** the policy moved to `lib/ai/retryPolicy.js`, separate from the transport so it can be tested against the error bodies Google actually returns.
+
+- **503** → a short 2 s backoff with ±15 % jitter, so simultaneous submissions don't come back in lockstep.
+- **429 on pass 1** → wait the server's stated delay, read from `Retry-After`, then `RetryInfo.retryDelay`, then the message text (which is where the real production 429 carried it). The body is now parsed **before** truncation.
+- **429 on pass 2** → do not retry at all. Pass 1's result is already in hand and the run degrades to `partial` (`BUG_HISTORY.md` #10); spending more of an exhausted quota, and up to 30 s of the person's time, to improve an already-usable outcome is the wrong trade.
+- **429 with no stated delay** → do not retry. Retrying blind against a quota limit is the exact mistake this exists to stop.
+- **A stated delay above 30 s** → do not retry. An exhausted *daily* quota returns a delay measured in hours; honouring it would hold a serverless function open until the platform kills it, turning a clean failure into a stuck paper.
+
+**A bug in the fix, caught by its own test.** The quota wait was initially jittered symmetrically, which on a 12.577 s stated delay produced a 12.029 s wait — back inside the very window the fix exists to clear. Jitter on a server-stated delay is now upward-only. A test draws 1000 times and asserts the wait always exceeds the stated delay.
+
+**Cost and latency.** The retry budget is unchanged at one per pass, so the worst case is still 2 extraction calls and at most 2 HTTP attempts each. A pass-1 429 now costs up to ~15 s of added latency instead of a guaranteed-useless 1.5 s; a pass-2 429 costs *less* than before, since it no longer retries at all. `.retryable` was removed from `ExtractionError` — a boolean cannot carry a decision that depends on status, pass, and a server-stated delay.
+
+**Files modified:** `lib/ai/retryPolicy.js` (new), `lib/ai/providers/gemini.js`, `lib/extraction/errors.js`.
+
+**Regression testing performed:** `scripts/test-retry-policy.js`, 33 checks, all passing, exit 0. Built on the literal production 429 body. Covers all three delay sources and their precedence, an HTTP-date `Retry-After`, malformed and absent delays, every non-retryable status, the pass-1/pass-2 asymmetry, the 30 s cap, the one-retry budget, and the upward-jitter invariant. **Not verified in production:** reproducing a 429 on demand would mean deliberately exhausting the quota, which costs real money and real availability. The behaviour is proven against the recorded error shape, not against a live 429.
+
+---
+
+## 30. Preview deployments write to the production database, and it has already happened
+
+**Root cause:** every environment variable on the Vercel project is scoped to **both** `production` and `preview`. Verified directly against the Vercel API on 2026-09-20: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `GEMINI_API_KEY`, `AI_PROVIDER`, and the four `GEMINI_*` tuning vars all carry `target: ["production", "preview"]`. There is one Supabase project and one Gemini key, so a preview build of any branch talks to the real database — with the service-role credential, which bypasses RLS entirely — and spends the real AI quota.
+
+This was previously recorded as bug **P**, an accepted tradeoff. It is not a theoretical tradeoff.
+
+**Proof that it has already occurred.** Two papers in the production `papers` table were written by preview deployments running unmerged code:
+
+| paper | created | preview deployment | deployed at | passes |
+|---|---|---|---|---|
+| `0906ebe0` | 00:55:55Z | `4c47e352` | 00:40:20Z | 1 |
+| `f8676a50` | 01:15:26Z | `e7797321` | 01:11:11Z | 1 |
+
+Both are Arabic-only theses where `title` is `not_found` and `title_ar` is `found`. Production code (`83a56e59`) treats a missing English title as a critical gap and runs a second Gemini call; these ran **one**. One pass on that input is the behaviour of the unmerged language-pair fix (`BUG_HISTORY.md` #21) and of nothing else. Each was submitted minutes after the corresponding preview went live.
+
+**Severity:** high for the credential exposure (any branch build holds a key that bypasses every RLS policy), medium for the data and quota effects today, given a single-maintainer repository with no outside contributors. The blast radius grows the moment anyone else can open a pull request.
+
+**Fix implemented:** `lib/env.js` reads `VERCEL_ENV`, and `app/api/extract/route.js` refuses to run on a preview deployment before it touches the database or the provider, returning 503 with a specific reason and logging `extraction_blocked`. An explicit `ALLOW_PREVIEW_EXTRACTION=true` overrides it per deployment for the times that is genuinely wanted.
+
+This is deliberately **not** a blanket block on database access. The submission form must still work on a preview for a preview to be worth having, and a submitted row is visible and attributable. What it stops is the expensive, mutating, hard-to-notice half: AI calls and the writes that follow them.
+
+**What this does NOT fix, and why it needs a decision.** The service-role key is still present in the preview environment; any code on any branch could use it directly. Closing that means removing `SUPABASE_SERVICE_ROLE_KEY` and `GEMINI_API_KEY` from the preview target in Vercel, which would break preview extraction entirely even with the override, and/or creating a second Supabase project for preview (the free tier allows two). Both change the project owner's workflow, so both are recorded as recommendations rather than applied unilaterally.
+
+**Files modified:** `lib/env.js` (new), `app/api/extract/route.js`.
+
+**Regression testing performed:** `scripts/test-timing.js` asserts the guard exists and runs *before* the claim, not after. `npx eslint` clean, `npm run build` compiles. The block itself has not been exercised on a live preview deployment.
+
+---
+
+## 31. A run that extracted nothing at all was recorded as `completed`
+
+**Root cause:** `extraction_status` answers "did the pipeline finish", not "did it find anything". Those are different questions and only the first was ever recorded, so a run that returned `not_found` for every single field was stored identically to one that found everything.
+
+**Investigation summary:** paper `bdc6d112` was classified `research_report`, ran **two** passes over 21.3 s, and returned `not_found` for title, title_ar, abstract, abstract_ar, year, supervisor, university, faculty, degree and researchers — every field. It is stored as `completed`. Separately, paper `6e0d9728`'s pass-1 row contains parseable JSON with **none** of the expected keys present at all, and the pipeline carried on silently and relied on pass 2 to supply them.
+
+**Fix implemented:** `extractionYield()` in the orchestrator counts how many fields a run actually resolved. The count is written into the merged generation's notes (`Fields found: 3/10.`) and a zero-yield run on a research document — `not_research` correctly yields nothing and is excluded — emits a `extraction_zero_yield` warning. Deliberately observability only: no status value changes, no UI changes, no behaviour changes. It makes "how often does extraction return nothing useful" answerable, which it previously was not.
+
+**Higher-risk option, not taken:** a distinct `extraction_status` value for a zero-yield run would be more honest but touches the status CHECK constraint, both RPCs, and the confirmation UI's branching. Recorded in `CURRENT_STATUS.md` as a recommendation.
+
+**Files modified:** `lib/extraction/orchestrator.js`, `app/api/extract/route.js`.
+
+**Regression testing performed:** `npx eslint` clean, `npm run build` compiles. The yield figure will appear on the next real extraction; it has not yet been observed in production.
+
+---
+
+## 32. A stuck paper had no automatic recovery, only a button nobody might press
+
+**Root cause:** the reclaim added in #27 works, but nothing calls it on its own. The confirmation page's safety-net trigger fires only when the paper is `pending`; a paper stuck in `processing` got no automatic re-trigger at all. Recovery depended entirely on a human noticing the page had stalled and pressing "Try again" — and if they closed the tab, the paper stayed stuck forever.
+
+**Fix implemented:** once polling has run past the point where a healthy extraction would have finished (~30 s), the confirmation page re-triggers periodically, about once a minute. The **server** decides whether the claim is actually stale, so a nudge arriving too early is refused cheaply as `alreadyHandled` — it can never shorten the staleness window or cause a duplicate extraction.
+
+**A second weakness fixed at the same time.** The reclaim originally matched on the exact `extraction_started_at` value it had read. Postgres stores microseconds and a JS ISO string carries milliseconds, so an equality match across that boundary is a quiet way to never match at all — the reclaim could have silently never fired. It now matches on `extraction_started_at < staleBefore`, which is equally atomic (once one request wins, the row's timestamp becomes `now()`, which is no longer inside the stale window, so a second concurrent request matches zero rows) and does not depend on a timestamp round-tripping byte-for-byte through PostgREST.
+
+**Files modified:** `components/ConfirmationScreen.jsx`, `app/api/extract/route.js`, `scripts/test-timing.js`.
+
+**Regression testing performed:** `scripts/test-timing.js` asserts the CAS matches on the staleness window, that the equality form is not reintroduced, that a null (pre-migration) claim timestamp is still reclaimable, and that `STALE_CLAIM_MS` still exceeds `maxDuration`. 12 checks, all passing. **Still not proven end to end in production** — see the assessment in `CURRENT_STATUS.md`.

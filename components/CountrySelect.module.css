@@ -163,8 +163,16 @@
   color: #777;
 }
 
+/* No phone-width width override. The trigger is now narrow (a flag and
+   a dial code), so "width: 100%" here would size the popup to the
+   TRIGGER rather than to the screen, leaving a ~5rem list of country
+   names. The base rule already handles small screens correctly:
+   19rem, capped at the viewport less a gutter. */
+
 @media (max-width: 480px) {
-  .popup {
-    width: 100%;
+  /* Keep the list short enough that the search field stays on screen
+     with a software keyboard open. */
+  .list {
+    max-height: 12rem;
   }
 }

@@ -45,14 +45,45 @@ check('STALE_CLAIM_MS is strictly greater than maxDuration', () => {
   )
 })
 
-check('the reclaim is an exact compare-and-swap, not a blind update', () => {
+check('the reclaim is a compare-and-swap, not a blind update', () => {
   // If this ever becomes a bare status update, two concurrent retries
-  // could both claim the same abandoned paper.
-  assert.ok(routeSrc.includes("claimQuery.eq('extraction_status', 'processing')"), 'reclaim must still match on the prior status')
+  // could both claim the same abandoned paper and run it twice.
   assert.ok(
-    routeSrc.includes("claimQuery.eq('extraction_started_at', paper.extraction_started_at)"),
-    'reclaim must match on the exact claim timestamp it read'
+    routeSrc.includes("claimQuery.eq('extraction_status', 'processing')"),
+    'reclaim must still match on the prior status'
   )
+  // Matching on "still stale" is the CAS: once one request wins, the
+  // row's timestamp becomes now(), which is no longer < staleBefore, so
+  // a second concurrent request matches zero rows.
+  //
+  // Deliberately NOT an equality match on the timestamp that was read.
+  // Postgres stores microseconds and a JS ISO string carries
+  // milliseconds, so equality across that boundary is a quiet way to
+  // never match at all.
+  assert.ok(
+    routeSrc.includes("claimQuery.lt('extraction_started_at', staleBefore)"),
+    'reclaim must match on the staleness window, which is what makes it atomic'
+  )
+  assert.ok(
+    !routeSrc.includes("claimQuery.eq('extraction_started_at', paper.extraction_started_at)"),
+    'an equality match on a timestamptz round-trip must not be reintroduced'
+  )
+  // A row claimed before the column existed carries null and must still
+  // be reclaimable, or the legacy stuck papers stay stuck.
+  assert.ok(
+    routeSrc.includes("claimQuery.is('extraction_started_at', null)"),
+    'a null claim timestamp (pre-migration row) must still be reclaimable'
+  )
+})
+
+check('a preview deployment cannot run extraction by default', () => {
+  assert.ok(
+    routeSrc.includes('extractionAllowed()'),
+    'the environment guard must run before anything touches the database or the AI provider'
+  )
+  const guardAt = routeSrc.indexOf('extractionAllowed()')
+  const claimAt = routeSrc.indexOf('claimQuery')
+  assert.ok(guardAt > -1 && guardAt < claimAt, 'the guard must come before the claim, not after')
 })
 
 check('every claim records when it happened', () => {

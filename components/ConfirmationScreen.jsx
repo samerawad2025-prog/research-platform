@@ -41,6 +41,18 @@ const MAX_POLL_ATTEMPTS = 60 // ~2 minutes, then offer a real retry
 // gives the form's call time to land first.
 const SAFETY_NET_DELAY_MS = 2500
 
+// A paper stuck in 'processing' gets no automatic rescue from the
+// safety net above, because that only fires on 'pending'. Without this,
+// an abandoned extraction waits for a human to notice and click "Try
+// again" - and if nobody does, it is stuck forever. So once the poll
+// has run long enough that a healthy extraction would have finished,
+// re-trigger periodically and let the SERVER decide whether the claim
+// is actually stale. A call that arrives too early is refused cheaply
+// (alreadyHandled), so this can never shorten the staleness window or
+// cause a duplicate extraction.
+const STUCK_RETRIGGER_AFTER_ATTEMPTS = 24 // ~30s of polling
+const STUCK_RETRIGGER_EVERY_ATTEMPTS = 20 // then roughly once a minute
+
 // title_ar and abstract_ar were extracted, stored, and returned by
 // get_paper_for_confirmation from the start - but were missing from
 // THIS list, so the confirmation screen never rendered them. On an
@@ -258,6 +270,16 @@ export default function ConfirmationScreen({ token }) {
       return stillWorking
     }
 
+    function triggerExtraction(by) {
+      fetch('/api/extract', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token }),
+        keepalive: true,
+      }).catch(() => {})
+      mark(token, 'extract_triggered', { by })
+    }
+
     async function pollLoop(attempt) {
       if (cancelled) return
 
@@ -294,14 +316,18 @@ export default function ConfirmationScreen({ token }) {
       if (attempt === 0 && data.extraction_status === 'pending') {
         setTimeout(() => {
           if (cancelled) return
-          fetch('/api/extract', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ token }),
-            keepalive: true,
-          }).catch(() => {})
-          mark(token, 'extract_triggered', { by: 'confirm_page' })
+          triggerExtraction('confirm_page')
         }, SAFETY_NET_DELAY_MS)
+      }
+
+      // Periodic nudge for a paper that has been 'processing' too long.
+      // The server enforces the staleness rule, so an early nudge is a
+      // cheap no-op rather than a duplicate extraction.
+      if (
+        attempt >= STUCK_RETRIGGER_AFTER_ATTEMPTS &&
+        (attempt - STUCK_RETRIGGER_AFTER_ATTEMPTS) % STUCK_RETRIGGER_EVERY_ATTEMPTS === 0
+      ) {
+        triggerExtraction('stuck_nudge')
       }
 
       if (attempt >= MAX_POLL_ATTEMPTS) {
