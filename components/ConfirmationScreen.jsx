@@ -523,6 +523,15 @@ export default function ConfirmationScreen({ token }) {
   const failed = paper?.extraction_status === 'failed'
   const partial = paper?.extraction_status === 'partial'
   const encrypted = failed && paper?.failure_code === 'encrypted_document'
+  // A failure in OUR pipeline or the AI provider's, not in the
+  // submitter's file. Telling someone their document is unreadable
+  // because Google's model was busy is both wrong and insulting to the
+  // work they just uploaded - and it is the exact collapse of distinct
+  // failures into one message that BUG_HISTORY.md #7 exists to stop.
+  // Observed in production: two real submissions failed this way on a
+  // 503 "This model is currently experiencing high demand".
+  const TRANSIENT_FAILURES = ['api_error', 'timeout', 'empty_response', 'malformed_json', 'internal']
+  const transientFailure = failed && TRANSIENT_FAILURES.includes(paper?.failure_code)
 
   // A CV, invoice, or anything that isn't research. Say so plainly
   // rather than dropping the person into a confirmation screen full of
@@ -558,6 +567,24 @@ export default function ConfirmationScreen({ token }) {
           most word processors offer this under a &ldquo;Protect Document&rdquo; or &ldquo;Encrypt&rdquo; setting when saving.
         </p>
         <a href="/submit" className={styles.primaryLink}>Start a new submission</a>
+      </div>
+    )
+  }
+
+  // Temporary, on our side, and retryable by the person right now.
+  if (transientFailure) {
+    return (
+      <div className={styles.centered}>
+        <h1 className={styles.noticeHeading}>We couldn&rsquo;t finish reading it just now</h1>
+        <p>
+          There&rsquo;s nothing wrong with your document. Our reading service was
+          temporarily busy and didn&rsquo;t respond in time.
+        </p>
+        <p>Your submission is saved. You can try again right now, or leave it and we&rsquo;ll follow up by email.</p>
+        <button type="button" className={styles.primaryLink} onClick={retryExtraction} disabled={retrying}>
+          {retrying ? 'Trying again\u2026' : 'Try again'}
+        </button>
+        {errorMsg && <p role="alert" className={styles.errorMessage}>{errorMsg}</p>}
       </div>
     )
   }

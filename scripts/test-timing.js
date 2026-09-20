@@ -76,6 +76,35 @@ check('the reclaim is a compare-and-swap, not a blind update', () => {
   )
 })
 
+check('a transient failure is retryable, a permanent one is not', () => {
+  // A paper that failed because the PROVIDER was busy must be
+  // re-runnable; one that failed because it is a CV must not be, or
+  // the retry spends a provider call to get the identical answer.
+  const m = routeSrc.match(/const TRANSIENT_FAILURE_CODES = \[([^\]]+)\]/)
+  assert.ok(m, 'the transient failure list must exist')
+  const codes = m[1]
+  for (const transient of ['api_error', 'timeout', 'empty_response', 'malformed_json']) {
+    assert.ok(codes.includes(transient), `${transient} must be retryable`)
+  }
+  for (const permanent of ['not_research', 'unsupported_file_type', 'encrypted_document']) {
+    assert.ok(!codes.includes(permanent), `${permanent} must NOT be retryable`)
+  }
+})
+
+check('a failed-paper retry is a compare-and-swap with a cooldown', () => {
+  assert.ok(
+    routeSrc.includes("claimQuery.eq('extraction_status', 'failed')"),
+    'two clicks must not both start an extraction'
+  )
+  assert.ok(/FAILED_RETRY_COOLDOWN_MS\s*=\s*[\d_]+/.test(routeSrc), 'a cooldown must bound manual retries')
+})
+
+check('a claim always clears the previous failure_code', () => {
+  // Otherwise a retried paper that SUCCEEDS still carries the old code
+  // and looks like it failed.
+  assert.ok(routeSrc.includes('failure_code: null'), 'a stale failure_code must not survive a new claim')
+})
+
 check('a preview deployment cannot run extraction by default', () => {
   assert.ok(
     routeSrc.includes('extractionAllowed()'),

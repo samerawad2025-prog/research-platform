@@ -627,3 +627,41 @@ Materially lower risk than `BUG_HISTORY.md` #1, because this one is `SECURITY IN
 **Files modified:** `supabase/migrations/0009_trigger_search_path.sql` (new), `supabase/migrations/README.md`.
 
 **Migration applied to production** on 2026-09-20. Verified after: the linter no longer reports `function_search_path_mutable`, and all three `SECURITY DEFINER` RPCs were re-confirmed as carrying `search_path=public, extensions` in `pg_proc.proconfig` — so `BUG_HISTORY.md` #1 remains structurally prevented, not merely absent.
+
+---
+
+## 36. A provider outage was reported to the submitter as "we couldn't read this document"
+
+**Root cause:** three separate faults, each of which alone would have been survivable.
+
+On 2026-09-20 two real submissions failed within seconds of each other. The cause was entirely upstream:
+
+```
+{"code": 503, "status": "UNAVAILABLE",
+ "message": "This model is currently experiencing high demand.
+             Spikes in demand are usually temporary. Please try again later."}
+```
+
+Nothing was wrong with either document. One was an English PDF, one Arabic; both had been extracted successfully before.
+
+**1. The retry ladder was far too short for what a 503 actually is.** The policy fired correctly — attempt 1 → 503, waited 2193 ms and 1931 ms (the new jittered backoff, working exactly as designed), attempt 2 → 503, gave up. Total elapsed under ten seconds on both. But a demand spike lasts minutes, not two seconds, so a single short retry could never have cleared one. The fix for `BUG_HISTORY.md` #29 correctly separated 429 from 503 and then gave 503 a budget sized for a 429.
+
+**2. The failure message blamed the submitter's document.** `papers.failure_code` was set correctly to `api_error`, but `ConfirmationScreen` only branched on `not_research` and `encrypted_document`; everything else fell through to *"We couldn't read this document... This sometimes happens with unusual formats or scanned pages of low quality."* Someone who had just uploaded a perfectly good thesis was told their work was unreadable because Google was busy. This is precisely the collapse of distinct failures into one message that `BUG_HISTORY.md` #7 exists to prevent — the typed code was there, and nothing read it.
+
+**3. A failed paper was a permanent dead end.** The reclaim added in #27 covers `processing` only. A paper that reached `failed` could never be claimed again by anything: not the automatic nudge, not "Try again" — that screen had no retry control at all. A temporary outage produced a permanently dead submission.
+
+**Investigation summary:** read directly from the stored diagnostics and the function log. Both `ai_generations` rows carry `httpStatus: 503`, `attempt: 2`, `retryAlsoFailed: true`, and the verbatim Google message. The log shows the full sequence per request: `gemini_request` attempt 1 → `gemini_response` 503 → `gemini_retry` (`reason: overloaded`, `delayMs: 2193`) → `gemini_request` attempt 2 → `gemini_response` 503 → `gemini_retry_failed` → `extraction_failed`. The instrumentation added in #28 made this a five-minute diagnosis instead of a hypothesis.
+
+**Fix implemented:**
+
+- **A real ladder for 503.** `OVERLOAD_BACKOFF_MS` is now `[2000, 9000]` — two retries with escalating, jittered waits, rather than one. A 503 returns no content and is billed for nothing, so the extra attempt is free; the whole ladder adds at most ~12 s against a 300 s ceiling. 429 is deliberately **unchanged** at one retry, because unlike a 503 it spends the quota it just exhausted. `callGemini` became a bounded loop driven by the policy's attempt count instead of a hand-written single retry.
+- **A distinct screen for a transient failure.** *"We couldn't finish reading it just now — there's nothing wrong with your document. Our reading service was temporarily busy and didn't respond in time."* With a working **Try again** button.
+- **Transient failures are re-claimable.** The extract route now accepts a paper in `failed` whose `failure_code` is one of `api_error`, `timeout`, `empty_response`, `malformed_json`, `internal` — after a 30 s cooldown so the button cannot be used to hammer the provider, and as the same compare-and-swap shape as every other claim so two clicks cannot both start an extraction. `not_research`, `unsupported_file_type` and `encrypted_document` are deliberately excluded: re-running those spends a provider call to get the identical answer. Every claim now also clears `failure_code`, so a retried paper that succeeds does not keep looking like it failed.
+
+**This does not affect the two-provider-call ceiling.** That ceiling counts extraction *passes*, enforced by the orchestrator. A 503 returns no content and costs nothing, so re-sending it is not a third extraction — it is the same pass still trying to happen.
+
+**Files modified:** `lib/ai/retryPolicy.js`, `lib/ai/providers/gemini.js`, `components/ConfirmationScreen.jsx`, `app/api/extract/route.js`.
+
+**Regression testing performed:** `scripts/test-retry-policy.js` (38 checks) now builds on the literal production 503 body and asserts that a 503 gets more than one retry, that the waits escalate, that the ladder is bounded, that the whole ladder stays far inside the time budget, and that a 429 still gets exactly one retry. `scripts/test-timing.js` asserts the transient/permanent split of failure codes, the cooldown, the compare-and-swap on the failed-retry claim, and that a claim clears `failure_code`. All 7 suites pass; `eslint` clean; build compiles.
+
+**Not verified in production:** reproducing a 503 on demand would mean waiting for Google to be overloaded again. The ladder and the retry path are proven against the recorded error shape, not against a live outage.

@@ -34,6 +34,24 @@ export const maxDuration = 300
 // minute of waiting.
 const STALE_CLAIM_MS = 360_000
 
+// Failure codes that describe a problem on OUR side or the provider's,
+// not in the submitted document. A paper that failed this way is worth
+// re-running: the document was never the problem. Observed in
+// production 2026-09-20, when Google returned 503 "This model is
+// currently experiencing high demand" and two perfectly good papers
+// were left permanently failed (BUG_HISTORY.md #36).
+//
+// Deliberately excludes not_research, unsupported_file_type and
+// encrypted_document: re-running those would produce the identical
+// answer and spend a provider call to do it.
+const TRANSIENT_FAILURE_CODES = ['api_error', 'timeout', 'empty_response', 'malformed_json', 'internal']
+
+// A floor between retries of a failed paper, so the button cannot be
+// used to hammer the provider. Short enough to be unnoticeable to
+// someone genuinely retrying, long enough that a held-down click or a
+// stuck reload loop cannot spend the budget.
+const FAILED_RETRY_COOLDOWN_MS = 30_000
+
 function hashToken(token) {
   return crypto.createHash('sha256').update(token).digest('hex')
 }
@@ -88,7 +106,7 @@ export async function POST(request) {
 
   const { data: paper, error: lookupError } = await supabase
     .from('papers')
-    .select('id, file_path, metadata_confirmed_at, extraction_status, extraction_started_at, created_at')
+    .select('id, file_path, metadata_confirmed_at, extraction_status, extraction_started_at, created_at, failure_code')
     .eq('confirmation_token_hash', hashToken(token))
     .maybeSingle()
 
@@ -116,8 +134,27 @@ export async function POST(request) {
   const staleBefore = new Date(Date.now() - STALE_CLAIM_MS).toISOString()
   const reclaiming = paper.extraction_status === 'processing' && isAbandoned(paper)
 
-  if (paper.extraction_status !== 'pending' && !reclaiming) {
-    return Response.json({ status: paper.extraction_status, alreadyHandled: true })
+  // A transient failure is retryable, after a short cooldown. Without
+  // this the "Try again" button on the failure screen calls this route
+  // and is refused, so a paper that failed because the provider was
+  // busy stays failed forever even though nothing is wrong with it.
+  const cooledDown =
+    !paper.extraction_started_at ||
+    Date.now() - new Date(paper.extraction_started_at).getTime() > FAILED_RETRY_COOLDOWN_MS
+
+  const retryingFailed =
+    paper.extraction_status === 'failed' &&
+    TRANSIENT_FAILURE_CODES.includes(paper.failure_code) &&
+    cooledDown
+
+  if (paper.extraction_status !== 'pending' && !reclaiming && !retryingFailed) {
+    return Response.json({
+      status: paper.extraction_status,
+      alreadyHandled: true,
+      // So the client can tell "refused because too soon" apart from
+      // "refused because this is genuinely final".
+      retryable: paper.extraction_status === 'failed' && TRANSIENT_FAILURE_CODES.includes(paper.failure_code),
+    })
   }
 
   // Built as an exact compare-and-swap in both cases: the update only
@@ -127,12 +164,19 @@ export async function POST(request) {
   // `.or()` filter - that would mean interpolating a timestamp into a
   // PostgREST filter string, which is both harder to reason about and
   // easy to get subtly wrong.
+  // failure_code is cleared on every claim. For a fresh paper it is
+  // already null; for a retried one, carrying the previous code forward
+  // would leave a paper that then SUCCEEDS still looking like it failed.
   let claimQuery = supabase
     .from('papers')
-    .update({ extraction_status: 'processing', extraction_started_at: new Date().toISOString() })
+    .update({ extraction_status: 'processing', extraction_started_at: new Date().toISOString(), failure_code: null })
     .eq('id', paper.id)
 
-  if (reclaiming) {
+  if (retryingFailed) {
+    // Same compare-and-swap shape: only the request that still sees
+    // 'failed' wins, so two clicks cannot both start an extraction.
+    claimQuery = claimQuery.eq('extraction_status', 'failed')
+  } else if (reclaiming) {
     claimQuery = claimQuery.eq('extraction_status', 'processing')
     // Matching on "still stale" rather than on the exact timestamp
     // read. Both are correct compare-and-swaps - once one request wins,
@@ -152,6 +196,9 @@ export async function POST(request) {
     claimQuery = claimQuery.eq('extraction_status', 'pending')
   }
 
+  // A retried paper must not carry its previous failure_code forward:
+  // if this run succeeds, a stale code would make a completed paper
+  // still look like it had failed.
   const { data: claimed, error: claimError } = await claimQuery.select('id')
 
   // A failed claim is not the same as losing the race. Treating an
@@ -166,11 +213,21 @@ export async function POST(request) {
     return Response.json({ status: paper.extraction_status, alreadyHandled: true })
   }
 
-  if (paper.extraction_status === 'processing') {
+  if (reclaiming) {
     // Worth its own line: this is the abandoned-extraction path, and
     // if it starts appearing often it means extractions are dying
     // rather than that the recovery is working well.
     console.log(JSON.stringify({ stage: 'stale_claim_reclaimed', paperId: paper.id, staleAfterMs: STALE_CLAIM_MS }))
+  }
+
+  if (retryingFailed) {
+    // A rising count here means the provider is failing often enough
+    // that people are having to retry by hand.
+    console.log(JSON.stringify({
+      stage: 'failed_retry_claimed',
+      paperId: paper.id,
+      previousFailureCode: paper.failure_code,
+    }))
   }
 
   try {

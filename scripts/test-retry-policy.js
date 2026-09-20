@@ -13,7 +13,7 @@
 // and on a 429 it also spent more of the quota just exhausted.
 
 const assert = require('node:assert')
-const { decideRetry, parseRetryDelayMs, MAX_RETRY_DELAY_MS } = require('../lib/ai/retryPolicy')
+const { decideRetry, parseRetryDelayMs, MAX_RETRY_DELAY_MS, MAX_OVERLOAD_ATTEMPTS } = require('../lib/ai/retryPolicy')
 
 let failed = 0
 function check(name, fn) {
@@ -124,15 +124,66 @@ check('an hours-long quota delay fails fast instead of hanging the function', ()
   assert.strictEqual(d.statedDelayMs, 3600000)
 })
 
-check('503 retries quickly - the failed call cost nothing', () => {
-  const d = decideRetry({ status: 503, pass: 1, headers: null, body: null, alreadyRetried: false })
+// The literal 503 body Google returned on 2026-09-20, twice, on two
+// real submissions that were then told their documents were unreadable.
+const REAL_503_BODY = {
+  error: {
+    code: 503,
+    status: 'UNAVAILABLE',
+    message: 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.',
+  },
+}
+
+check('503 retries quickly on the first failure - the call cost nothing', () => {
+  const d = decideRetry({ status: 503, pass: 1, headers: null, body: REAL_503_BODY, attempt: 1 })
   assert.strictEqual(d.retry, true)
-  assert.ok(d.delayMs > 0 && d.delayMs < 4000, `expected a short backoff, got ${d.delayMs}`)
+  assert.ok(d.delayMs > 0 && d.delayMs < 4000, `expected a short first backoff, got ${d.delayMs}`)
+})
+
+check('THE REGRESSION: a 503 gets more than one retry, and the waits escalate', () => {
+  // Production, 2026-09-20: attempt 1 -> 503, ~2s wait, attempt 2 ->
+  // 503, give up. Under ten seconds total. A demand spike lasts minutes,
+  // so one short retry could never clear it.
+  const first = decideRetry({ status: 503, pass: 1, body: REAL_503_BODY, attempt: 1 })
+  const second = decideRetry({ status: 503, pass: 1, body: REAL_503_BODY, attempt: 2 })
+  assert.strictEqual(first.retry, true)
+  assert.strictEqual(second.retry, true, 'a second retry is what actually rides out a spike')
+  assert.ok(
+    second.delayMs > first.delayMs,
+    `waits must escalate: got ${first.delayMs}ms then ${second.delayMs}ms`
+  )
+})
+
+check('the 503 ladder is bounded - it cannot loop forever', () => {
+  const exhausted = decideRetry({ status: 503, pass: 1, body: REAL_503_BODY, attempt: MAX_OVERLOAD_ATTEMPTS })
+  assert.strictEqual(exhausted.retry, false)
+  assert.strictEqual(exhausted.reason, 'overloaded_attempts_exhausted')
+})
+
+check('the whole 503 ladder stays well inside the function time budget', () => {
+  let total = 0
+  for (let a = 1; a < MAX_OVERLOAD_ATTEMPTS; a++) {
+    total += decideRetry({ status: 503, pass: 1, body: REAL_503_BODY, attempt: a }).delayMs
+  }
+  assert.ok(total < 30_000, `total backoff ${total}ms must stay far below the 300s ceiling`)
+})
+
+check('a 429 still gets only ONE retry - unlike 503, it spends quota', () => {
+  const second = decideRetry({ status: 429, pass: 1, body: REAL_429_BODY, attempt: 2 })
+  assert.strictEqual(second.retry, false)
+  assert.strictEqual(second.reason, 'already_retried')
 })
 
 check('503 retries on pass 2 as well - unlike 429, it spends no quota', () => {
-  const d = decideRetry({ status: 503, pass: 2, headers: null, body: null, alreadyRetried: false })
+  const d = decideRetry({ status: 503, pass: 2, headers: null, body: null, attempt: 1 })
   assert.strictEqual(d.retry, true)
+})
+
+check('the old boolean spelling still works', () => {
+  // alreadyRetried is kept as a synonym for attempt >= 2 so older
+  // callers cannot silently start retrying forever.
+  assert.strictEqual(decideRetry({ status: 429, pass: 1, body: REAL_429_BODY, alreadyRetried: true }).retry, false)
+  assert.strictEqual(decideRetry({ status: 429, pass: 1, body: REAL_429_BODY, alreadyRetried: false }).retry, true)
 })
 
 check('a network error retries', () => {
@@ -141,10 +192,25 @@ check('a network error retries', () => {
   assert.strictEqual(d.reason, 'network_error')
 })
 
-check('the retry budget is one - never a loop', () => {
-  const d = decideRetry({ status: 503, pass: 1, headers: null, body: null, alreadyRetried: true })
-  assert.strictEqual(d.retry, false)
-  assert.strictEqual(d.reason, 'already_retried')
+check('every failure class has a bounded budget - none can loop', () => {
+  // 503 has a ladder (it costs nothing and a spike needs riding out);
+  // everything else gets exactly one retry. Both are bounded, which is
+  // the property that matters.
+  assert.strictEqual(
+    decideRetry({ status: 503, pass: 1, body: null, attempt: MAX_OVERLOAD_ATTEMPTS }).retry,
+    false,
+    '503 must stop once its ladder is spent'
+  )
+  assert.strictEqual(
+    decideRetry({ status: null, pass: 1, body: null, attempt: 2 }).retry,
+    false,
+    'a network error gets one retry only'
+  )
+  assert.strictEqual(
+    decideRetry({ status: 429, pass: 1, body: REAL_429_BODY, attempt: 2 }).retry,
+    false,
+    'a 429 gets one retry only - it spends quota'
+  )
 })
 
 for (const status of ['timeout', 'max_tokens', 'empty_response', 'malformed_json', 400, 401, 403, 404, 500]) {

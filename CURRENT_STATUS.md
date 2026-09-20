@@ -66,6 +66,8 @@ Vercel runtime logs for the relevant window are **not recoverable** — the logs
 
 **Closed 2026-09-20**
 
+- **#36** — a Gemini 503 outage was reported to submitters as "we couldn't read this document", after a retry ladder too short to clear a demand spike, with no way to retry afterwards. 503 now gets two escalating retries; transient failures get their own honest screen and a working Try again; a transiently-failed paper is re-claimable after a 30s cooldown.
+
 - **M** — the 429 retry ignored the server-stated delay. Split from 503, honours `Retry-After` → `RetryInfo` → message text, caps at 30s, never retries a 429 on pass 2, never retries blind. `BUG_HISTORY.md` #29. *Proven against the recorded production error body; not reproducible live without deliberately exhausting quota.*
 - **#31** — a run that extracted nothing was stored identically to one that found everything (`bdc6d112`: 2 passes, 0/10 fields, `completed`). Field yield is now recorded and zero-yield runs are logged.
 - **#32** — a stuck paper had no automatic recovery, only a button. The confirmation page now re-triggers periodically and the server decides staleness. Also fixed a latent flaw in the reclaim's own compare-and-swap.
@@ -89,6 +91,10 @@ Vercel runtime logs for the relevant window are **not recoverable** — the logs
 - **H** — `title_ar` / `abstract_ar` pipeline inconsistency. Closed by production evidence, not by inspection: a real Arabic thesis returned `title_ar` and `abstract_ar` and both were written to `papers`. The prompt now states both JSON keys explicitly (`BUG_HISTORY.md` #15's rule).
 - **K** — year coercion stranding an extraction. Fixed; `BUG_HISTORY.md` #18.
 - **L** — unchecked `papers` updates swallowing write errors. Fixed; `BUG_HISTORY.md` #19.
+
+## Known upstream condition
+
+**Google's `gemini-3.6-flash` returned HTTP 503 "This model is currently experiencing high demand" on 2026-09-20**, failing two real submissions. This is capacity on Google's side, not a defect in this platform or in the documents. The system's *response* to it was defective and is fixed (`BUG_HISTORY.md` #36), but the underlying condition will recur and cannot be fixed from here. If it becomes frequent, the options are a fallback model or a paid tier — both cost money and are the owner's call.
 
 ## Recommendations needing an owner decision
 
