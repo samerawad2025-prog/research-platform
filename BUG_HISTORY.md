@@ -692,3 +692,29 @@ Nothing else changed. The 503 ladder, the pass-2 rule, the no-blind-retry rule a
 **Regression testing performed:** `scripts/test-retry-policy.js` gained two checks built on the literal production 429 body — that the 35.26 s wait is now honoured and still clears the stated window, and that the cap remains large enough for any per-minute reset. The existing check that an hours-long daily quota is still refused continues to pass. 42 checks, all passing; all 7 suites pass; `eslint` clean; build compiles.
 
 **What this was NOT.** The submission that failed was a DOCX, but DOCX was never implicated. Arabic DOCX `801c1150` completed successfully five minutes earlier with `title_ar` and `abstract_ar` both extracted, and English DOCX `570759a8` completed with 8/10 fields. The format was a coincidence of ordering — the sixth submission in seven minutes was the one that ran out of quota.
+
+---
+
+## 38. Pressing Confirm could do nothing at all, silently and permanently
+
+**Root cause:** `handleConfirm` in `components/ConfirmationScreen.jsx` had **no try/catch**. Its first act after validation is `setStatus('saving')`, and the confirm button is `disabled={extracting || status === 'saving'}`. The only path that ever cleared that state again was the `error` **return value** from `supabase.rpc(...)`.
+
+A *thrown* exception took no such path. A dropped connection, a rejected fetch, a transient DNS failure, or a `TypeError` anywhere in the handler would reject the async function, leave `status` pinned at `'saving'` forever, and leave the button disabled reading "Saving…" with no message anywhere on screen. From the submitter's side, pressing Confirm simply did nothing — and kept doing nothing, because the button never came back.
+
+Worse, it left no trace. `confirm_researcher_metadata` is called client-side as a PostgREST RPC, so a failure never reaches the Vercel function log. Nothing was written to the database, nothing was logged server-side, and the UI said nothing. This is the same class of invisibility as `BUG_HISTORY.md` #17 (a failed upload leaving no record) and the reason #28's instrumentation exists.
+
+A second, narrower hazard fed the same hole: `researchers.some((r) => !r.full_name.trim())` throws outright if any row's `full_name` is `null` or `undefined`, and a throw there is exactly the invisible case above.
+
+**Investigation summary:** the server side was eliminated first, by exercising the RPC end-to-end against a synthetic paper with the precise payload the fixed client sends — a submitter carrying `researcher_id`, plus one genuinely new co-author. Every criterion passed: `metadata_confirmed_at` written, submitter still linked, no duplicate submitter row, 2 researchers linked, the submitter's email retained, and all corrections (`title_ar`, `university`, `year`, `abstract_ar`) persisted exactly. The test rows were then deleted and the table verified back at its baseline of 21 papers / 29 researchers / 8 without email.
+
+So `confirm_researcher_metadata` and the `#33` payload contract are both correct. Whatever stopped the confirmation happened in the browser, before or during the call — precisely the region that had no error handling and produced no evidence.
+
+**Fix implemented:** the save is wrapped in try/catch. Any thrown failure now resets `status`, re-enables the button, and shows *"We couldn't reach the server to save your confirmation. Please check your connection and try again — nothing has been lost."* The thrown error is also logged to the browser console, so a repeat is diagnosable rather than invisible.
+
+A returned error that is not one of our own `P0001` messages now carries its code in the text (`(reference: …)`). Without that, a submitter reporting "it didn't work" gives nobody anything to act on — which is exactly the position this bug left us in.
+
+The researcher-name check is now `String(r.full_name ?? '').trim()`, so a malformed row produces the intended validation message instead of an exception.
+
+**Files modified:** `components/ConfirmationScreen.jsx`.
+
+**Regression testing performed:** all 7 suites pass, `eslint` clean, `npm run build` compiles. The RPC-side behaviour is proven by the synthetic end-to-end run described above. **The browser-side catch itself is not exercised by an automated test** — this project has no DOM harness, and the failure it guards against requires a network fault mid-call. It is a strictly additive guard: it cannot change the success path, only what happens when the previous code did nothing.

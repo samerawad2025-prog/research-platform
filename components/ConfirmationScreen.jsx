@@ -400,7 +400,10 @@ export default function ConfirmationScreen({ token }) {
   async function handleConfirm(e) {
     e.preventDefault()
 
-    if (researchers.some((r) => !r.full_name.trim())) {
+    // String(...) rather than .trim() directly: a researcher row whose
+    // name is null or undefined would throw here, and a throw in this
+    // handler is invisible (see the try/catch below).
+    if (researchers.some((r) => !String(r.full_name ?? '').trim())) {
       setErrorMsg('Please fill in every researcher\u2019s name, or remove the empty row.')
       return
     }
@@ -451,23 +454,47 @@ export default function ConfirmationScreen({ token }) {
       corrections.year = y === null ? '' : String(y)
     }
 
-    const { error } = await supabase.rpc('confirm_researcher_metadata', {
-      p_token: token,
-      p_researchers: researchers,
-      p_corrections: corrections,
-    })
+    // Everything from here is wrapped, because this handler had no
+    // try/catch at all. `setStatus('saving')` disables the confirm
+    // button, and the only path that ever cleared it again was the
+    // `error` RETURN VALUE from the RPC. A thrown exception - a dropped
+    // connection, a rejected fetch, anything at all - left the button
+    // disabled on "Saving..." forever with no message on screen and no
+    // trace anywhere. From the submitter's side, pressing Confirm
+    // simply did nothing (BUG_HISTORY.md #38).
+    try {
+      const { error } = await supabase.rpc('confirm_researcher_metadata', {
+        p_token: token,
+        p_researchers: researchers,
+        p_corrections: corrections,
+      })
 
-    if (error) {
+      if (error) {
+        // P0001 is one of our own `raise exception` messages in the RPC,
+        // written as user-facing text. Anything else carries a code the
+        // submitter cannot act on, so it is shown alongside a plain
+        // message rather than raw - without it, a failure is
+        // unreportable and therefore undiagnosable.
+        setErrorMsg(
+          error.code === 'P0001' && error.message
+            ? error.message
+            : `We couldn\u2019t save your confirmation. Please try again in a moment.${
+                error.code ? ` (reference: ${error.code})` : ''
+              }`
+        )
+        setStatus('error')
+        return
+      }
+
+      setStatus('done')
+    } catch (err) {
+      console.error('confirm_researcher_metadata threw:', err)
       setErrorMsg(
-        error.code === 'P0001' && error.message
-          ? error.message
-          : 'We couldn\u2019t save your confirmation. Please try again in a moment.'
+        'We couldn\u2019t reach the server to save your confirmation. ' +
+          'Please check your connection and try again \u2014 nothing has been lost.'
       )
       setStatus('error')
-      return
     }
-
-    setStatus('done')
   }
 
   if (linkInvalid) {
