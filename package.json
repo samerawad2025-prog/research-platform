@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test": "for f in scripts/test-*.js; do case \"$f\" in *docx-extraction*) continue;; esac; echo \"== $f\"; node \"$f\" || exit 1; done"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.3",

@@ -1,6 +1,8 @@
 # CURRENT_STATUS.md
 
-**Generated:** September 18, 2026, by direct query against the **current** live Supabase production database (project `mzpkiuovjppmavqkppem`, region `eu-central-1`). This supersedes the "Known issues" section of `CLAUDE_CODE_HANDOVER.md` as the current source of truth; that file's history sections remain accurate for *how* things were found and fixed.
+**Last verified:** September 21, 2026 — **Phase 1 is closed.** See "Phase 1 closure" below for the evidence.
+
+**Originally generated:** September 18, 2026, by direct query against the **current** live Supabase production database (project `mzpkiuovjppmavqkppem`, region `eu-central-1`). This supersedes the "Known issues" section of `CLAUDE_CODE_HANDOVER.md` as the current source of truth; that file's history sections remain accurate for *how* things were found and fixed.
 
 > ## ⚠️ Read this before trusting any pre-2026-09-18 claim
 >
@@ -9,6 +11,46 @@
 > **All 44 papers and 77 `ai_generations` rows are gone.** They were the founder's own test submissions, so nothing of product value was lost — but that data was the *evidence base* for several claims in `BUG_HISTORY.md` and in earlier versions of this file (the supervisor-key fix #15, DOCX header extraction #16, merge filtering #13).
 >
 > Those claims are still **true** — each was verified against real production data at the time and documented with specifics — but they can **no longer be re-verified by query**. For a project whose first principle is "check the database rather than trusting notes", treat them as *historical, documented, and no longer requeryable*. Do not cite them as live evidence.
+
+---
+
+---
+
+## Phase 1 closure — 2026-09-21
+
+**Phase 1 is closed.** The closing evidence is five consecutive real submissions, queried live:
+
+| Paper | Created | Title | `title_ar` | Year | Model | Seconds to first generation |
+|---|---|---|---|---|---|---|
+| `32385ac2` | 15:47 | ✅ | — | 2026 | `gemini-3.5-flash-lite` | 7 |
+| `230e19d6` | 15:46 | ✅ | — | 2026 | `gemini-3.5-flash-lite` | 6 |
+| `dc6aa173` | 15:45 | ✅ | ✅ | 2026 | `gemini-3.5-flash-lite` | 8 |
+| `c7052281` | 15:44 | — | ✅ | 2026 | `gemini-3.5-flash-lite` | 15 |
+| `23e55a72` | 15:43 | ✅ | — | 2025 | `gemini-3.5-flash-lite` | 13 |
+
+Five for five `completed`, 6–15 seconds each. `c7052281` is Arabic-only and correctly carries **no** English title — the exact case that used to force a submitter to type "No title appeared for this research" (`BUG_HISTORY.md` #20). `dc6aa173` is genuinely bilingual and carries both. Every one has a year.
+
+The owner confirmed all four paths — PDF and DOCX × English and Arabic — working on the live deployment.
+
+### What changed to get here
+
+- **`GEMINI_MODEL` → `gemini-3.5-flash-lite`.** The previous `gemini-3.6-flash` exhausted its free-tier quota (5 RPM / 35 RPD, observed at 5/5 and 35/35) and produced six consecutive `api_error` / `timeout` failures between 14:45 and 15:23 on 2026-09-21. Flash-Lite's free tier is 15 RPM / 500 RPD. Those six failures are upstream quota, not defects.
+- **`GEMINI_TIMEOUT_MS` deleted from Vercel**, falling through to the code default, lowered to 45s in `bbebf8b1`. At the previous 120s a 3-attempt 503 ladder would have run 371s against a 300s `maxDuration` and stranded the paper.
+- **Bug P fully closed.** `SUPABASE_SERVICE_ROLE_KEY` and `GEMINI_API_KEY` now target `production` only — verified against the Vercel API 2026-09-21. `MOCK_SCENARIO` and `ALLOW_PREVIEW_EXTRACTION` are gone. Six variables remain, exactly the six that should.
+- **Bug O closed** by migration `0010`, applied to production 2026-09-21.
+- **CI added** — `.github/workflows/checks.yml` runs lint, build and all seven runnable suites on every push and PR.
+
+### Live snapshot (queried 2026-09-21)
+
+32 papers: 22 `completed`, 7 `failed`, 3 `pending`, 0 `partial`. 3 confirmed. 11 carry `title_ar`, 21 carry a year. 40 researchers, 8 without an email. 64 `ai_generations` rows.
+
+Six of the seven failures are the 2026-09-21 quota window above (`fc5d676e`, `69ab58e5`, `55cc8520`, `f33a832e`, `fb6c03a8` — `api_error`; `d699bde4` — `timeout`). The seventh is `3f67ed08`, the CV correctly classified `not_research`. **All six quota failures are retryable** — their `failure_code` is in `TRANSIENT_FAILURE_CODES`, so opening each paper's confirmation link re-runs it against the working model.
+
+Three papers sit at `pending` with no claim ever taken (`b36c31ec`, `3bf48456`, `bb6db427`). They need their confirmation link opened once each to trigger extraction.
+
+### What Phase 1 does NOT include
+
+Closure means the submission → extraction → confirmation pipeline is verified working, not that everything is done. Explicitly still open: the three detached papers and eight orphan researcher rows (bug Q, needs an owner-approved data migration), bug N, and everything in `PHASE_2_PLAN.md`.
 
 ---
 
@@ -50,9 +92,9 @@ Vercel runtime logs for the relevant window are **not recoverable** — the logs
 | # | Symptom | Evidence | Status |
 |---|---|---|---|
 | F | No tool reads Vercel environment variables remotely | Re-confirmed 2026-09-18 with live Vercel access (`get_project`, `list_deployments`, `get_deployment` — none expose env vars). | **Open, structural.** Check the dashboard directly. |
-| O | **`confirm_researcher_metadata` NULLS a year it doesn't like** | Previously recorded here as "keeps the old value" — **that was wrong**. The live function body has an explicit `else null`, so a year failing `^[0-9]{4}$` is erased. Confirmed empirically: `'٢٠١٩'`, `'۲۰۱۹'` and `'٢٠١٩م'` all fail the pattern; `'2019'` passes. | **Open, low.** Unreachable from the current client, which normalizes the year to ASCII before sending (bug #20), so the destructive branch cannot be hit today. Still a trap for any future caller. `BUG_HISTORY.md` #34. |
+| O | ~~`confirm_researcher_metadata` NULLS a year it doesn't like~~ | Was real: the live body had an explicit `else null`, so `'٢٠١٩'`, `'۲۰۱۹'` and `'٢٠١٩م'` all erased a year the submitter had just confirmed. | **CLOSED 2026-09-21.** Migration `0010` applied to production. A new `normalize_year_text()` matches `lib/extraction/applyResult.js` `normalizeYear` exactly (Arabic-Indic folding, 1900–2100, exactly one in-range year), and an unparseable year now KEEPS the existing value. Verified against the live function on all 14 forms. |
 | Q | **Confirming a paper detaches its submitter** | 3 of 3 confirmed papers have `submitter_still_linked = false` and zero linked researchers carrying an email; 0 of 7 unconfirmed do. 18 researcher rows for 10 papers, 8 without an email = 1+1+6, exactly the three confirmations. | **Fixed forward** (`BUG_HISTORY.md` #33) — new confirmations carry `researcher_id` across. **The three existing papers are not repaired**; that needs a data migration you approve. |
-| P | **Preview deployments write to the production database — CONFIRMED, not theoretical** | Every Vercel env var targets `production` AND `preview`, including `SUPABASE_SERVICE_ROLE_KEY` (bypasses RLS) and `GEMINI_API_KEY` — verified against the Vercel API 2026-09-20. **Two production papers were written by preview deployments**: `0906ebe0` (00:55:55Z, after preview `4c47e352` at 00:40:20Z) and `f8676a50` (01:15:26Z, after preview `e7797321` at 01:11:11Z), both running 1 pass on an Arabic-only thesis — behaviour only the unmerged language-pair fix produces. | **Partially fixed.** Extraction is now blocked on preview (`BUG_HISTORY.md` #30). **The service-role key is still scoped to preview and needs an owner decision** — see Recommendations. |
+| P | ~~Preview deployments write to the production database~~ | Was real and confirmed by timestamp correlation: two production papers (`0906ebe0`, `f8676a50`) were written by preview deployments. | **CLOSED 2026-09-21.** Both halves fixed: extraction is blocked on preview in code (`BUG_HISTORY.md` #30), and `SUPABASE_SERVICE_ROLE_KEY` / `GEMINI_API_KEY` now target `production` only — verified against the Vercel API. |
 | N | `not_research` path never sets `failure_code` | `app/api/extract/route.js` sets `extraction_status='failed'` and `document_type='not_research'` but leaves `failure_code` null, contradicting `CLAUDE_CODE_HANDOVER.md` §4, which lists `not_research` as a valid value. Live evidence: the CV submitted 2026-09-19 has `failure_code: null`. | **Open, cosmetic.** No user-facing impact — the 422 message is still correct and specific. Diagnostic/contract inconsistency only. |
 
 ## Items closed
@@ -94,33 +136,33 @@ Vercel runtime logs for the relevant window are **not recoverable** — the logs
 
 ## Known upstream condition
 
-**Google's `gemini-3.6-flash` returned HTTP 503 "This model is currently experiencing high demand" on 2026-09-20**, failing two real submissions. This is capacity on Google's side, not a defect in this platform or in the documents. The system's *response* to it was defective and is fixed (`BUG_HISTORY.md` #36), but the underlying condition will recur and cannot be fixed from here. If it becomes frequent, the options are a fallback model or a paid tier — both cost money and are the owner's call.
+**Free-tier Gemini quota is the platform's one hard external dependency.** On 2026-09-20 `gemini-3.6-flash` returned HTTP 503 "experiencing high demand"; on 2026-09-21 the same model exhausted its free quota outright (5/5 RPM, 35/35 RPD) and failed six consecutive submissions. Production now runs **`gemini-3.5-flash-lite`** (15 RPM / 500 RPD free), which closed the outage immediately — five for five afterwards. This is capacity and quota on Google's side, not a defect here or in the documents. The system's *response* to it is now correct (`BUG_HISTORY.md` #29, #36, #37): 503 gets an escalating retry ladder, a 429 honours the server-stated delay, and a transient failure gets an honest screen with a working Try again. The condition itself will recur and cannot be fixed from here. If 500/day stops being enough, the options are a fallback model or a paid tier — both cost money and are the owner's call.
 
 ## Recommendations needing an owner decision
 
-1. **Remove `SUPABASE_SERVICE_ROLE_KEY` and `GEMINI_API_KEY` from the `preview` target in Vercel.** This is the only thing that actually closes the credential half of bug P; the code guard stops the pipeline but cannot un-issue a key that is present in the environment. It breaks preview extraction entirely, even with `ALLOW_PREVIEW_EXTRACTION=true`, which is why it is not applied unilaterally.
+1. ~~**Remove `SUPABASE_SERVICE_ROLE_KEY` and `GEMINI_API_KEY` from the `preview` target in Vercel.**~~ **Done by the owner, 2026-09-21**, and verified against the Vercel API. Both now target `production` only. Note the side effect: the `development` target lost them too, so local `npm run dev` needs a git-ignored `.env.local`.
 2. **Create a second Supabase project for preview.** The free tier allows two. This is the real fix, and it also removes the "test submissions land in the real papers table" problem. Costs setup time, not money.
 3. **A distinct `extraction_status` for a zero-yield run.** More honest than `completed`, but touches the status CHECK constraint, both RPCs, and the confirmation UI's branching — medium risk, deferred deliberately (`BUG_HISTORY.md` #31).
-4. **Bug O (corrected)** — `confirm_researcher_metadata` **nulls** a year that fails `^[0-9]{4}$`; it does not keep the old value, as previously recorded here. Verified against the live function body and confirmed empirically (`'٢٠١٩' ~ '^[0-9]{4}$'` → false). Unreachable from the current client, which normalizes the year first, so severity is low — but it is a trap for any future caller. `BUG_HISTORY.md` #34.
+4. ~~**Bug O**~~ **Closed 2026-09-21** by migration `0010`. No decision left to make.
 5. **Repair the three detached papers.** `f8676a50`, `d5c7b51e` and `c71a48b9` have their submitter unlinked and carry duplicate email-less researcher rows (`BUG_HISTORY.md` #33). Re-linking by `submitted_by` and deleting the duplicates is a data migration over real records and needs your decision, not a unilateral write.
 
 ## Technical debt
 
-- No CI wired to any of the seven test scripts (`test-year-normalization.js`, `test-language-pairs.js`, `test-phone-validation.js`, `test-field-pairs.js`, `test-timing.js`, `test-retry-policy.js` — all self-contained and passing; plus `test-docx-extraction.js`, which **cannot run unattended**: it requires a real `.docx` path as an argument and there is no fixture in the repo). All pass standalone; none runs on anybody's schedule. This is now the single highest-value piece of technical debt — there are enough tests to be worth running automatically.
+- ~~No CI wired to the test scripts.~~ **Done 2026-09-21**: `.github/workflows/checks.yml` runs `npm ci`, lint, build and all seven runnable suites on every push and pull request, each suite as its own named step. `npm test` runs the same set locally. `test-docx-extraction.js` is deliberately excluded — it requires a real `.docx` path as an argument and there is no fixture in the repo, so it cannot run unattended.
 - `lib/extraction/keywordScan.js` has no markers for `year`, so a DOCX missing only its year falls through to the 12,000-character fallback slice rather than a targeted excerpt. Harmless (the fallback works) but wasteful.
 - **No DOM/component test harness exists.** Pure logic is well covered, but nothing exercises a rendered component, so `CountrySelect`'s keyboard and pointer behaviour is reasoned from the ARIA pattern rather than verified. Exercise it by hand on the preview.
-- The confirmation screen's poll gives up after ~2 minutes and offers a manual retry, which reloads the page. With bug J still open, that retry cannot rescue a paper stuck in `processing`.
+- **No DOM/component test harness** still means `CountrySelect`'s keyboard and pointer behaviour is reasoned from the ARIA pattern, not verified by a test. (The old note here about the confirmation poll being unable to rescue a stuck paper is obsolete: bug J is closed, and the screen now re-triggers extraction server-side.)
 - `README.md` describes the project as "Step 2" and points to a nonexistent `DEPLOYMENT_GUIDE.md` (identified 2026-09-13 in `CLEANUP_PLAN.md`, still unfixed).
-- `.env.local.example`'s `GEMINI_MODEL` comment is stale (`gemini-2.5-flash` vs. the actual default `gemini-3.6-flash`).
-- `GEMINI_MODEL` appears unset in production — failure rows recorded `model_used: null`. Harmless (the code default applies) but failure rows don't self-document which model failed.
+- `.env.local.example`'s `GEMINI_MODEL` comment and the code default in `lib/ai/providers/gemini.js` both still say `gemini-3.6-flash`, while production now runs `gemini-3.5-flash-lite` via the env var. The env var wins, so behaviour is correct, but the two defaults should be updated to stop them misleading the next reader.
 - `methodology`/`keywords`/`themes` columns remain in `papers`, unused since extraction scope was simplified — intentionally dead, documented, leave alone.
 - `supabase/functions/*.sql` mirrors `schema.sql` with nothing enforcing they stay in sync.
 - Preview deployments write into the **same** database as production (only one Supabase project exists). An accepted near-zero-budget tradeoff; be aware test submissions from preview branches land in the real `papers` table.
 
 ## Next recommended priorities
 
-1. **Watch `/api/timing` output on the next few real submissions.** The instrumentation is new and unexercised by real users; the upload stage in particular has never been measured. If upload dominates, the next fix is client-side compression or a resumable upload, not anything in the extraction path.
-2. **Finish repairing `bb6db427`** — it is back at `pending` and needs its confirmation link opened once to re-trigger extraction. Verified safe: the same document now extracts correctly (`d5c7b51e`).
-3. **Fix the 429 retry (bug M).** Contained to `callGemini()` in `lib/ai/providers/gemini.js`: split 429 from 503, honour the server-stated delay, cap it, and don't retry a 429 on pass 2 at all. Zero token cost; supersedes the earlier bug I.
-4. **Bug N** — set `failure_code` on the `not_research` path. Cosmetic; do it whenever that file is next open.
-5. Only after the above: resume paused roadmap work. Per `PHASE_2_PLAN.md` the recommended first feature is the **phone input redesign**, ahead of the landing page/design system or Step 4 article generation.
+1. **Repair the three detached papers and eight orphan researcher rows** (bug Q). `f8676a50`, `d5c7b51e` and `c71a48b9` have their submitter unlinked. The forward fix is deployed and proven (`BUG_HISTORY.md` #33), but the existing damage is untouched, and those three students are not currently linked to their own research. A data migration over real records — needs the owner's approval before it runs.
+2. **Re-run the nine papers that are not `completed`.** Six failed in the 2026-09-21 quota window and carry a transient `failure_code`, so they are re-claimable; three never started. Opening each confirmation link once is enough.
+3. **Bug N** — set `failure_code` on the `not_research` path. Cosmetic; do it whenever that file is next open.
+4. **Update the two stale `gemini-3.6-flash` defaults** in `lib/ai/providers/gemini.js` and `.env.local.example` to match what production actually runs.
+5. **Watch `/api/timing` output on the next few real submissions.** Still new and lightly exercised; the upload stage in particular has little data. If upload dominates, the next fix is client-side compression or a resumable upload, not anything in the extraction path.
+6. Only after the above: resume roadmap work. Per `PHASE_2_PLAN.md` the recommended first feature is the landing page / design system, the phone input redesign having been completed early.

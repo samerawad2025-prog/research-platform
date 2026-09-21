@@ -412,6 +412,50 @@ revoke all on function get_paper_for_confirmation(text) from public;
 grant execute on function get_paper_for_confirmation(text) to anon;
 
 -- ============================================================
+-- ------------------------------------------------------------
+-- normalize_year_text: the SQL twin of normalizeYear() in
+-- lib/extraction/applyResult.js. Kept deliberately identical in
+-- behaviour, because the two run on the same values from opposite
+-- ends of the pipeline.
+--
+-- Folds Arabic-Indic (٠-٩) and Eastern Arabic-Indic / Persian (۰-۹)
+-- digits to ASCII, then reads a 4-digit year out of the surrounding
+-- text, so '٢٠١٩م' yields 2019. Returns null unless exactly one
+-- in-range year is present: a Hijri '١٤٤٥' is a syntactically perfect
+-- 1445 and must never be stored as a Gregorian year, and a span like
+-- '1995 - 2017' has no single correct answer.
+-- ------------------------------------------------------------
+create or replace function normalize_year_text(p_value text)
+returns int
+language plpgsql
+immutable
+set search_path = public, extensions
+as $$
+declare
+  v_ascii text;
+  v_years int[];
+begin
+  if p_value is null then
+    return null;
+  end if;
+
+  v_ascii := translate(p_value, '٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹', '01234567890123456789');
+
+  select array_agg(distinct m[1]::int)
+    into v_years
+    from regexp_matches(v_ascii, '(\d{4})', 'g') as m
+   where m[1]::int between 1900 and 2100;
+
+  if v_years is null or array_length(v_years, 1) <> 1 then
+    return null;
+  end if;
+
+  return v_years[1];
+end;
+$$;
+
+revoke all on function normalize_year_text(text) from public;
+
 -- confirm_researcher_metadata: the only way an anonymous visitor
 -- can WRITE confirmed data. Updates an existing researcher's row
 -- in place when a researcher_id is supplied and already linked to
@@ -513,11 +557,17 @@ begin
       university = case when p_corrections ? 'university' then nullif(trim(p_corrections->>'university'), '') else university end,
       faculty = case when p_corrections ? 'faculty' then nullif(trim(p_corrections->>'faculty'), '') else faculty end,
       degree_type = case when p_corrections ? 'degree_type' then nullif(trim(p_corrections->>'degree_type'), '') else degree_type end,
+      -- An unparseable year KEEPS the existing value. Erasing it was
+      -- bug O (BUG_HISTORY.md #34): '٢٠١٩م' fails a bare ^[0-9]{4}$
+      -- and used to null out a year the submitter had just confirmed.
+      -- Accepted forms match lib/extraction/applyResult.js
+      -- normalizeYear exactly. An empty string still clears the field,
+      -- like every other column here.
       year = case
                when p_corrections ? 'year' then
-                 case when nullif(trim(p_corrections->>'year'), '') ~ '^[0-9]{4}$'
-                      then (p_corrections->>'year')::int
-                      else null end
+                 case when nullif(trim(p_corrections->>'year'), '') is null
+                      then null
+                      else coalesce(normalize_year_text(p_corrections->>'year'), year) end
                else year
              end
     where id = v_paper.id;

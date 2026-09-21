@@ -1,0 +1,71 @@
+name: checks
+
+# Every push and every pull request. These suites are the only thing
+# standing between a plausible-looking change and a production
+# regression, and until now they only ran when somebody remembered to
+# run them. The timeout-budget regression in bbebf8b1 was mine, and a
+# CI run would have caught it before it reached a deployment.
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # Matches the Node the project is developed on and the
+          # version Vercel builds with.
+          node-version: '22'
+          cache: npm
+
+      # `npm ci` rather than `npm install`: it installs exactly what
+      # package-lock.json pins, so CI cannot quietly pass on a
+      # different dependency tree than production runs.
+      - run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        # A build failure is the one check that proves the change can
+        # actually deploy. Nothing below matters if this fails.
+        run: npm run build
+        env:
+          # The build imports modules that read these. Placeholders are
+          # enough to compile; nothing here reaches a real service, and
+          # no real key belongs in a workflow file.
+          NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
+
+      # Each suite runs on its own step so a failure names itself in
+      # the GitHub UI instead of hiding inside one combined log.
+      #
+      # test-docx-extraction.js is deliberately absent: it requires a
+      # real .docx path as an argument and cannot run unattended.
+      - name: Year normalization (BUG_HISTORY #18)
+        run: node scripts/test-year-normalization.js
+
+      - name: Language pairs (BUG_HISTORY #20, #25)
+        run: node scripts/test-language-pairs.js
+
+      - name: Field pairs (BUG_HISTORY #25)
+        run: node scripts/test-field-pairs.js
+
+      - name: Phone validation (BUG_HISTORY #22, #23)
+        run: node scripts/test-phone-validation.js
+
+      - name: Retry policy (BUG_HISTORY #29, #36, #37)
+        run: node scripts/test-retry-policy.js
+
+      - name: Timing and reclaim invariants (BUG_HISTORY #27, #28, #32)
+        run: node scripts/test-timing.js
+
+      - name: Researcher seeding (BUG_HISTORY #33)
+        run: node scripts/test-researcher-seed.js

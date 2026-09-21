@@ -718,3 +718,52 @@ The researcher-name check is now `String(r.full_name ?? '').trim()`, so a malfor
 **Files modified:** `components/ConfirmationScreen.jsx`.
 
 **Regression testing performed:** all 7 suites pass, `eslint` clean, `npm run build` compiles. The RPC-side behaviour is proven by the synthetic end-to-end run described above. **The browser-side catch itself is not exercised by an automated test** — this project has no DOM harness, and the failure it guards against requires a network fault mid-call. It is a strictly additive guard: it cannot change the success path, only what happens when the previous code did nothing.
+
+---
+
+## 39. Confirming a paper erased a year the submitter had just confirmed
+
+**Symptom:** none observed in production — this was found by reading the live function body during the 2026-09-20 audit, and is recorded here because it destroys submitter-entered data silently when it fires.
+
+**Root cause:** `confirm_researcher_metadata` validated the year with a bare anchored pattern and nulled anything that failed it:
+
+```sql
+year = case
+         when p_corrections ? 'year' then
+           case when nullif(trim(p_corrections->>'year'), '') ~ '^[0-9]{4}$'
+                then (p_corrections->>'year')::int
+                else null end        -- <-- this
+         else year
+       end
+```
+
+`^[0-9]{4}$` is an ASCII-only pattern. `'٢٠١٩'` (Arabic-Indic), `'۲۰۱۹'` (Persian) and `'٢٠١٩م'` (ASCII digits with the Arabic era suffix) all fail it — all three are ordinary ways a Sudanese thesis writes its year. The `else null` then replaced a correct year already sitting in the column with nothing. The submitter typed a real year, pressed Confirm, and the database threw it away without a word.
+
+**This entry corrects an earlier one.** `CURRENT_STATUS.md` previously recorded bug O as "keeps the old value". That was wrong, and `BUG_HISTORY.md` #34 corrected it to "erases". This entry closes it.
+
+**Why it was never seen:** unreachable from the current client, which normalizes the year to ASCII before sending (#20). The destructive branch needed a caller that did not — a future one, or a direct RPC call.
+
+**Fix implemented:** migration `0010_confirm_year_never_erases.sql`, applied to production 2026-09-21.
+
+Two changes, no more:
+
+1. A new `normalize_year_text(text)` that mirrors `normalizeYear` in `lib/extraction/applyResult.js` **exactly**: Arabic-Indic and Persian digits folded to ASCII with `translate()`, a 4-digit year read out of surrounding text, range 1900–2100, and a result only when exactly one distinct in-range year is present. The range check is not optional — a Hijri `'١٤٤٥'` is a syntactically perfect 1445 and must never be stored as a Gregorian year. The single-match rule is not optional either — `'1995 - 2017'` is a span the work covers, not its own year.
+2. An unparseable year now **keeps** the existing value. An empty string still clears the field deliberately, which is how every other column in that UPDATE already behaves.
+
+The migration reproduces the rest of `confirm_researcher_metadata` verbatim. The file and `schema.sql` were generated from the same text, so the two cannot drift.
+
+**Regression testing performed:** the deployed function was exercised against all 14 forms directly on production. Every Arabic-digit spelling that previously erased the year now parses (`'٢٠١٩'`, `'۲۰۱۹'`, `'٢٠١٩م'`, `'2019م'` → 2019); every value that must not be trusted still returns null (`'١٤٤٥'`, `'1445'`, `'1995 - 2017'`, `'not a year'`, `'99'`). Results match the JS `normalizeYear` on every input, including the edge cases the two could plausibly have disagreed on (`'20199'` → 2019 in both; `'1445'` → null in both). All 7 suites pass, `eslint` clean, build compiles.
+
+**Files modified:** `supabase/migrations/0010_confirm_year_never_erases.sql` (new), `supabase/schema.sql`.
+
+---
+
+## Continuous integration, added 2026-09-21
+
+Not a bug — the absence that let one through.
+
+`bbebf8b1` lowered the Gemini per-attempt timeout because the previous default put a 3-attempt 503 ladder at 371 seconds against a 300-second `maxDuration`. That regression was mine, it was introduced while fixing #36, and it survived into a deployment because nothing ran the test suites except when somebody remembered to.
+
+`.github/workflows/checks.yml` now runs on every push and every pull request: `npm ci`, `npm run lint`, `npm run build` (with placeholder Supabase env vars — the build only needs them to compile, and no real key belongs in a workflow file), then all seven runnable suites as individually named steps so a failure names itself in the GitHub UI instead of hiding in a combined log. `npm test` runs the same set locally.
+
+`scripts/test-docx-extraction.js` is deliberately excluded: it requires a real `.docx` path as an argument and there is no fixture in the repo, so it cannot run unattended.
