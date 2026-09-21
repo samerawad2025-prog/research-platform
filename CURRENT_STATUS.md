@@ -48,9 +48,31 @@ Six of the seven failures are the 2026-09-21 quota window above (`fc5d676e`, `69
 
 Three papers sit at `pending` with no claim ever taken (`b36c31ec`, `3bf48456`, `bb6db427`). They need their confirmation link opened once each to trigger extraction.
 
+### Phase 1 data cleanup — 2026-09-21, complete
+
+Audited against production. **Zero rows written, zero rows deleted** — because the evidence said no write was warranted, not because the work was skipped.
+
+**Bug Q.** No orphan researcher rows exist (`select count(*) ... where not linked and not submitted_by` returns **0**). The eight email-less rows are legitimate extracted co-authors — co-authors never have an email, because the platform only ever collects one from the submitter. `papers.submitted_by` is `not null` and was never touched, so all three submitter rows still carry their email and WhatsApp. Re-linking the submitter on `d5c7b51e` and `f8676a50` would have credited them as an author of a thesis written by `سامي إدريس علي حميدي`. And on `c71a48b9` the present state is exactly what today's fixed code produces, so "repairing" it would make the record diverge from the code. `BUG_HISTORY.md` #40.
+
+**The nine "recoverable" papers.** All nine are byte-identical duplicates of documents that already extracted successfully — proven by joining `papers.file_path` to `storage.objects.metadata->>'size'`, which is necessary because Arabic filenames are sanitized to a bare UUID (#17). Retrying them would have spent free-tier quota to produce rows the database already holds. The tenth non-completed paper is the CV correctly classified `not_research`, deliberately not re-claimable. All are **superseded, not lost**. `BUG_HISTORY.md` #41.
+
+**Final verification (live, 2026-09-21):**
+
+```
+papers                        32   (22 completed, 7 failed, 3 pending)
+stuck in processing            0
+researchers                   40
+orphan researchers             0
+author links                  37
+papers missing submitter row   0
+dangling author links          0
+confirmed papers whose
+  submitter is not an author   3   <- correct, see #40
+```
+
 ### What Phase 1 does NOT include
 
-Closure means the submission → extraction → confirmation pipeline is verified working, not that everything is done. Explicitly still open: the three detached papers and eight orphan researcher rows (bug Q, needs an owner-approved data migration), bug N, and everything in `PHASE_2_PLAN.md`.
+Closure means the submission → extraction → confirmation pipeline is verified working, not that everything is done. Explicitly still open: bug N, and everything in `PHASE_2_PLAN.md`. (Bug Q and the nine "recoverable" papers were both audited on 2026-09-21 and both needed no action — see "Phase 1 data cleanup" below.)
 
 ---
 
@@ -93,7 +115,7 @@ Vercel runtime logs for the relevant window are **not recoverable** — the logs
 |---|---|---|---|
 | F | No tool reads Vercel environment variables remotely | Re-confirmed 2026-09-18 with live Vercel access (`get_project`, `list_deployments`, `get_deployment` — none expose env vars). | **Open, structural.** Check the dashboard directly. |
 | O | ~~`confirm_researcher_metadata` NULLS a year it doesn't like~~ | Was real: the live body had an explicit `else null`, so `'٢٠١٩'`, `'۲۰۱۹'` and `'٢٠١٩م'` all erased a year the submitter had just confirmed. | **CLOSED 2026-09-21.** Migration `0010` applied to production. A new `normalize_year_text()` matches `lib/extraction/applyResult.js` `normalizeYear` exactly (Arabic-Indic folding, 1900–2100, exactly one in-range year), and an unparseable year now KEEPS the existing value. Verified against the live function on all 14 forms. |
-| Q | **Confirming a paper detaches its submitter** | 3 of 3 confirmed papers have `submitter_still_linked = false` and zero linked researchers carrying an email; 0 of 7 unconfirmed do. 18 researcher rows for 10 papers, 8 without an email = 1+1+6, exactly the three confirmations. | **Fixed forward** (`BUG_HISTORY.md` #33) — new confirmations carry `researcher_id` across. **The three existing papers are not repaired**; that needs a data migration you approve. |
+| Q | ~~Confirming a paper detaches its submitter~~ | Audited against production 2026-09-21. The forward fix (`BUG_HISTORY.md` #33) is deployed and proven. The "damage" was **misdescribed by me**: there are **zero** orphan researcher rows, the eight email-less rows are legitimate extracted co-authors, and `papers.submitted_by` was never touched — all three submitter rows still exist with their email and WhatsApp intact. | **CLOSED 2026-09-21, no repair needed.** Re-linking would have fabricated authorship on two papers. `BUG_HISTORY.md` #40. |
 | P | ~~Preview deployments write to the production database~~ | Was real and confirmed by timestamp correlation: two production papers (`0906ebe0`, `f8676a50`) were written by preview deployments. | **CLOSED 2026-09-21.** Both halves fixed: extraction is blocked on preview in code (`BUG_HISTORY.md` #30), and `SUPABASE_SERVICE_ROLE_KEY` / `GEMINI_API_KEY` now target `production` only — verified against the Vercel API. |
 | N | `not_research` path never sets `failure_code` | `app/api/extract/route.js` sets `extraction_status='failed'` and `document_type='not_research'` but leaves `failure_code` null, contradicting `CLAUDE_CODE_HANDOVER.md` §4, which lists `not_research` as a valid value. Live evidence: the CV submitted 2026-09-19 has `failure_code: null`. | **Open, cosmetic.** No user-facing impact — the 422 message is still correct and specific. Diagnostic/contract inconsistency only. |
 
@@ -144,7 +166,7 @@ Vercel runtime logs for the relevant window are **not recoverable** — the logs
 2. **Create a second Supabase project for preview.** The free tier allows two. This is the real fix, and it also removes the "test submissions land in the real papers table" problem. Costs setup time, not money.
 3. **A distinct `extraction_status` for a zero-yield run.** More honest than `completed`, but touches the status CHECK constraint, both RPCs, and the confirmation UI's branching — medium risk, deferred deliberately (`BUG_HISTORY.md` #31).
 4. ~~**Bug O**~~ **Closed 2026-09-21** by migration `0010`. No decision left to make.
-5. **Repair the three detached papers.** `f8676a50`, `d5c7b51e` and `c71a48b9` have their submitter unlinked and carry duplicate email-less researcher rows (`BUG_HISTORY.md` #33). Re-linking by `submitted_by` and deleting the duplicates is a data migration over real records and needs your decision, not a unilateral write.
+5. ~~**Repair the three detached papers.**~~ **Audited 2026-09-21 — no repair needed, and the earlier description of this item was wrong.** See `BUG_HISTORY.md` #40.
 
 ## Technical debt
 
@@ -160,9 +182,7 @@ Vercel runtime logs for the relevant window are **not recoverable** — the logs
 
 ## Next recommended priorities
 
-1. **Repair the three detached papers and eight orphan researcher rows** (bug Q). `f8676a50`, `d5c7b51e` and `c71a48b9` have their submitter unlinked. The forward fix is deployed and proven (`BUG_HISTORY.md` #33), but the existing damage is untouched, and those three students are not currently linked to their own research. A data migration over real records — needs the owner's approval before it runs.
-2. **Re-run the nine papers that are not `completed`.** Six failed in the 2026-09-21 quota window and carry a transient `failure_code`, so they are re-claimable; three never started. Opening each confirmation link once is enough.
-3. **Bug N** — set `failure_code` on the `not_research` path. Cosmetic; do it whenever that file is next open.
-4. **Update the two stale `gemini-3.6-flash` defaults** in `lib/ai/providers/gemini.js` and `.env.local.example` to match what production actually runs.
-5. **Watch `/api/timing` output on the next few real submissions.** Still new and lightly exercised; the upload stage in particular has little data. If upload dominates, the next fix is client-side compression or a resumable upload, not anything in the extraction path.
-6. Only after the above: resume roadmap work. Per `PHASE_2_PLAN.md` the recommended first feature is the landing page / design system, the phone input redesign having been completed early.
+1. **Bug N** — set `failure_code` on the `not_research` path. Cosmetic; do it whenever that file is next open.
+2. **Update the two stale `gemini-3.6-flash` defaults** in `lib/ai/providers/gemini.js` and `.env.local.example` to match what production actually runs.
+3. **Watch `/api/timing` output on the next few real submissions.** Still new and lightly exercised; the upload stage in particular has little data.
+4. Only after the above: resume roadmap work. Per `PHASE_2_PLAN.md` the recommended first feature is the landing page / design system, the phone input redesign having been completed early.

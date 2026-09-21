@@ -767,3 +767,53 @@ Not a bug — the absence that let one through.
 `.github/workflows/checks.yml` now runs on every push and every pull request: `npm ci`, `npm run lint`, `npm run build` (with placeholder Supabase env vars — the build only needs them to compile, and no real key belongs in a workflow file), then all seven runnable suites as individually named steps so a failure names itself in the GitHub UI instead of hiding in a combined log. `npm test` runs the same set locally.
 
 `scripts/test-docx-extraction.js` is deliberately excluded: it requires a real `.docx` path as an argument and there is no fixture in the repo, so it cannot run unattended.
+
+---
+
+## 40. Bug Q audit: the "orphan researcher rows" did not exist
+
+**This entry corrects an earlier claim of mine.** `CURRENT_STATUS.md` recorded, and I repeated several times, that bug #33 had left "eight orphan researcher rows" needing deletion and "three detached papers" needing repair. A full audit against production on 2026-09-21 found that **neither is true**, and that acting on the earlier description would have destroyed real authorship data.
+
+**What the audit found.**
+
+Zero orphaned researcher rows exist. Queried directly:
+
+```sql
+select count(*) from researchers r
+where not exists (select 1 from paper_researchers pr where pr.researcher_id=r.id)
+  and not exists (select 1 from papers p where p.submitted_by=r.id);
+-- 0
+```
+
+The eight email-less rows are **legitimate extracted co-authors**, every one of them linked to a paper: the six real authors of `c71a48b9` ("Ahmed Hassan Abdelgader Hassan", "Ibrahim Omer Mekki Elsheikh", and four more), and `سامي إدريس علي حميدي`, the author of the Arabic thesis, on `d5c7b51e` and `f8676a50`. They have no email because **the platform never collects emails for co-authors** — only the submitter supplies one. "No email" was never evidence of an orphan. It is the normal shape of an extracted author.
+
+**What "detached submitter" actually means.** `papers.submitted_by` is `not null references researchers(id)` and the bug never touched it. All three submitter rows still exist, still carry their email and WhatsApp number, and are still referenced by their paper. Nothing was lost. What the reconciliation delete removed was the submitter's row in `paper_researchers`, which is the **authorship** table — "anyone credited on a paper" — not a record of who submitted.
+
+**Why re-linking would be wrong.** On `d5c7b51e` and `f8676a50` the confirmed author is `سامي إدريس علي حميدي`; the submitter is a different person who uploaded that thesis as a test. Re-linking the submitter would credit them as an author of work they did not write — fabricating authorship, which is worse than the state it would be "repairing".
+
+**Why the current state is not damage at all.** Run today's fixed code against `c71a48b9` and you get exactly this state. `seedResearchers` carries a `researcher_id` across only when the extracted name matches an existing row; the submitter typed the nickname `"sam"`, which matches none of the six full names in the document, so the id is not carried, the six are inserted, and the submitter's link is reconciled away. `scripts/test-researcher-seed.js` asserts precisely this ("a different person is NOT matched"). The stored shape is therefore a correct fingerprint of the fixed code, and "repairing" it would make the historical record diverge from what the code actually does — the opposite of what this project's first principle asks for.
+
+**The one genuine observation, left alone deliberately.** On `c71a48b9` the submitter row `c2107aff` (`"sam"`, with email and WhatsApp) and the author row `3e900c1f` (`"Samer Habiballah Awad Abdelrahim"`, no email) are almost certainly the same human. Merging them would mean deleting a row and repointing a foreign key on the strength of a name inference — exactly the "do not merge merely because names are similar" hazard. All three papers are the founder's own test submissions, so the value of merging is near zero and the precedent is bad. Recorded here; not acted on.
+
+**Rows repaired: 0. Rows deleted: 0.** The audit's product is this correction, not a migration.
+
+---
+
+## 41. The nine "recoverable" papers were all already recovered
+
+**Claim under test:** nine papers (six `failed` in the 2026-09-21 quota window, three `pending`) were described as needing a retry, on the grounds that their failure codes are transient and therefore re-claimable.
+
+**They are re-claimable. Retrying them would still have been wrong**, because every one of them is a byte-identical duplicate of a document that has already extracted successfully. Matching `papers.file_path` against `storage.objects.metadata->>'size'` proves it without relying on filenames, which is necessary here: Arabic filenames are sanitized to a bare UUID on upload (#17), so most of these files have no readable name at all.
+
+| Bytes | Failed / pending | Already completed, same bytes |
+|---|---|---|
+| 145,573 (.docx) | `b36c31ec`, `fb6c03a8` | `801c1150`, `dc6aa173` |
+| 908,907 (.pdf) | `d699bde4`, `f33a832e`, `69ab58e5`, `fc5d676e` | `c7052281`, `bdae83f7`, `459d96fb` |
+| 1,619,901 (.pdf) | `bb6db427` | `0906ebe0`, `f8676a50`, `d3208b35`, `8dcf226f` |
+| 1,854,755 (.pdf) | `3bf48456`, `55cc8520` | `230e19d6`, `bbc0ac0f`, `c03f7fe3`, `91465dd3`, `6a63226d`, `c71a48b9` |
+
+The tenth non-completed paper, `3f67ed08`, is the CV correctly classified `not_research`. Its `failure_code` is null and `not_research` is deliberately absent from `TRANSIENT_FAILURE_CODES`, so it is not re-claimable by design — a retry would spend a provider call to obtain the identical answer.
+
+**Papers recovered: 0, correctly.** Retrying any of them would have burned free-tier quota to produce a row the database already holds, and left more duplicate `papers` rows for the same document. They are superseded, not lost.
+
+**Left alone and documented:** all nine, plus `3f67ed08`. Also `d5c7b51e`, whose `title` is still the typed sentence `"No title appeared for this research"` while three byte-identical siblings carry the correct Arabic title — that is the submitter's own confirmed data and remains theirs to correct (#20).
