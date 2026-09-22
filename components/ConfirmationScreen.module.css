@@ -1,99 +1,159 @@
+/* Confirmation screen presentation, migrated onto the Phase 2 token
+   foundation (app/globals.css, Milestone 1).
+
+   Presentation only. ConfirmationScreen.jsx is byte-identical: every
+   poll interval, retry threshold, safety-net trigger, researcher seed,
+   field-visibility rule, correction route and RPC call is exactly as
+   Phase 1 left it, and so is every word on screen.
+
+   Measured defects fixed here, and nothing else:
+     1. .fieldLabel  #8a8a82 = 3.33:1 — the field NAMES, under 4.5:1
+     2. .emptyValue  #9a9a92 = 2.71:1 — "Not found in your paper…"
+     3. .source      #9a9a92 = 2.71:1 — "Found on page N"
+     4. .candidateSource #8a8a82 = 3.48:1 on a white chip
+     5. .attentionDot #c9922b = 2.64:1, under the 3:1 a non-text
+        indicator needs (WCAG 1.4.11)
+     6. control borders #ddd9cd = 1.41:1, #ddd3b0 = 1.50:1,
+        #b9cfd1 = 1.56:1, #ecdfb4 = 1.23:1 — all far under 3:1
+     7. reorder buttons 30x22, under the 24x24 AA minimum (SC 2.5.8)
+     8. .nameInput 15.2px and .socialInputs input 14.1px, under the
+        16px floor that stops iOS Safari zooming a focused control
+
+   On the attention palette specifically: app/globals.css flags that
+   --attention on --attention-surface is 4.5003:1, clearing AA with no
+   margin, and says Milestone 2 is the moment to re-measure rather than
+   assume. Re-measured. The note and banner PROSE therefore stays --ink
+   (13.33:1 on that surface) rather than moving to --attention, which
+   would have cut it from today's 6.26:1 to 4.50:1 — a regression
+   dressed as a migration. --attention carries the attention meaning
+   where it is non-text and has real margin: the dot, the borders, and
+   the flagged field's label. */
+
 .page {
-  max-width: 660px;
+  max-width: var(--measure-document);
   margin: 0 auto;
-  padding: 2rem 1.5rem 4rem;
-  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
-  color: #2a2a28;
+  padding: var(--space-6) var(--space-5) var(--space-7);
+  font-family: var(--font-sans);
+  color: var(--ink);
 }
 
 .centered {
-  max-width: 520px;
-  margin: 4rem auto;
-  padding: 1.5rem;
+  max-width: var(--measure-notice);
+  margin: var(--space-7) auto;
+  padding: var(--space-5);
   text-align: center;
-  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
-  line-height: 1.65;
-  color: #545450;
+  font-family: var(--font-sans);
+  line-height: var(--leading-body);
+  /* Was #545450. These paragraphs are the whole explanation of a
+     failure, so they read as body text, not as a caption. Hierarchy
+     against the heading comes from size and weight. */
+  color: var(--ink);
 }
 
 .noticeHeading {
-  font-size: 1.3rem;
+  font-size: var(--text-xl);
   font-weight: 600;
-  color: #1a2e35;
-  margin: 0 0 1rem;
+  color: var(--ink);
+  margin: 0 0 var(--space-4);
 }
 
+/* Shared by the "Start a new submission" anchor and the "Try again"
+   button on the transient-failure screen. `border` and `font-family`
+   are explicit because a <button> otherwise arrives with the UA's own
+   border and font and the two render differently from one class. */
 .primaryLink {
-  display: inline-block;
-  margin-top: 1rem;
-  padding: 0.7rem 1.4rem;
-  background: #1f6f78;
-  color: #fff;
-  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.75rem;
+  margin-top: var(--space-4);
+  padding: var(--space-3) var(--space-5);
+  background: var(--accent);
+  color: var(--accent-ink);
+  border: none;
+  border-radius: var(--radius-md);
   text-decoration: none;
+  font-family: inherit;
   font-weight: 600;
-  font-size: 0.95rem;
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.primaryLink:hover:not(:disabled) {
+  background: var(--accent-strong);
+}
+
+.primaryLink:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 /* ---------- header ---------- */
 
 .header {
-  margin-bottom: 2rem;
+  margin-bottom: var(--space-6);
 }
 
 .header h1 {
-  font-size: 1.45rem;
+  font-size: var(--text-xl);
   font-weight: 600;
   letter-spacing: -0.01em;
-  margin: 0 0 0.4rem;
-  color: #1a2e35;
+  margin: 0 0 var(--space-1);
+  color: var(--ink);
 }
 
 .subtitle {
-  color: #6b6b66;
+  color: var(--ink-muted);
   margin: 0;
-  font-size: 0.95rem;
-  line-height: 1.5;
+  font-size: var(--text-sm);
+  line-height: var(--leading-body);
 }
 
 .attentionBanner {
-  margin: 1rem 0 0;
-  padding: 0.6rem 0.85rem;
-  background: #fbf6e9;
-  border: 1px solid #ecdfb4;
-  border-radius: 8px;
-  color: #6b5a1e;
-  font-size: 0.88rem;
+  margin: var(--space-4) 0 0;
+  padding: var(--space-2) var(--space-3);
+  background: var(--attention-surface);
+  /* Was #ecdfb4 at 1.23:1 against its own fill — a boundary nobody
+     could see. --attention is 4.50:1 inside and 4.65:1 against the
+     page, so the callout has an edge in both directions. */
+  border: 1px solid var(--attention);
+  border-radius: var(--radius-md);
+  color: var(--ink);
+  font-size: var(--text-xs);
 }
 
 /* ---------- sections ---------- */
 
 .section {
-  margin-bottom: 2.25rem;
-  padding-top: 1.5rem;
-  border-top: 1px solid #e6e4dd;
+  margin-bottom: var(--space-6);
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--line);
 }
 
 .section h2 {
-  font-size: 1.02rem;
+  font-size: var(--text-base);
   font-weight: 600;
-  margin: 0 0 0.4rem;
-  color: #1a2e35;
+  margin: 0 0 var(--space-1);
+  color: var(--ink);
 }
 
 .hint {
-  color: #6b6b66;
-  font-size: 0.85rem;
-  margin: 0 0 1rem;
+  color: var(--ink-muted);
+  font-size: var(--text-xs);
+  margin: 0 0 var(--space-4);
 }
 
 /* ---------- shimmer (honest loading state) ---------- */
 
 .shimmer {
+  /* Height and sweep duration stay raw: they are this placeholder's own
+     geometry and rhythm. --motion-duration is an interaction response
+     (150ms); collapsing a 1.6s "still working" sweep into it would
+     retime the loading state every time button feedback changed. */
   height: 1.05rem;
-  margin: 0.5rem 0;
-  border-radius: 5px;
-  background: linear-gradient(90deg, #eeece5 25%, #f7f6f2 50%, #eeece5 75%);
+  margin: var(--space-2) 0;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(90deg, var(--line) 25%, var(--surface) 50%, var(--line) 75%);
   background-size: 200% 100%;
   animation: shimmerSweep 1.6s ease-in-out infinite;
 }
@@ -114,8 +174,8 @@
 /* ---------- inline editable fields ---------- */
 
 .field {
-  padding: 0.9rem 0;
-  border-bottom: 1px solid #f0efe9;
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--line);
 }
 
 .field:last-child {
@@ -125,33 +185,55 @@
 .fieldLabel {
   display: flex;
   align-items: center;
-  gap: 0.4rem;
-  font-size: 0.75rem;
+  gap: var(--space-1);
+  font-size: var(--text-2xs);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: #8a8a82;
-  margin: 0 0 0.4rem;
+  /* Was #8a8a82 = 3.33:1. These are the field NAMES; a submitter who
+     cannot read them cannot tell what they are being asked to check. */
+  color: var(--ink-subtle);
+  margin: 0 0 var(--space-1);
+}
+
+/* The one rule `fieldAttention` has ever had — the class is referenced
+   in the JSX but was never defined, so a flagged field looked exactly
+   like an unflagged one apart from a 6px dot. Recolouring the label to
+   match the dot costs no layout and no markup, and it scales: on a
+   paper where six of seven fields need checking, a tinted panel per
+   field would be a wall of colour, where a coloured label still reads
+   as a list. Colour is not carrying this alone — the dot and its
+   aria-label are unchanged. */
+.fieldAttention .fieldLabel {
+  color: var(--attention);
 }
 
 .attentionDot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #c9922b;
+  /* 6px -> 8px. It was both the least visible thing on the screen and
+     the only per-field signal. */
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-round);
+  /* Was #c9922b = 2.64:1, under the 3:1 WCAG 1.4.11 asks of a non-text
+     indicator. --attention is 4.65:1 on the page. */
+  background: var(--attention);
   display: inline-block;
+  flex: 0 0 auto;
 }
 
 .valueButton {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 1rem;
+  gap: var(--space-4);
   width: 100%;
-  padding: 0.35rem 0.5rem 0.35rem 0;
+  /* Physical padding and text-align kept as-is: direction handling is
+     Milestone 4's job, done across the app with logical properties
+     rather than patched one selector at a time. */
+  padding: var(--space-1) var(--space-2) var(--space-1) 0;
   background: transparent;
   border: none;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   text-align: left;
   cursor: text;
   font: inherit;
@@ -159,25 +241,28 @@
 }
 
 .valueButton:hover {
-  background: #faf9f6;
+  background: var(--surface);
 }
 
 .value {
-  line-height: 1.55;
-  color: #2a2a28;
+  line-height: var(--leading-body);
+  color: var(--ink);
 }
 
 .emptyValue {
-  color: #9a9a92;
+  /* Was #9a9a92 = 2.71:1. This is an instruction — "Not found in your
+     paper. Tap to add it." — not decoration. It stays visually
+     secondary through italics, not through being unreadable. */
+  color: var(--ink-subtle);
   font-style: italic;
 }
 
 .editHint {
   flex-shrink: 0;
-  font-size: 0.75rem;
-  color: #1f6f78;
+  font-size: var(--text-2xs);
+  color: var(--accent);
   opacity: 0;
-  transition: opacity 0.15s ease;
+  transition: opacity var(--motion-duration) var(--motion-ease);
   padding-top: 0.15rem;
 }
 
@@ -188,72 +273,92 @@
 
 .editInput {
   width: 100%;
-  padding: 0.55rem 0.7rem;
-  border: 1px solid #1f6f78;
-  border-radius: 7px;
+  padding: var(--space-3);
+  /* Accent, not --line-control: this border is the "you are editing
+     this field right now" signal, not a resting control boundary. */
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
   font: inherit;
-  line-height: 1.5;
-  color: #2a2a28;
-  background: #fff;
+  /* After `font: inherit`, so a focused textarea can never fall under
+     the 16px that makes iOS Safari zoom and not zoom back. */
+  font-size: var(--text-control);
+  line-height: var(--leading-body);
+  color: var(--ink);
+  background: var(--surface-raised);
   resize: vertical;
 }
 
-.editInput:focus {
-  outline: 2px solid rgba(31, 111, 120, 0.25);
-  outline-offset: 1px;
+/* The ring comes from the one global :focus-visible rule, so every
+   focusable control on the site looks the same when focused. The old
+   rule painted a 25%-opacity accent wash that all but vanished against
+   the page. */
+.editInput:focus-visible {
+  border-color: var(--accent-strong);
 }
 
 /* ---------- field notes ---------- */
 
 .note {
-  margin-top: 0.5rem;
-  padding: 0.6rem 0.75rem;
-  background: #fbf6e9;
-  border: 1px solid #ecdfb4;
-  border-radius: 7px;
-  font-size: 0.85rem;
-  color: #6b5a1e;
+  margin-top: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--attention-surface);
+  border: 1px solid var(--attention);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  /* --ink, not --attention: 13.33:1 here against --attention's 4.50:1.
+     See the note at the top of this file. */
+  color: var(--ink);
 }
 
 .note p {
-  margin: 0 0 0.5rem;
+  margin: 0 0 var(--space-2);
 }
 
 .candidates {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.4rem;
+  gap: var(--space-1);
 }
 
 .candidateChip {
   display: flex;
   flex-direction: column;
+  /* Raw: the gap between a candidate's value and its source line,
+     tighter than the 4px scale starts. */
   gap: 0.1rem;
-  padding: 0.35rem 0.6rem;
-  background: #fff;
-  border: 1px solid #ddd3b0;
-  border-radius: 6px;
+  min-height: 2.75rem;
+  padding: var(--space-2) var(--space-3);
+  background: var(--surface-raised);
+  /* Was #ddd3b0 = 1.50:1. This border is the whole affordance that says
+     a candidate is pressable. */
+  border: 1px solid var(--line-control);
+  border-radius: var(--radius-sm);
   cursor: pointer;
   font: inherit;
-  font-size: 0.85rem;
-  color: #4a4a44;
+  font-size: var(--text-xs);
+  color: var(--ink);
   text-align: left;
+  justify-content: center;
 }
 
 .candidateChip:hover {
-  border-color: #1f6f78;
-  color: #1f6f78;
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 .candidateSource {
-  font-size: 0.72rem;
-  color: #8a8a82;
+  /* Was #8a8a82 = 3.48:1 on this white chip, at 11.5px. */
+  font-size: var(--text-2xs);
+  color: var(--ink-muted);
 }
 
 .source {
-  margin: 0.35rem 0 0;
-  color: #9a9a92;
-  font-size: 0.78rem;
+  margin: var(--space-1) 0 0;
+  /* Was #9a9a92 = 2.71:1. "Found on page 4" is the provenance that
+     makes the extraction checkable; it is the last thing that should
+     be unreadable on a platform built around evidence. */
+  color: var(--ink-muted);
+  font-size: var(--text-2xs);
 }
 
 /* ---------- researchers ---------- */
@@ -268,26 +373,32 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.65rem 0;
-  border-bottom: 1px solid #f0efe9;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--line);
 }
 
 .orderControls {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--space-1);
 }
 
+/* 28x28, up from 30x22. WCAG 2.2 AA (SC 2.5.8) asks 24x24; 44x44 is the
+   AAA enhanced size (SC 2.5.5) this project holds itself to on primary
+   controls. These two are deliberately the compact exception: they are
+   a stacked pair whose up/over/down relationship is the point, and
+   sizing each to 44 would make a researcher row 90px tall to move one
+   name. 28x28 clears AA with margin and keeps the row usable. */
 .orderControls button {
-  width: 30px;
-  height: 22px;
-  border: 1px solid #ddd9cd;
-  background: #fff;
-  border-radius: 5px;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--line-control);
+  background: var(--surface-raised);
+  border-radius: var(--radius-sm);
   cursor: pointer;
-  font-size: 0.8rem;
-  color: #55554f;
+  font-size: var(--text-xs);
+  color: var(--ink);
 }
 
 .orderControls button:disabled {
@@ -297,55 +408,63 @@
 
 .nameInput {
   flex: 1;
+  /* Raw: the width at which this row wraps rather than crushing the
+     name field. Component geometry, not a spacing step. */
   min-width: 170px;
-  padding: 0.5rem 0.65rem;
-  border: 1px solid #ddd9cd;
-  border-radius: 7px;
-  font-size: 0.95rem;
+  padding: var(--space-3);
+  border: 1px solid var(--line-control);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-control);
   font-family: inherit;
+  color: var(--ink);
+  background: var(--surface-raised);
 }
 
-.nameInput:focus {
-  outline: 2px solid rgba(31, 111, 120, 0.25);
-  border-color: #1f6f78;
+.nameInput:focus-visible {
+  border-color: var(--accent);
 }
 
+/* 30x30 -> 36x36. Already past the 24x24 AA minimum, but a single
+   destructive control on a phone deserves more than a 30px square. */
 .removeButton {
-  width: 30px;
-  height: 30px;
+  width: 36px;
+  height: 36px;
   border: none;
   background: transparent;
-  color: #a3453f;
-  font-size: 1.15rem;
+  color: var(--danger);
+  font-size: var(--text-lg);
   cursor: pointer;
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
 }
 
 .removeButton:hover {
-  background: #fbeceb;
+  background: var(--danger-surface);
 }
 
 .addButton,
 .addLinkButton {
-  border: 1px dashed #b9cfd1;
+  /* Was #b9cfd1 = 1.56:1. Dashed still reads as "add something"; the
+     boundary is now actually visible. */
+  border: 1px dashed var(--line-control);
   background: transparent;
-  color: #1f6f78;
-  padding: 0.5rem 0.9rem;
-  border-radius: 7px;
-  font-size: 0.87rem;
+  color: var(--accent);
+  min-height: 2.75rem;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
   font-family: inherit;
   cursor: pointer;
-  margin-top: 0.75rem;
+  margin-top: var(--space-3);
 }
 
 .addButton:hover,
 .addLinkButton:hover {
-  border-color: #1f6f78;
-  background: #f5fafa;
+  border-color: var(--accent);
+  background: var(--surface);
 }
 
 .addLinkButton {
-  margin: 0.4rem 0 0.2rem;
+  margin: var(--space-1) 0 var(--space-1);
   width: 100%;
   text-align: left;
 }
@@ -353,44 +472,50 @@
 .socialInputs {
   display: flex;
   flex-direction: column;
-  gap: 0.45rem;
+  gap: var(--space-2);
   width: 100%;
-  margin-top: 0.5rem;
+  margin-top: var(--space-2);
 }
 
 .socialWhy {
-  margin: 0 0 0.2rem;
-  font-size: 0.8rem;
-  color: #6b6b66;
-  line-height: 1.5;
+  margin: 0 0 var(--space-1);
+  font-size: var(--text-2xs);
+  color: var(--ink-muted);
+  line-height: var(--leading-body);
 }
 
 .socialInputs input {
-  padding: 0.45rem 0.65rem;
-  border: 1px solid #ddd9cd;
-  border-radius: 6px;
-  font-size: 0.88rem;
+  padding: var(--space-3);
+  border: 1px solid var(--line-control);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-control);
   font-family: inherit;
+  color: var(--ink);
+  background: var(--surface-raised);
+}
+
+.socialInputs input:focus-visible {
+  border-color: var(--accent);
 }
 
 /* ---------- actions ---------- */
 
 .confirmButton {
   width: 100%;
-  padding: 0.95rem;
-  background: #1f6f78;
-  color: white;
+  padding: var(--space-4);
+  background: var(--accent);
+  color: var(--accent-ink);
   border: none;
-  border-radius: 9px;
-  font-size: 1rem;
+  border-radius: var(--radius-md);
+  font-size: var(--text-base);
   font-weight: 600;
   font-family: inherit;
   cursor: pointer;
-  transition: background 0.15s ease;
+  transition: background var(--motion-duration) var(--motion-ease);
 }
 
 .confirmButton:hover:not(:disabled) {
-  background: #1a5f67;
+  background: var(--accent-strong);
 }
 
 .confirmButton:disabled {
@@ -399,48 +524,53 @@
 }
 
 .timeoutNote {
-  margin-top: 0.9rem;
+  margin-top: var(--space-3);
   text-align: center;
-  font-size: 0.87rem;
-  color: #6b6b66;
+  font-size: var(--text-xs);
+  color: var(--ink-muted);
 }
 
 .linkButton {
   background: none;
   border: none;
   padding: 0;
-  color: #1f6f78;
+  color: var(--accent);
   font: inherit;
   text-decoration: underline;
   cursor: pointer;
 }
 
 .errorMessage {
-  color: #a3453f;
-  font-size: 0.9rem;
-  margin-top: 0.85rem;
+  color: var(--danger);
+  font-size: var(--text-xs);
+  margin-top: var(--space-3);
   text-align: center;
 }
 
 /* ---------- completion ---------- */
 
 .completionPage {
-  max-width: 520px;
-  margin: 3.5rem auto;
-  padding: 2rem 1.5rem;
+  max-width: var(--measure-notice);
+  margin: var(--space-7) auto;
+  padding: var(--space-6) var(--space-5);
   text-align: center;
-  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
-  color: #2a2a28;
-  line-height: 1.65;
+  font-family: var(--font-sans);
+  color: var(--ink);
+  line-height: var(--leading-body);
 }
 
+/* Was a pale #eaf3f1 tint. The page sits on --surface, and the only
+   tokenized fills that stay visible against it are the accent itself —
+   --surface-raised on --surface is 1.03:1, an invisible circle. Solid
+   accent with --accent-ink is 5.83:1 and needs no new token. */
 .completionMark {
+  /* Raw: the badge's own diameter and glyph size. */
   width: 56px;
   height: 56px;
-  margin: 0 auto 1.25rem;
-  border-radius: 50%;
-  background: #eaf3f1;
-  color: #1f6f78;
+  margin: 0 auto var(--space-5);
+  border-radius: var(--radius-round);
+  background: var(--accent);
+  color: var(--accent-ink);
   font-size: 1.6rem;
   display: flex;
   align-items: center;
@@ -448,35 +578,35 @@
 }
 
 .completionPage h1 {
-  font-size: 1.35rem;
+  font-size: var(--text-xl);
   font-weight: 600;
-  color: #1a2e35;
-  margin: 0 0 0.85rem;
+  color: var(--ink);
+  margin: 0 0 var(--space-3);
 }
 
 .completionLead {
-  font-size: 1.02rem;
-  color: #3d3d3a;
-  margin-bottom: 1rem;
+  font-size: var(--text-base);
+  color: var(--ink);
+  margin-bottom: var(--space-4);
 }
 
 .completionPage p {
-  color: #545450;
-  margin: 0 0 0.9rem;
+  color: var(--ink-muted);
+  margin: 0 0 var(--space-3);
 }
 
 .completionClosing {
-  margin-top: 1.5rem;
-  padding-top: 1.25rem;
-  border-top: 1px solid #e6e4dd;
-  color: #6b6b66;
-  font-size: 0.92rem;
+  margin-top: var(--space-5);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--line);
+  color: var(--ink-muted);
+  font-size: var(--text-sm);
   font-style: italic;
 }
 
 @media (max-width: 480px) {
-  .page { padding: 1.25rem 1rem 3rem; }
-  .researcherRow { padding: 0.8rem 0; }
-  .completionPage { margin: 2rem auto; padding: 1.5rem 1.25rem; }
+  .page { padding: var(--space-5) var(--space-4) var(--space-6); }
+  .researcherRow { padding: var(--space-3) 0; }
+  .completionPage { margin: var(--space-6) auto; padding: var(--space-5) var(--space-4); }
   .editHint { opacity: 1; }
 }
