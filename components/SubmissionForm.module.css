@@ -59,8 +59,9 @@
      shrank these controls from 40px tall to 37px, and a pointer target
      may not come out of this migration smaller than it went in. 12px
      also brings them to ~45px, level with the country trigger's 44px
-     and comfortably at the touch-target floor. Horizontal padding is
-     unchanged at 12px. */
+     project touch-target target, aligned with WCAG's enhanced
+     target-size guidance (SC 2.5.5, AAA) rather than the AA minimum of
+     24px (SC 2.5.8). Horizontal padding is unchanged at 12px. */
   padding: var(--space-3);
   border: 1px solid var(--line-control);
   border-radius: var(--radius-sm);

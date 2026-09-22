@@ -19,8 +19,11 @@
   align-items: center;
   gap: var(--space-2);
   height: 100%;
-  /* 44px. Raw on purpose: this is the WCAG touch-target floor for the
-     one control on this row that opens a menu, not a spacing step. */
+  /* 44px. Raw on purpose: WCAG 2.2's actual Level AA minimum (SC 2.5.8)
+     is 24x24px; 44x44px is the Level AAA enhanced target size (SC
+     2.5.5). This project holds itself to the stronger AAA figure as its
+     own design standard on primary touch controls, not because AA
+     requires it. Not a spacing step, so it stays a raw value. */
   min-height: 2.75rem;
   /* 12px horizontal, level with the text inputs beside it. --space-2
      would have narrowed this trigger by a pixel against its pre-
@@ -181,14 +184,27 @@
 }
 
 /* Inherits --accent-ink from the row and steps back, so the dial code
-   stays secondary to the name without naming a second colour. */
+   stays secondary to the name without naming a second colour. 0.85 is
+   deliberate, not decorative: white composited at 0.8 opacity over
+   --accent measures 4.38:1, under the 4.5:1 this ~14px text needs.
+   0.85 measures 4.71:1 — verified by computing the actual composited
+   RGB, not by reading the token alone. */
 .optionActive .code {
   color: inherit;
-  opacity: 0.8;
+  opacity: 0.85;
 }
 
+/* The quiet background alone was nearly invisible against
+   --surface-raised — the popup's own surface — and this is the only
+   visual cue that a country stays selected once ArrowDown/ArrowUp moves
+   activeIndex away from it. An inset box-shadow adds a direction-
+   neutral accent frame without moving the row's border (no layout
+   shift) and without a physical left/right edge (that's Milestone 4's
+   job, done properly with logical properties across the whole app, not
+   patched into one selector here). */
 .optionSelected:not(.optionActive) {
   background: var(--surface);
+  box-shadow: inset 0 0 0 1px var(--accent);
 }
 
 .empty {
