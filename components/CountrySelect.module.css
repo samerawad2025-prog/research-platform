@@ -1,7 +1,13 @@
 /* Quiet, dense, and consistent: one row height, one flag column, one
    dial-code column, all left-aligned so the eye scans a single edge.
    The trigger stays narrow (flag + dial code only) because the country
-   NAME is already implied by the flag and repeated in the list. */
+   NAME is already implied by the flag and repeated in the list.
+
+   Migrated onto the Phase 2 token foundation. Keyboard and ARIA
+   behaviour live in CountrySelect.jsx and are untouched. The popup's
+   physical `left: 0` is deliberately left alone here — direction
+   handling is Milestone 4's job, done systematically with logical
+   properties rather than patched one selector at a time. */
 
 .root {
   position: relative;
@@ -11,29 +17,35 @@
 .trigger {
   display: flex;
   align-items: center;
-  gap: 0.4rem;
+  gap: var(--space-2);
   height: 100%;
+  /* 44px. Raw on purpose: this is the WCAG touch-target floor for the
+     one control on this row that opens a menu, not a spacing step. */
   min-height: 2.75rem;
-  padding: 0 0.6rem;
-  border: 1px solid #ccc;
-  border-radius: 6px;
-  background: #fff;
+  /* 12px horizontal, level with the text inputs beside it. --space-2
+     would have narrowed this trigger by a pixel against its pre-
+     migration width, and nothing in this task should hand back target
+     area. */
+  padding: 0 var(--space-3);
+  border: 1px solid var(--line-control);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
   font-family: inherit;
-  font-size: 0.95rem;
-  color: #333;
+  font-size: var(--text-sm);
+  color: var(--ink);
   cursor: pointer;
-  transition: border-color 0.15s ease, background-color 0.15s ease;
+  transition: border-color var(--motion-duration) var(--motion-ease),
+    background-color var(--motion-duration) var(--motion-ease);
 }
 
 .trigger:hover:not(:disabled) {
-  background: #fafafa;
-  border-color: #b4b4b4;
+  background: var(--surface);
+  border-color: var(--ink-subtle);
 }
 
+/* Ring from the global :focus-visible rule; border emphasis only here. */
 .trigger:focus-visible {
-  outline: 2px solid #2563eb;
-  outline-offset: 1px;
-  border-color: #2563eb;
+  border-color: var(--accent);
 }
 
 .trigger:disabled {
@@ -42,43 +54,48 @@
 }
 
 .flag {
-  font-size: 1.15rem;
+  font-size: var(--text-lg);
   line-height: 1;
   /* A fixed box keeps every flag in the same column even though the
-     emoji themselves differ slightly in width across platforms. */
+     emoji themselves differ slightly in width across platforms. Raw
+     because it is a column width, not a spacing step. */
   width: 1.5rem;
   text-align: center;
   flex: 0 0 auto;
 }
 
 .dial {
-  font-variant-numeric: tabular-nums;
-  color: #333;
+  font-family: var(--font-numeric);
+  font-variant-numeric: var(--numeric-variant);
+  color: var(--ink);
 }
 
 .chevron {
+  /* Icon geometry, not type or spacing. */
   width: 12px;
   height: 12px;
-  color: #888;
+  color: var(--ink-muted);
   flex: 0 0 auto;
 }
 
 .popup {
   position: absolute;
   z-index: 40;
-  top: calc(100% + 4px);
+  top: calc(100% + var(--space-1));
   left: 0;
+  /* Component width: wide enough for the longest country name at the
+     list's type size. Not a content measure. */
   width: 19rem;
-  max-width: calc(100vw - 2rem);
-  background: #fff;
-  border: 1px solid #e2e2e2;
-  border-radius: 10px;
+  max-width: calc(100vw - var(--space-6));
+  background: var(--surface-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
   /* Two layered shadows rather than one: a tight contact shadow plus a
      soft ambient one reads as a surface lifted off the page instead of
-     a box with a grey smear behind it. */
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06), 0 8px 24px rgba(0, 0, 0, 0.12);
+     a box with a grey smear behind it. Both are now token roles. */
+  box-shadow: var(--shadow-contact), var(--shadow-ambient);
   overflow: hidden;
-  animation: popIn 0.12s ease-out;
+  animation: popIn var(--motion-duration) var(--motion-ease);
 }
 
 @keyframes popIn {
@@ -87,7 +104,10 @@
 }
 
 /* Someone who has asked for less motion gets the panel with no
-   movement at all, rather than a smaller version of the same thing. */
+   movement at all, rather than a smaller version of the same thing.
+   Kept alongside the global policy in app/globals.css: this one removes
+   the animation outright, the global one neutralises anything added
+   later that forgets to. */
 @media (prefers-reduced-motion: reduce) {
   .popup { animation: none; }
   .trigger { transition: none; }
@@ -96,23 +116,33 @@
 .search {
   width: 100%;
   box-sizing: border-box;
-  padding: 0.6rem 0.75rem;
+  padding: var(--space-2) var(--space-3);
   border: none;
-  border-bottom: 1px solid #eee;
+  border-bottom: 1px solid var(--line);
   font-family: inherit;
-  font-size: 0.9rem;
-  color: #333;
+  /* Was 0.9rem. A focused text control under 16px makes iOS Safari zoom
+     the viewport and not zoom back. */
+  font-size: var(--text-control);
+  color: var(--ink);
 }
 
-.search:focus {
-  outline: none;
-  border-bottom-color: #2563eb;
+/* This field used to set `outline: none`, which beat the global
+   :focus-visible rule on specificity and left the search box with no
+   visible focus indicator at all — keyboard users landed in it blind.
+   The ring is drawn INSIDE the field: the popup clips to
+   `overflow: hidden` and the input sits 1px from its edge, so an
+   outward ring would be cut off. Same width and colour as every other
+   focus ring, just inset, so there is one treatment rather than two. */
+.search:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus);
+  outline-offset: calc(-1 * var(--focus-ring-width));
 }
 
 .list {
   list-style: none;
   margin: 0;
-  padding: 0.25rem;
+  padding: var(--space-1);
+  /* Component geometry: how much list fits before it scrolls. */
   max-height: 17rem;
   overflow-y: auto;
   overscroll-behavior: contain; /* stop the page scrolling behind the list */
@@ -121,11 +151,11 @@
 .option {
   display: flex;
   align-items: center;
-  gap: 0.55rem;
-  padding: 0.5rem 0.55rem;
-  border-radius: 6px;
-  font-size: 0.9rem;
-  color: #333;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  color: var(--ink);
   cursor: pointer;
 }
 
@@ -138,29 +168,33 @@
 
 .code {
   flex: 0 0 auto;
-  color: #777;
-  font-variant-numeric: tabular-nums;
+  color: var(--ink-muted);
+  font-family: var(--font-numeric);
+  font-variant-numeric: var(--numeric-variant);
 }
 
 /* One highlight, driven by keyboard and hover alike, so there is never
    a second competing "which row am I on" signal. */
 .optionActive {
-  background: #2563eb;
-  color: #fff;
+  background: var(--accent);
+  color: var(--accent-ink);
 }
 
+/* Inherits --accent-ink from the row and steps back, so the dial code
+   stays secondary to the name without naming a second colour. */
 .optionActive .code {
-  color: rgba(255, 255, 255, 0.8);
+  color: inherit;
+  opacity: 0.8;
 }
 
 .optionSelected:not(.optionActive) {
-  background: #f1f5fb;
+  background: var(--surface);
 }
 
 .empty {
-  padding: 0.75rem 0.55rem;
-  font-size: 0.88rem;
-  color: #777;
+  padding: var(--space-3) var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--ink-muted);
 }
 
 /* No phone-width width override. The trigger is now narrow (a flag and

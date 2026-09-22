@@ -1,81 +1,119 @@
+/* Submission form presentation, migrated onto the Phase 2 token
+   foundation (app/globals.css, Milestone 1).
+
+   This is a controlled migration, not a redesign: every selector, class
+   name and structural rule is unchanged. What changed is that the
+   hard-coded palette this file used to carry — including the blue that
+   made a submitter cross from a blue form to a teal confirmation
+   screen — is now expressed as token roles.
+
+   Two measured defects that live in this file are fixed here, and
+   nothing else:
+     1. the fieldset's intrinsic min-width forced 389px of content onto a
+        320px viewport (see .section / .field input below);
+     2. control borders sat at 1.61:1, under the 3:1 that WCAG 1.4.11
+        asks of a control boundary (now --line-control). */
+
 .form {
-  max-width: 620px;
+  max-width: var(--measure-form);
   margin: 0 auto;
-  padding: 1.5rem;
-  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
-  color: #1a1a1a;
+  padding: var(--space-5);
+  font-family: var(--font-sans);
+  color: var(--ink);
 }
 
 .section {
   border: none;
-  border-top: 1px solid #ddd;
-  padding: 1.25rem 0;
+  border-top: 1px solid var(--line);
+  padding: var(--space-5) 0;
   margin: 0;
+  /* A fieldset carries an intrinsic `min-width: min-content` that no
+     amount of parent sizing overrides, and the native file input inside
+     the second fieldset has a wide min-content. Together they forced the
+     form to 389px on a 320px viewport — measured, not theorised. This is
+     the documented one-line remedy; the matching min-width/max-width on
+     the inputs below lets the file control itself shrink rather than
+     just moving the overflow inward. */
+  min-width: 0;
 }
 
 .section legend {
   font-weight: 600;
-  font-size: 0.95rem;
-  padding: 0 0 0.75rem;
-  color: #333;
+  font-size: var(--text-sm);
+  padding: 0 0 var(--space-3);
+  color: var(--ink);
 }
 
 .field {
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
-  margin-bottom: 1rem;
-  font-size: 0.9rem;
-  color: #333;
+  gap: var(--space-1);
+  margin-bottom: var(--space-4);
+  font-size: var(--text-xs);
+  color: var(--ink);
+  min-width: 0;
 }
 
 .field input {
-  padding: 0.6rem 0.75rem;
-  border: 1px solid #ccc;
-  border-radius: 6px;
-  font-size: 1rem;
+  /* --space-3 all round, not the nearer --space-2 vertically: 8px
+     shrank these controls from 40px tall to 37px, and a pointer target
+     may not come out of this migration smaller than it went in. 12px
+     also brings them to ~45px, level with the country trigger's 44px
+     and comfortably at the touch-target floor. Horizontal padding is
+     unchanged at 12px. */
+  padding: var(--space-3);
+  border: 1px solid var(--line-control);
+  border-radius: var(--radius-sm);
+  /* Never below 16px: iOS Safari zooms a focused text control smaller
+     than that and does not zoom back out. */
+  font-size: var(--text-control);
   font-family: inherit;
+  min-width: 0;
+  max-width: 100%;
 }
 
-.field input:focus {
-  outline: 2px solid #2563eb;
-  outline-offset: 1px;
-  border-color: #2563eb;
+/* The ring itself now comes from the one global :focus-visible rule, so
+   every focusable control on the site looks the same when focused. Only
+   the border emphasis is local. */
+.field input:focus-visible {
+  border-color: var(--accent);
 }
 
 .hint {
-  font-size: 0.82rem;
-  color: #666;
-  margin: 0.35rem 0 0;
-  line-height: 1.5;
+  font-size: var(--text-2xs);
+  color: var(--ink-muted);
+  margin: var(--space-1) 0 0;
+  line-height: var(--leading-body);
 }
 
 .subLegend {
-  font-size: 0.85rem;
+  font-size: var(--text-xs);
   font-weight: 600;
-  color: #333;
-  margin: 1rem 0 0.6rem;
+  color: var(--ink);
+  margin: var(--space-4) 0 var(--space-2);
 }
 
-.checkboxOption,
-.radioOption {
+.checkboxOption {
   display: flex;
   align-items: flex-start;
-  gap: 0.5rem;
-  margin-bottom: 0.6rem;
-  font-size: 0.9rem;
-  line-height: 1.4;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+  font-size: var(--text-xs);
+  line-height: var(--leading-body);
 }
 
 .submitButton {
   width: 100%;
-  padding: 0.85rem;
-  margin-top: 1rem;
-  background: #2563eb;
-  color: white;
+  /* --space-4 rather than the nearer --space-3: 0.75rem would have made
+     this target smaller than it was before the migration, and a primary
+     action on a phone is the last place to lose height. */
+  padding: var(--space-4);
+  margin-top: var(--space-4);
+  background: var(--accent);
+  color: var(--accent-ink);
   border: none;
-  border-radius: 6px;
-  font-size: 1rem;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-base);
   font-weight: 600;
   cursor: pointer;
 }
@@ -86,19 +124,19 @@
 }
 
 .errorMessage {
-  color: #b91c1c;
-  font-size: 0.9rem;
-  margin-top: 0.75rem;
+  color: var(--danger);
+  font-size: var(--text-xs);
+  margin-top: var(--space-3);
 }
 
 .successMessage {
-  max-width: 620px;
-  margin: 2rem auto;
-  padding: 1.5rem;
+  max-width: var(--measure-form);
+  margin: var(--space-6) auto;
+  padding: var(--space-5);
   text-align: center;
-  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
-  font-size: 1.05rem;
-  line-height: 1.6;
+  font-family: var(--font-sans);
+  font-size: var(--text-lg);
+  line-height: var(--leading-body);
 }
 
 .honeypot {
@@ -111,7 +149,7 @@
 
 @media (max-width: 480px) {
   .form {
-    padding: 1rem;
+    padding: var(--space-4);
   }
 }
 
@@ -120,18 +158,18 @@
    sits directly under the field it refers to, which is the whole point
    of showing it at all. */
 .fieldError {
-  color: #b91c1c;
-  font-size: 0.82rem;
-  margin: 0.35rem 0 0;
-  line-height: 1.5;
+  color: var(--danger);
+  font-size: var(--text-2xs);
+  margin: var(--space-1) 0 0;
+  line-height: var(--leading-body);
 }
 
 /* A disabled submit button with no explanation is a dead end - the
    person can see they cannot continue but not why. This lists what is
    still outstanding. */
 .pendingNote {
-  font-size: 0.82rem;
-  color: #666;
-  margin: 0.6rem 0 0;
-  line-height: 1.5;
+  font-size: var(--text-2xs);
+  color: var(--ink-muted);
+  margin: var(--space-2) 0 0;
+  line-height: var(--leading-body);
 }

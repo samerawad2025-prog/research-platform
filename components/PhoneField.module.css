@@ -1,14 +1,16 @@
-/* Matches SubmissionForm.module.css conventions: same border, radius,
-   focus ring and muted-hint colours, so the picker doesn't read as a
-   bolted-on third-party widget. */
+/* Matches SubmissionForm.module.css conventions: the same token roles
+   for border, radius, focus and muted hint text, so the picker doesn't
+   read as a bolted-on third-party widget. Migrated onto the Phase 2
+   token foundation; no behaviour, validation or parsing is touched by
+   this file. */
 
 .wrapper {
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
-  margin-bottom: 1rem;
-  font-size: 0.9rem;
-  color: #333;
+  gap: var(--space-1);
+  margin-bottom: var(--space-4);
+  font-size: var(--text-xs);
+  color: var(--ink);
 }
 
 .label {
@@ -17,53 +19,58 @@
 
 .controls {
   display: flex;
-  gap: 0.5rem;
+  gap: var(--space-2);
   align-items: stretch;
 }
 
 .numberInput {
   flex: 1 1 auto;
   min-width: 0;
-  padding: 0.6rem 0.75rem;
-  border: 1px solid #ccc;
-  border-radius: 6px;
-  font-size: 1rem;
+  /* Matches .field input in SubmissionForm.module.css — see the note
+     there on why this is --space-3 rather than the nearer --space-2. */
+  padding: var(--space-3);
+  border: 1px solid var(--line-control);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-control);
   font-family: inherit;
   /* A phone number is always read left-to-right, even on an Arabic
      page, so it is pinned regardless of the surrounding direction. */
   direction: ltr;
 }
 
-.numberInput:focus {
-  outline: 2px solid #2563eb;
-  outline-offset: 1px;
-  border-color: #2563eb;
+/* Ring from the global :focus-visible rule; only the border emphasis is
+   local, matching the text inputs in SubmissionForm.module.css. */
+.numberInput:focus-visible {
+  border-color: var(--accent);
 }
 
 /* Only the number input turns red. The country trigger is a separate
    control with its own popup, and colouring it too reads as "the
    country is wrong" when almost always the digits are. */
 .controlsInvalid .numberInput {
-  border-color: #b91c1c;
+  border-color: var(--danger);
 }
 
-.controlsInvalid .numberInput:focus {
-  outline-color: #b91c1c;
-  border-color: #b91c1c;
+.controlsInvalid .numberInput:focus-visible {
+  /* Width, style and offset still come from the global rule; only the
+     hue changes, so an invalid field keeps one focus treatment rather
+     than gaining a second competing one. */
+  outline-color: var(--danger);
+  border-color: var(--danger);
 }
 
 .error {
-  color: #b91c1c;
-  font-size: 0.82rem;
-  margin: 0.35rem 0 0;
-  line-height: 1.5;
+  color: var(--danger);
+  font-size: var(--text-2xs);
+  margin: var(--space-1) 0 0;
+  line-height: var(--leading-body);
 }
 
 .hint {
-  font-size: 0.82rem;
-  color: #666;
-  margin: 0.35rem 0 0;
-  line-height: 1.5;
+  font-size: var(--text-2xs);
+  color: var(--ink-muted);
+  margin: var(--space-1) 0 0;
+  line-height: var(--leading-body);
 }
 
 /* No stacking at phone width any more: the trigger is now just a flag
