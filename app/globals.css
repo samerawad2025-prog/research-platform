@@ -1,14 +1,321 @@
+/* ==========================================================================
+   Phase 2 design tokens — the single source of design truth.
+
+   Why this file exists in this shape: before Phase 2 the styling lived
+   entirely in four CSS modules that had drifted apart, measured directly
+   from the source at commit 0c03690 — 43 distinct hex colours, 19 distinct
+   font sizes and 7 border radii, with TWO competing accents each used 11
+   times (#2563eb across the landing page, submission form, phone field and
+   country picker; #1f6f78 across the confirmation screen). A submitter saw
+   blue, submitted, and landed on a teal page.
+
+   Tokens are declared here and consumed by the modules in Milestone 2. This
+   task deliberately restyles nothing: the modules still carry their own
+   hard-coded values, so this file adds the vocabulary without moving the
+   furniture.
+
+   Contrast ratios below were computed against the stated background, not
+   estimated. Every text role clears WCAG 2.2 AA (4.5:1); every role used as
+   a non-text boundary or indicator clears 1.4.11 (3:1). Four values in the
+   current modules fail those thresholds and their replacements are named
+   individually so the migration cannot quietly reintroduce them.
+   ========================================================================== */
+
+:root {
+  /* ---------- text and surfaces ---------- */
+
+  --ink: #2a2a28;
+  /* 14.38:1 on --surface-raised. Primary text. */
+
+  --ink-muted: #6b6b66;
+  /* 5.36:1 on --surface-raised. Hints, subtitles, secondary prose. */
+
+  --ink-subtle: #71716b;
+  /* 4.91:1 on --surface-raised. Field labels, "found on page N" source
+     notes, empty-value prompts.
+
+     This is a correction, not a restatement. It replaces two values that
+     FAIL as normal text:
+       #8a8a82 = 3.48:1  (.fieldLabel — the 12px uppercase field NAMES)
+       #9a9a92 = 2.83:1  (.emptyValue "Not found in your paper. Tap to add
+                          it." and .source)
+     Both are load-bearing instructions to the submitter, so neither was a
+     decorative grey. */
+
+  --surface: #fafafa;
+  /* Page background. Identical to the pre-Phase-2 body background, so
+     adopting it changes nothing. */
+
+  --surface-raised: #ffffff;
+  /* Inputs, popups, cards — anything reading as lifted off the page. */
+
+  /* ---------- lines: two roles, deliberately not one ---------- */
+
+  --line: #e6e4dd;
+  /* DECORATIVE dividers and section rules ONLY. A separator that carries no
+     meaning and bounds no control is exempt from WCAG 1.4.11, so this stays
+     light enough to recede. Never use it as the only visible boundary of an
+     interactive control — that is what --line-control is for. */
+
+  --line-control: #8a8a82;
+  /* 3.48:1 on --surface-raised. Visible boundaries of interactive controls.
+
+     A text input's border is the only thing that identifies it as a text
+     input, so 1.4.11 applies to it. Every border colour in the pre-Phase-2
+     modules fails that test:
+       #cccccc = 1.61:1  (.field input, .trigger)
+       #ddd9cd = 1.41:1  (.nameInput, .socialInputs input, .orderControls)
+     #8a8a82 is the lightest grey that clears 3:1 on white. */
+
+  /* ---------- accent ---------- */
+
+  --accent: #1f6f78;
+  /* 5.83:1 on --surface-raised.
+
+     Chosen over the equally-used #2563eb on three grounds:
+       1. contrast — 5.83:1 against 5.17:1;
+       2. it reads as academic rather than generic-SaaS blue, which is the
+          stated Phase 2 direction;
+       3. it already belongs to ConfirmationScreen, the most
+          behaviour-sensitive file in the repository. Keeping its colour
+          fixed pushes Milestone 2's churn into the plainer screens instead
+          of the one carrying the Phase 1 state machine. */
+
+  --accent-strong: #1a5f67;
+  /* 7.30:1 on --surface-raised. Hover and active. */
+
+  --accent-ink: #ffffff;
+  /* 5.83:1 against --accent. Text and icons on an accent fill. */
+
+  /* ---------- attention, danger, focus ---------- */
+
+  --attention: #96690f;
+  /* 4.86:1 on --surface-raised — clears AA as text AND 3:1 as a non-text
+     mark, because it has to serve both.
+
+     Replaces #c9922b = 2.75:1, which failed both. That value was the
+     .attentionDot: a 6px circle that told the submitter a field needed
+     checking, at a ratio where it was the least visible thing on screen. */
+
+  --attention-surface: #fbf6e9;
+  /* --attention on this surface = 4.5003:1. It clears AA, but by 0.0003 —
+     there is effectively no margin, and any future darkening of this
+     surface or lightening of --attention breaks it. Both values are
+     founder-specified so they stand as given; flagged here because
+     Milestone 2 is where the attention callout is actually built on this
+     pairing, and that is the moment to re-measure rather than assume. */
+
+  --danger: #a3453f;
+  /* 6.03:1 on --surface-raised. Unifies the two error reds currently in use
+     (#a3453f on the confirmation screen, #b91c1c = 6.20:1 on the form);
+     both passed, so this is a consistency choice rather than a fix. */
+
+  --danger-surface: #fbeceb;
+  /* --danger on this surface = 5.26:1. */
+
+  --focus: #0f4c54;
+  /* 9.62:1 on --surface-raised, 9.22:1 on --surface — comfortably past the
+     3:1 that 1.4.11 asks of a focus indicator, on both backgrounds the ring
+     is actually drawn against.
+
+     One constraint this value carries, measured rather than assumed: it is
+     only 1.65:1 against --accent. A ring drawn INSIDE an accent fill would
+     be nearly invisible. The --focus-ring-offset below is therefore
+     load-bearing, not cosmetic — it places the ring outside the control, on
+     the page or card behind it. Milestone 2 must not set outline-offset to
+     0 on an accent-filled button, or the indicator disappears on the
+     primary action of both flows. */
+
+  /* ---------- type scale ----------
+     Seven steps. The floor is 0.8125rem/13px and nothing in the scale goes
+     below it: the modules currently reach down to 0.72rem (11.5px) for
+     source notes, which is small AND faint at the same time. */
+
+  --text-2xs: 0.8125rem;  /* 13px — floor. Metadata, source notes.          */
+  --text-xs: 0.875rem;    /* 14px — hints, captions.                        */
+  --text-sm: 0.9375rem;   /* 15px — secondary prose, dense labels.          */
+  --text-base: 1rem;      /* 16px — body.                                   */
+  --text-lg: 1.125rem;    /* 18px — lead paragraphs.                        */
+  --text-xl: 1.375rem;    /* 22px — section and notice headings.            */
+  --text-2xl: 1.75rem;    /* 28px — page title.                             */
+
+  --text-control: 1rem;
+  /* Exactly 16px, and not a step on the scale above — a hard floor for any
+     focusable text control.
+
+     iOS Safari auto-zooms the viewport when a text input smaller than 16px
+     receives focus, and does not zoom back out when focus leaves. Three
+     controls trip this today and are corrected in Milestone 2, not here:
+       .nameInput            0.95rem (15.2px)
+       .socialInputs input   0.88rem (14.1px)
+       CountrySelect .search 0.9rem  (14.4px)
+     A student correcting a co-author's name on a phone currently ends up
+     zoomed in with no way back except pinching. */
+
+  --leading-base: normal;
+  /* The DOCUMENT default, and deliberately still the UA's `normal` at the
+     end of Milestone 1.
+
+     Measured, not assumed: setting the document default to 1.55 grew
+     /submit by 52px at 1280 and 64px at 360, and the confirmation screen's
+     skeleton state by 22px, because both screens leave single-line labels,
+     legends and checkbox text to inherit. That is a real visual change to
+     two screens this task is required to leave alone, so the prose ratio
+     below is declared here and adopted per component in Milestone 2 —
+     which is the same declare-then-adopt staging every other token in this
+     file follows. Changing it here would have been the one token that
+     silently restyled the app on the way in. */
+
+  --leading-body: 1.55;
+  --leading-heading: 1.25;
+  /* Two prose ratios only. The modules range from 1.4 to 1.65 and rely on
+     the UA default for single-line text; these are the two that are
+     actually distinct in use. Not applied globally — see --leading-base. */
+
+  /* ---------- spacing: 4px base, seven steps ---------- */
+
+  --space-1: 0.25rem;  /*  4px */
+  --space-2: 0.5rem;   /*  8px */
+  --space-3: 0.75rem;  /* 12px */
+  --space-4: 1rem;     /* 16px */
+  --space-5: 1.5rem;   /* 24px */
+  --space-6: 2rem;     /* 32px */
+  --space-7: 3rem;     /* 48px */
+
+  /* ---------- radii ----------
+     Three, down from the seven one-off values in use (5, 6, 7, 8, 9, 10px).
+     Nothing in an application this small distinguishes a 6px corner from a
+     7px one, and pretending otherwise is what produced seven of them. */
+
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
+
+  --radius-round: 50%;
+  /* Genuinely circular elements only — the completion mark and the
+     attention dot. Not a fourth step on the scale. */
+
+  /* ---------- shadows ----------
+     Two roles, taken from the layered pair already in
+     CountrySelect.module.css rather than invented: a tight contact shadow
+     plus a soft ambient one reads as a surface lifted off the page, where a
+     single mid shadow reads as a box with a grey smear behind it. They are
+     separate tokens because they are separate roles; a popup composes both. */
+
+  --shadow-contact: 0 1px 2px rgba(0, 0, 0, 0.06);
+  --shadow-ambient: 0 8px 24px rgba(0, 0, 0, 0.12);
+
+  /* ---------- content measures ----------
+     Named by role, not by page, so a second page with the same job reaches
+     for the same token. These are the three widths the application already
+     uses. */
+
+  --measure-notice: 520px;   /* centred notices, completion page            */
+  --measure-form: 620px;     /* a form being filled in                      */
+  --measure-document: 660px; /* a record being read and corrected           */
+
+  /* ---------- focus ring ---------- */
+
+  --focus-ring-width: 2px;
+  --focus-ring-offset: 2px;
+
+  /* ---------- motion ----------
+     One interaction duration and one easing, compatible with the 0.12s and
+     0.15s transitions already in the modules.
+
+     Deliberately NOT the shimmer: that animation is a 1.6s infinite sweep
+     communicating "still working", which is a different job from an
+     interaction response. Collapsing both into one token would mean any
+     later change to button feedback silently retimed the loading state. */
+
+  --motion-duration: 150ms;
+  --motion-ease: ease;
+
+  /* ---------- font stacks ----------
+     System fonts only — a founder decision, and the right one for a product
+     used on ordinary phones over expensive, unreliable bandwidth. No
+     webfont is loaded here or anywhere.
+
+     Tahoma and Noto Sans Arabic are appended purely as Arabic coverage:
+     system-ui still resolves first, so Latin rendering is unchanged, but a
+     device whose system-ui lacks Arabic glyphs now falls back to a face that
+     has them instead of to whatever the browser picks last. Arabic is a
+     first-class interface language here, not a fallback. */
+
+  --font-sans: system-ui, -apple-system, "Segoe UI", Tahoma, "Noto Sans Arabic", Arial, sans-serif;
+
+  --font-numeric: var(--font-sans);
+  --numeric-variant: tabular-nums;
+  /* The numeric role is a variant, not a typeface. Years, dial codes and
+     phone numbers need digits of equal width so a column of them lines up
+     and a changing value does not reflow its neighbours; that is what
+     font-variant-numeric already provides. Adding a second font family to
+     buy the same thing would cost bandwidth for nothing. Consume as:
+       font-family: var(--font-numeric);
+       font-variant-numeric: var(--numeric-variant); */
+}
+
+/* ==========================================================================
+   Base styles. Global defaults only — deliberately not a reset and
+   deliberately not a form-control normalizer. The modules own their own
+   layout, and this task does not restyle them.
+   ========================================================================== */
+
 * {
   box-sizing: border-box;
 }
 
 body {
   margin: 0;
-  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
-  color: #1a1a1a;
-  background: #fafafa;
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: var(--leading-base);
+  color: var(--ink);
+  background: var(--surface);
+}
+
+/* Headings arrive with a UA margin that assumes a document, not an
+   application. Zeroed here so page and component CSS decides heading
+   rhythm; every heading in the existing modules already sets its own
+   margin, so this only affects markup that has not opted in yet.
+
+   Margin only, on purpose. Setting line-height here as well moved ten
+   headings on the confirmation screen and accounted for most of a 22px
+   growth in its skeleton state — an unrequested restyle of a screen this
+   task must not touch. --leading-heading is declared and waits for
+   Milestone 2. */
+h1,
+h2,
+h3,
+h4 {
+  margin: 0;
 }
 
 a {
-  color: #2563eb;
+  color: var(--accent);
+}
+
+/* One focus treatment, applied only where a component has not already
+   defined its own — the module rules are more specific and keep winning, by
+   design, until Milestone 2 migrates them. :focus-visible rather than
+   :focus so a mouse click does not leave a ring behind. */
+:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus);
+  outline-offset: var(--focus-ring-offset);
+}
+
+/* Base reduced-motion policy. The two module-level rules that already
+   honour this preference (the shimmer sweep and the country-picker popup)
+   stay exactly as they are — those files are outside this task — and this
+   rule reinforces rather than replaces them, so anything added later is
+   covered by default instead of by remembering. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
