@@ -238,3 +238,13 @@
 .fileNameEmpty {
   color: var(--ink-muted);
 }
+
+/* Quiet, but a word rather than a colour or a bare asterisk: it must
+   read the same to someone who cannot see colour or does not know the
+   asterisk convention. */
+.requiredTag {
+  color: var(--ink-muted);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  white-space: nowrap;
+}

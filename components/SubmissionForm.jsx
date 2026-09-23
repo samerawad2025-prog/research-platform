@@ -388,8 +388,15 @@ export default function SubmissionForm() {
             exactly one control to reach; the label still opens it on
             click. */}
         <div className={styles.field} role="group" aria-labelledby={`${fileId}-label`}>
+          {/* The native input's `required` is hidden from assistive
+              technology along with the input itself, so the field says
+              so in visible text instead. It sits inside the label, which
+              names the group, so it is announced with the field too. The
+              no-break space is deliberate: Chrome drops an ordinary space
+              before an inline element when computing the name, which ran
+              it together as "(PDF or DOCX)Required". */}
           <label id={`${fileId}-label`} htmlFor={fileId}>
-            {t.uploadLabel}
+            {t.uploadLabel}{'\u00a0'}<span className={styles.requiredTag}>{t.required}</span>
           </label>
           <input
             ref={fileInputRef}
