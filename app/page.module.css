@@ -1,0 +1,121 @@
+/* Landing page only. Same content measure and page padding as the
+   confirmation screen, so moving from here into the flow keeps one
+   column edge rather than jumping between widths. */
+
+.page {
+  max-width: var(--measure-document);
+  margin: 0 auto;
+  padding: var(--space-6) var(--space-5) var(--space-7);
+  color: var(--ink);
+}
+
+.hero {
+  padding-bottom: var(--space-6);
+}
+
+.title {
+  font-size: var(--text-2xl);
+  font-weight: 600;
+  line-height: var(--leading-heading);
+  letter-spacing: -0.01em;
+  margin: 0 0 var(--space-3);
+}
+
+.lead {
+  font-size: var(--text-lg);
+  line-height: var(--leading-body);
+  color: var(--ink-muted);
+  margin: 0 0 var(--space-5);
+}
+
+/* A navigation link styled as the primary action. Deliberately not the
+   shared form Button: this goes somewhere, it does not submit. */
+.cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.75rem;
+  padding: var(--space-3) var(--space-5);
+  background: var(--accent);
+  color: var(--accent-ink);
+  border-radius: var(--radius-md);
+  font-size: var(--text-base);
+  font-weight: 600;
+  text-decoration: none;
+  transition: background var(--motion-duration) var(--motion-ease);
+}
+
+.cta:hover {
+  background: var(--accent-strong);
+}
+
+.section {
+  padding-top: var(--space-5);
+  margin-bottom: var(--space-6);
+  border-top: 1px solid var(--line);
+}
+
+.sectionHeading {
+  font-size: var(--text-lg);
+  font-weight: 600;
+  line-height: var(--leading-heading);
+  margin: 0 0 var(--space-4);
+}
+
+.sectionText {
+  line-height: var(--leading-body);
+  margin: 0 0 var(--space-4);
+}
+
+.steps {
+  margin: 0;
+  padding-inline-start: var(--space-5);
+}
+
+.step {
+  margin-bottom: var(--space-4);
+}
+
+.step::marker {
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.stepHeading {
+  display: inline;
+  font-size: var(--text-base);
+  font-weight: 600;
+}
+
+.stepText {
+  margin: var(--space-1) 0 0;
+  line-height: var(--leading-body);
+  color: var(--ink-muted);
+}
+
+.facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-6);
+  margin: 0;
+}
+
+.fact dt {
+  font-size: var(--text-xs);
+  color: var(--ink-muted);
+}
+
+.fact dd {
+  margin: 0;
+  font-weight: 600;
+}
+
+@media (max-width: 480px) {
+  .page {
+    padding: var(--space-5) var(--space-4) var(--space-6);
+  }
+
+  .title {
+    font-size: var(--text-xl);
+  }
+}

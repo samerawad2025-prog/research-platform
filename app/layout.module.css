@@ -1,0 +1,134 @@
+/* Site shell only: skip link, header, main, footer. Nothing here may
+   reach into the pages rendered inside <main> — SubmissionForm and
+   ConfirmationScreen keep sole ownership of their own layout. */
+
+.body {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+/* Off-screen until focused, then pinned top-left above everything. */
+.skipLink {
+  position: absolute;
+  inset-block-start: var(--space-2);
+  inset-inline-start: var(--space-2);
+  z-index: 100;
+  padding: var(--space-2) var(--space-4);
+  background: var(--surface-raised);
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  transform: translateY(-200%);
+}
+
+.skipLink:focus {
+  transform: none;
+}
+
+.header {
+  background: var(--surface-raised);
+  border-bottom: 1px solid var(--line);
+}
+
+.headerInner,
+.footerInner {
+  max-width: var(--measure-document);
+  margin: 0 auto;
+  padding: 0 var(--space-5);
+}
+
+.headerInner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  column-gap: var(--space-4);
+  padding-block: var(--space-2);
+}
+
+.wordmark,
+.navLink {
+  display: inline-flex;
+  align-items: center;
+  /* The project's 44px touch-target standard (SC 2.5.5, AAA). */
+  min-height: 2.75rem;
+  text-decoration: none;
+}
+
+.wordmark {
+  color: var(--ink);
+  font-size: var(--text-base);
+  font-weight: 600;
+  line-height: var(--leading-heading);
+}
+
+.navLink {
+  color: var(--accent);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.wordmark:hover,
+.navLink:hover {
+  text-decoration: underline;
+}
+
+.main {
+  flex: 1 0 auto;
+}
+
+/* The skip link moves focus to <main> so the next Tab continues inside
+   the page. <main> is a container, not a control: a 2px ring around the
+   whole page would read as a selection, so the ring is dropped here and
+   only here. Every link and control inside keeps the global ring. */
+.main:focus {
+  outline: none;
+}
+
+.footer {
+  border-top: 1px solid var(--line);
+  padding-block: var(--space-5);
+  color: var(--ink-muted);
+  font-size: var(--text-sm);
+  line-height: var(--leading-body);
+}
+
+.footerLead {
+  margin: 0 0 var(--space-2);
+}
+
+.contactList {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: var(--space-5);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.contactLink {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.75rem;
+  color: var(--accent);
+  overflow-wrap: anywhere;
+}
+
+.contactLink:hover {
+  color: var(--accent-strong);
+}
+
+@media (max-width: 480px) {
+  .headerInner,
+  .footerInner {
+    padding-inline: var(--space-4);
+  }
+
+  .contactList {
+    flex-direction: column;
+  }
+}
