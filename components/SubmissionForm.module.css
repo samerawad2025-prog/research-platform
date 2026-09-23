@@ -168,3 +168,83 @@
   margin: var(--space-2) 0 0;
   line-height: var(--leading-body);
 }
+
+/* File picker. The native file input is kept as the only source of the
+   File but visually hidden in place (as .honeypot is, so it adds no
+   overflow in either direction); display:none would stop .click() from
+   opening it in some browsers. Doubled class so it outranks
+   `.field input`, which would otherwise give it padding and a border. */
+.field .fileInput {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  opacity: 0;
+}
+
+.filePicker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  min-width: 0;
+}
+
+/* A secondary control, not the accent-filled primary Button: choosing a
+   file is a step inside the form, not the form's own action. Same
+   control border as the text inputs, and the same ~45px height. */
+.fileButton {
+  flex: none;
+  max-width: 100%;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--line-control);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font-family: inherit;
+  font-size: var(--text-control);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.fileButton:hover {
+  border-color: var(--accent);
+}
+
+.fileButton:focus-visible {
+  border-color: var(--accent);
+}
+
+/* A filename can be one long unbroken string; let it wrap anywhere
+   rather than push the form wider than a 320px screen. */
+.fileName,
+.fileNameEmpty {
+  flex: 1 1 12rem;
+  min-width: 0;
+  font-size: var(--text-xs);
+  line-height: var(--leading-body);
+  overflow-wrap: anywhere;
+}
+
+.fileName {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.fileNameEmpty {
+  color: var(--ink-muted);
+}
+
+/* Quiet, but a word rather than a colour or a bare asterisk: it must
+   read the same to someone who cannot see colour or does not know the
+   asterisk convention. */
+.requiredTag {
+  color: var(--ink-muted);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  white-space: nowrap;
+}
