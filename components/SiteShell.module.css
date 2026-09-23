@@ -9,7 +9,8 @@
   min-height: 100dvh;
 }
 
-/* Off-screen until focused, then pinned top-left above everything. */
+/* Off-screen until focused, then pinned to the top inline-start corner
+   (top-left in English, top-right in Arabic) above everything. */
 .skipLink {
   position: absolute;
   inset-block-start: var(--space-2);
@@ -77,6 +78,31 @@
   text-decoration: underline;
 }
 
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+/* A small secondary utility control, deliberately not the shared primary
+   Button: it changes the interface language, it does not submit. */
+.langToggle {
+  min-height: 2.75rem;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--line-control);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--text-sm);
+  cursor: pointer;
+  transition: border-color var(--motion-duration) var(--motion-ease);
+}
+
+.langToggle:hover {
+  border-color: var(--accent);
+}
+
 .main {
   flex: 1 0 auto;
 }
@@ -87,6 +113,19 @@
    only here. Every link and control inside keeps the global ring. */
 .main:focus {
   outline: none;
+}
+
+/* TEMPORARY, removed with the wrapper in SiteShell.jsx (Milestone 4
+   Task 3). dir="ltr" alone does not contain an untranslated component:
+   SubmissionForm's honeypot is absolutely positioned at left:-9999px
+   against the page, and under an RTL <html> leftward overflow scrolls,
+   which added 9999px of horizontal scroll to /submit in Arabic.
+   position:relative makes this wrapper its containing block and
+   overflow-x:clip cuts it off, while clip (unlike hidden) leaves the
+   vertical axis visible so the country picker popup is never cut. */
+.legacyLtr {
+  position: relative;
+  overflow-x: clip;
 }
 
 .footer {
