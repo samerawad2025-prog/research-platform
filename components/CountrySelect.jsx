@@ -55,6 +55,7 @@ export default function CountrySelect({ value, onChange, disabled }) {
   const [activeIndex, setActiveIndex] = useState(0)
 
   const rootRef = useRef(null)
+  const triggerRef = useRef(null)
   const inputRef = useRef(null)
   const listRef = useRef(null)
   const id = useId()
@@ -92,15 +93,20 @@ export default function CountrySelect({ value, onChange, disabled }) {
     requestAnimationFrame(() => inputRef.current?.focus())
   }
 
-  function close() {
+  // restoreFocus is only for closes that remove the focused search input
+  // out from under the person (Escape, choosing a country): without it
+  // focus falls to <body>. Tab and outside clicks leave focus alone —
+  // it is already moving somewhere the person chose.
+  function close({ restoreFocus = false } = {}) {
     setOpen(false)
     setQuery('')
+    if (restoreFocus) triggerRef.current?.focus()
   }
 
   function pick(country) {
     if (!country) return
     onChange(country.code)
-    close()
+    close({ restoreFocus: true })
   }
 
   function onKeyDown(e) {
@@ -128,7 +134,7 @@ export default function CountrySelect({ value, onChange, disabled }) {
     }
     if (e.key === 'Escape') {
       e.preventDefault()
-      close()
+      close({ restoreFocus: true })
       return
     }
     if (e.key === 'Tab') close()
@@ -137,6 +143,7 @@ export default function CountrySelect({ value, onChange, disabled }) {
   return (
     <div className={styles.root} ref={rootRef}>
       <button
+        ref={triggerRef}
         type="button"
         className={styles.trigger}
         onClick={() => (open ? close() : openList())}

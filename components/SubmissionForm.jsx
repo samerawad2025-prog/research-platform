@@ -6,7 +6,7 @@
 // academic (title, authors, abstract, etc.) is filled in later
 // by AI extraction (Step 3) or by an admin — never typed here.
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useRef, useId } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '../lib/supabaseClient'
 import PhoneField from './PhoneField'
@@ -116,6 +116,8 @@ export default function SubmissionForm() {
   const dir = dirFor(locale)
   const [form, setForm] = useState(initialForm)
   const [file, setFile] = useState(null)
+  const fileInputRef = useRef(null)
+  const fileId = useId()
   const [status, setStatus] = useState('idle') // idle | submitting | extracting | error
   const [errorMsg, setErrorMsg] = useState(null) // { key, ... } — see errorText()
   // Which fields the person has already interacted with. An error is
@@ -231,7 +233,11 @@ export default function SubmissionForm() {
       const { error: uploadError } = await supabase.storage
         .from('papers')
         .upload(filePath, file)
-      if (uploadError) throw { __stage: 'upload', ...uploadError }
+      // message is copied by name because a spread drops it: Storage
+      // returns a real Error subclass, whose message is non-enumerable,
+      // so userFacingError() used to see no message at all and every
+      // upload failure fell through to the generic wording.
+      if (uploadError) throw { __stage: 'upload', ...uploadError, message: uploadError.message }
       // File size is recorded with the mark: upload duration is
       // meaningless without knowing how many bytes went up.
       mark(null, 'upload_complete', { file_bytes: file.size })
@@ -373,15 +379,49 @@ export default function SubmissionForm() {
       <fieldset className={styles.section}>
         <legend>{t.yourResearch}</legend>
 
-        <label className={styles.field}>
-          {t.uploadLabel}
+        {/* The native input stays the only source of the File, but its
+            browser-owned "Choose File / No file chosen" text cannot be
+            translated, so it is visually hidden (not display:none, which
+            would stop it opening) and driven by a real button whose
+            wording follows the interface language. The input is removed
+            from the tab order and the accessibility tree so there is
+            exactly one control to reach; the label still opens it on
+            click. */}
+        <div className={styles.field} role="group" aria-labelledby={`${fileId}-label`}>
+          <label id={`${fileId}-label`} htmlFor={fileId}>
+            {t.uploadLabel}
+          </label>
           <input
+            ref={fileInputRef}
+            id={fileId}
             type="file"
             accept=".pdf,.docx"
             required
+            className={styles.fileInput}
+            tabIndex={-1}
+            aria-hidden="true"
             onChange={(e) => setFile(e.target.files[0])}
           />
-        </label>
+          <div className={styles.filePicker}>
+            <button
+              type="button"
+              className={styles.fileButton}
+              onClick={() => fileInputRef.current?.click()}
+              aria-describedby={`${fileId}-name`}
+            >
+              {t.chooseFile}
+            </button>
+            {/* The filename is the person's own text in whatever script
+                they named it, so its direction comes from its content. */}
+            <span
+              id={`${fileId}-name`}
+              className={file ? styles.fileName : styles.fileNameEmpty}
+              dir={file ? 'auto' : undefined}
+            >
+              {file ? file.name : t.noFileSelected}
+            </span>
+          </div>
+        </div>
         <p className={styles.hint}>{t.uploadHint}</p>
       </fieldset>
 

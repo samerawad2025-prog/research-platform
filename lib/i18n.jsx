@@ -116,6 +116,8 @@ export const MESSAGES = {
       whatsappHint: 'We may use this only to contact you about your research submission if necessary.',
       yourResearch: 'Your research',
       uploadLabel: 'Upload your research file (PDF or DOCX)',
+      chooseFile: 'Choose research file',
+      noFileSelected: 'No file selected',
       uploadHint:
         'We’ll read the title, authors, and other details directly from your document — no need to retype them here.',
       consent: 'Consent',
@@ -316,6 +318,8 @@ export const MESSAGES = {
       // accessible name ("( PDF"), and the bidi algorithm already orders
       // this line and mirrors its brackets correctly on its own.
       uploadLabel: 'ارفع ملف بحثك (PDF أو DOCX)',
+      chooseFile: 'اختر ملف البحث',
+      noFileSelected: 'لم يتم اختيار ملف',
       uploadHint: 'سنقرأ العنوان والباحثين والتفاصيل الأخرى مباشرةً من مستندك، فلا حاجة إلى إعادة كتابتها هنا.',
       consent: 'الموافقة',
       consentText:
