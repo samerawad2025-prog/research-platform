@@ -18,6 +18,8 @@ import { isFieldVisible, needsLanguageLabel, routeByScript } from '../lib/fields
 import { seedResearchers } from '../lib/fields/researcherSeed'
 import { mark, report } from '../lib/timing'
 import Button from './ui/Button'
+import { useLocale } from './LocaleProvider'
+import { dirFor, messagesFor } from '../lib/i18n'
 import styles from './ConfirmationScreen.module.css'
 
 // Extraction completes in 5-32 seconds in every production run
@@ -63,20 +65,38 @@ const STUCK_RETRIGGER_EVERY_ATTEMPTS = 20 // then roughly once a minute
 // extracted) Arabic title sat invisible in the database. See
 // BUG_HISTORY.md #20 for the production evidence.
 //
-// `dir` is per-field, not per-page: the form is bilingual and an
-// Arabic title inside a left-to-right form renders with its
-// punctuation in the wrong place unless the field itself says rtl.
+// Structure only; the visible labels live in lib/i18n.jsx under
+// confirmation.fields, keyed by these exact keys.
+//
+// `dir` is the direction of the VALUE, not of the interface, and never
+// follows the interface language: an English title stays LTR in the
+// Arabic interface and an Arabic title stays RTL in the English one.
+// Fields that may hold either script use "auto". See valueDir() for the
+// one conditional case.
 const METADATA_FIELDS = [
-  { key: 'title', label: 'Title / العنوان', langLabel: 'Title (English)', multiline: true, pair: 'title_ar', primary: true },
-  { key: 'title_ar', label: 'Title / العنوان', langLabel: 'Title (Arabic) / العنوان', multiline: true, dir: 'rtl', pair: 'title' },
-  { key: 'supervisor_name', label: 'Supervisor' },
-  { key: 'university', label: 'University' },
-  { key: 'faculty', label: 'Faculty or school' },
-  { key: 'degree_type', label: 'Degree' },
-  { key: 'year', label: 'Year' },
-  { key: 'abstract', label: 'Abstract / الملخص', langLabel: 'Abstract (English)', multiline: true, pair: 'abstract_ar', primary: true },
-  { key: 'abstract_ar', label: 'Abstract / الملخص', langLabel: 'Abstract (Arabic) / الملخص', multiline: true, dir: 'rtl', pair: 'abstract' },
+  { key: 'title', multiline: true, pair: 'title_ar', primary: true, dir: 'ltr' },
+  { key: 'title_ar', multiline: true, dir: 'rtl', pair: 'title' },
+  { key: 'supervisor_name', dir: 'auto' },
+  { key: 'university', dir: 'auto' },
+  { key: 'faculty', dir: 'auto' },
+  { key: 'degree_type', dir: 'auto' },
+  { key: 'year', dir: 'ltr' },
+  { key: 'abstract', multiline: true, pair: 'abstract_ar', primary: true, dir: 'ltr' },
+  { key: 'abstract_ar', multiline: true, dir: 'rtl', pair: 'abstract' },
 ]
+
+// A primary title/abstract box is certainly English only when its Arabic
+// partner is also on screen. Shown alone, it is the single fallback box
+// that accepts either script (routeByScript files an Arabic entry under
+// the Arabic column), so it must not force LTR onto Arabic typing.
+function valueDir(field, paired) {
+  return field.primary && !paired ? 'auto' : field.dir
+}
+
+function fieldLabel(field, paired, t) {
+  const label = t.fields[field.key]
+  return typeof label === 'string' ? label : paired ? label.paired : label.single
+}
 
 const FIELD_BY_KEY = Object.fromEntries(METADATA_FIELDS.map((f) => [f.key, f]))
 
@@ -107,6 +127,8 @@ function needsAttention(entry) {
 }
 
 function InlineField({ label, value, entry, multiline, dir, onChange, disabled, emptyHint }) {
+  const { locale } = useLocale()
+  const t = messagesFor(locale).confirmation
   const [editing, setEditing] = useState(false)
   const attention = needsAttention(entry)
   const labelId = useId()
@@ -126,7 +148,7 @@ function InlineField({ label, value, entry, multiline, dir, onChange, disabled, 
     <div className={`${styles.field} ${attention ? styles.fieldAttention : ''}`}>
       <h3 className={styles.fieldLabel} id={labelId}>
         {label}
-        {attention && <span className={styles.attentionDot} aria-label="Needs your attention" />}
+        {attention && <span className={styles.attentionDot} aria-label={t.needsAttention} />}
       </h3>
 
       {editing ? (
@@ -163,29 +185,34 @@ function InlineField({ label, value, entry, multiline, dir, onChange, disabled, 
             // instruction, and a real submitter answered it by typing
             // a sentence explaining the absence, which then became the
             // paper's permanent title (BUG_HISTORY.md #20).
-            <span className={styles.emptyValue}>{emptyHint || 'Not found in your paper. Tap to add it.'}</span>
+            <span className={styles.emptyValue}>{emptyHint || t.emptyHint}</span>
           )}
-          <span className={styles.editHint} aria-hidden="true">Edit</span>
+          <span className={styles.editHint} aria-hidden="true">{t.edit}</span>
         </button>
       )}
 
-      <FieldNote entry={entry} onPick={onChange} />
+      <FieldNote entry={entry} onPick={onChange} dir={dir} />
     </div>
   )
 }
 
-function FieldNote({ entry, onPick }) {
+// Candidate values carry the field's own value direction ("auto" when the
+// field may hold either script); sources are isolated with dir="auto" so
+// "page 4" stays readable inside an Arabic sentence and vice versa.
+function FieldNote({ entry, onPick, dir }) {
+  const { locale } = useLocale()
+  const t = messagesFor(locale).confirmation
   if (!entry) return null
 
   if (entry.status === 'conflicting') {
     return (
       <div className={styles.note}>
-        <p>Your paper gives two different answers here. Which is right?</p>
+        <p>{t.conflicting}</p>
         <div className={styles.candidates}>
           {entry.candidates.map((c, i) => (
             <button key={i} type="button" className={styles.candidateChip} onClick={() => onPick(String(c.value))}>
-              {String(c.value)}
-              {c.source && <span className={styles.candidateSource}>{c.source}</span>}
+              <span dir={dir}>{String(c.value)}</span>
+              {c.source && <span className={styles.candidateSource} dir="auto">{c.source}</span>}
             </button>
           ))}
         </div>
@@ -196,12 +223,12 @@ function FieldNote({ entry, onPick }) {
   if (entry.status === 'ambiguous') {
     return (
       <div className={styles.note}>
-        <p>We weren&rsquo;t certain about this one. Please check it.</p>
+        <p>{t.ambiguous}</p>
         {entry.candidates?.length > 0 && (
           <div className={styles.candidates}>
             {entry.candidates.map((c, i) => (
               <button key={i} type="button" className={styles.candidateChip} onClick={() => onPick(typeof c === 'object' ? String(c.value) : String(c))}>
-                {typeof c === 'object' ? String(c.value) : String(c)}
+                <span dir={dir}>{typeof c === 'object' ? String(c.value) : String(c)}</span>
               </button>
             ))}
           </div>
@@ -211,19 +238,29 @@ function FieldNote({ entry, onPick }) {
   }
 
   if (entry.status === 'found' && entry.source) {
-    return <p className={styles.source}>Found on {entry.source}</p>
+    return (
+      <p className={styles.source}>
+        {t.sourcePrefix}
+        <bdi dir="auto">{entry.source}</bdi>
+      </p>
+    )
   }
 
   return null
 }
 
 export default function ConfirmationScreen({ token }) {
+  const { locale } = useLocale()
+  const t = messagesFor(locale).confirmation
+  const dir = dirFor(locale)
   const [paper, setPaper] = useState(null)
   const [linkInvalid, setLinkInvalid] = useState(false)
   const [researchers, setResearchers] = useState([])
   const [values, setValues] = useState({})
   const [status, setStatus] = useState('idle') // idle | saving | done | error
-  const [errorMsg, setErrorMsg] = useState('')
+  // Which message applies ({ key, ... }), not its wording, so an error on
+  // screen follows a language switch. See errorText() below.
+  const [errorMsg, setErrorMsg] = useState(null)
   const [pollTimedOut, setPollTimedOut] = useState(false)
   const [retrying, setRetrying] = useState(false)
   // Bumped by a manual retry to re-run the polling effect in place,
@@ -409,7 +446,7 @@ export default function ConfirmationScreen({ token }) {
     // name is null or undefined would throw here, and a throw in this
     // handler is invisible (see the try/catch below).
     if (researchers.some((r) => !String(r.full_name ?? '').trim())) {
-      setErrorMsg('Please fill in every researcher\u2019s name, or remove the empty row.')
+      setErrorMsg({ key: 'emptyResearcher' })
       return
     }
     // "A title in at least one language", not "an English title".
@@ -419,7 +456,7 @@ export default function ConfirmationScreen({ token }) {
     // research" into it and that became the paper's title, while the
     // correctly extracted Arabic title sat unused (BUG_HISTORY.md #20).
     if (!values.title?.trim() && !values.title_ar?.trim()) {
-      setErrorMsg('Please add the title of your research, in English or Arabic, before confirming.')
+      setErrorMsg({ key: 'missingTitle' })
       return
     }
     // Accepts Arabic-Indic digits, matching how the server normalizes
@@ -427,12 +464,12 @@ export default function ConfirmationScreen({ token }) {
     // while the extractor happily reads it would be the form telling
     // the submitter their own document's year is invalid.
     if (values.year?.trim() && normalizeYear(values.year) === null) {
-      setErrorMsg('Please enter the year as four digits, for example 2023.')
+      setErrorMsg({ key: 'invalidYear' })
       return
     }
 
     setStatus('saving')
-    setErrorMsg('')
+    setErrorMsg(null)
 
     // Send every field the submitter was shown, including ones they
     // deliberately cleared. An empty value here means "the extraction
@@ -482,10 +519,8 @@ export default function ConfirmationScreen({ token }) {
         // unreportable and therefore undiagnosable.
         setErrorMsg(
           error.code === 'P0001' && error.message
-            ? error.message
-            : `We couldn\u2019t save your confirmation. Please try again in a moment.${
-                error.code ? ` (reference: ${error.code})` : ''
-              }`
+            ? { key: 'rpc', message: error.message }
+            : { key: 'save', code: error.code }
         )
         setStatus('error')
         return
@@ -494,37 +529,35 @@ export default function ConfirmationScreen({ token }) {
       setStatus('done')
     } catch (err) {
       console.error('confirm_researcher_metadata threw:', err)
-      setErrorMsg(
-        'We couldn\u2019t reach the server to save your confirmation. ' +
-          'Please check your connection and try again \u2014 nothing has been lost.'
-      )
+      setErrorMsg({ key: 'network' })
       setStatus('error')
     }
   }
 
+  const errorText = !errorMsg
+    ? ''
+    : errorMsg.key === 'rpc'
+      ? t.rpcError(errorMsg.message)
+      : errorMsg.key === 'save'
+        ? t.errors.save(errorMsg.code)
+        : t.errors[errorMsg.key]
+
   if (linkInvalid) {
     return (
-      <div className={styles.centered}>
-        <p>We couldn&rsquo;t find a submission for this link. If you believe this is a mistake, please contact us directly.</p>
+      <div className={styles.centered} lang={locale} dir={dir}>
+        <p>{t.linkInvalid}</p>
       </div>
     )
   }
 
   if (status === 'done') {
     return (
-      <div className={styles.completionPage}>
+      <div className={styles.completionPage} lang={locale} dir={dir}>
         <div className={styles.completionMark}>&#10003;</div>
-        <h1>Thank you for confirming</h1>
-        <p className={styles.completionLead}>
-          Your research details are recorded exactly as you approved them.
-        </p>
-        <p>
-          Your work now enters the platform&rsquo;s review process, where it will be prepared for publication.
-          We&rsquo;ll reach out using the details you provided if anything else is needed.
-        </p>
-        <p className={styles.completionClosing}>
-          Thank you for contributing your work to the Sudanese Research Platform.
-        </p>
+        <h1>{t.done.heading}</h1>
+        <p className={styles.completionLead}>{t.done.lead}</p>
+        <p>{t.done.body}</p>
+        <p className={styles.completionClosing}>{t.done.closing}</p>
       </div>
     )
   }
@@ -570,17 +603,11 @@ export default function ConfirmationScreen({ token }) {
   // empty fields, or worse, a generic error.
   if (failed && docType === 'not_research') {
     return (
-      <div className={styles.centered}>
-        <h1 className={styles.noticeHeading}>This doesn&rsquo;t look like an academic paper</h1>
-        <p>
-          The file you uploaded doesn&rsquo;t appear to be an academic paper, thesis, dissertation,
-          conference paper, or journal article.
-        </p>
-        <p>
-          If you uploaded the wrong file by mistake, you can start a new submission with the right one.
-          If you believe this is an error, please contact us and we&rsquo;ll take a look.
-        </p>
-        <a href="/submit" className={styles.primaryLink}>Start a new submission</a>
+      <div className={styles.centered} lang={locale} dir={dir}>
+        <h1 className={styles.noticeHeading}>{t.notResearch.heading}</h1>
+        <p>{t.notResearch.body1}</p>
+        <p>{t.notResearch.body2}</p>
+        <a href="/submit" className={styles.primaryLink}>{t.newSubmission}</a>
       </div>
     )
   }
@@ -591,14 +618,11 @@ export default function ConfirmationScreen({ token }) {
   // message rather than the catch-all.
   if (encrypted) {
     return (
-      <div className={styles.centered}>
-        <h1 className={styles.noticeHeading}>This document is password-protected</h1>
-        <p>This document is password-protected and cannot be processed automatically.</p>
-        <p>
-          Please remove the password from the file and submit it again. If you&rsquo;re not sure how,
-          most word processors offer this under a &ldquo;Protect Document&rdquo; or &ldquo;Encrypt&rdquo; setting when saving.
-        </p>
-        <a href="/submit" className={styles.primaryLink}>Start a new submission</a>
+      <div className={styles.centered} lang={locale} dir={dir}>
+        <h1 className={styles.noticeHeading}>{t.encrypted.heading}</h1>
+        <p>{t.encrypted.body1}</p>
+        <p>{t.encrypted.body2}</p>
+        <a href="/submit" className={styles.primaryLink}>{t.newSubmission}</a>
       </div>
     )
   }
@@ -606,30 +630,24 @@ export default function ConfirmationScreen({ token }) {
   // Temporary, on our side, and retryable by the person right now.
   if (transientFailure) {
     return (
-      <div className={styles.centered}>
-        <h1 className={styles.noticeHeading}>We couldn&rsquo;t finish reading it just now</h1>
-        <p>
-          There&rsquo;s nothing wrong with your document. Our reading service was
-          temporarily busy and didn&rsquo;t respond in time.
-        </p>
-        <p>Your submission is saved. You can try again right now, or leave it and we&rsquo;ll follow up by email.</p>
+      <div className={styles.centered} lang={locale} dir={dir}>
+        <h1 className={styles.noticeHeading}>{t.transient.heading}</h1>
+        <p>{t.transient.body1}</p>
+        <p>{t.transient.body2}</p>
         <button type="button" className={styles.primaryLink} onClick={retryExtraction} disabled={retrying}>
-          {retrying ? 'Trying again\u2026' : 'Try again'}
+          {retrying ? t.transient.retrying : t.transient.retry}
         </button>
-        {errorMsg && <p role="alert" className={styles.errorMessage}>{errorMsg}</p>}
+        {errorMsg && <p role="alert" className={styles.errorMessage}>{errorText}</p>}
       </div>
     )
   }
 
   if (failed) {
     return (
-      <div className={styles.centered}>
-        <h1 className={styles.noticeHeading}>We couldn&rsquo;t read this document</h1>
-        <p>
-          Something about this file stopped us from reading it automatically. This sometimes happens
-          with unusual formats or scanned pages of low quality.
-        </p>
-        <p>We still have your submission, and we&rsquo;ll follow up with you by email.</p>
+      <div className={styles.centered} lang={locale} dir={dir}>
+        <h1 className={styles.noticeHeading}>{t.failed.heading}</h1>
+        <p>{t.failed.body1}</p>
+        <p>{t.failed.body2}</p>
       </div>
     )
   }
@@ -661,32 +679,19 @@ export default function ConfirmationScreen({ token }) {
       ).length
 
   return (
-    <form onSubmit={handleConfirm} className={styles.page}>
+    <form onSubmit={handleConfirm} className={styles.page} lang={locale} dir={dir}>
       <header className={styles.header}>
-        <h1>{extracting ? 'Reading your research' : 'Here\u2019s what we found'}</h1>
-        <p className={styles.subtitle}>
-          {extracting
-            ? 'This usually takes under a minute. The page will fill in on its own.'
-            : 'Please check everything below, and correct anything we got wrong.'}
-        </p>
+        <h1>{extracting ? t.loadingHeading : t.readyHeading}</h1>
+        <p className={styles.subtitle}>{extracting ? t.loadingSubtitle : t.readySubtitle}</p>
         {!extracting && attentionCount > 0 && (
-          <p className={styles.attentionBanner}>
-            {attentionCount === 1
-              ? '1 field needs your attention.'
-              : `${attentionCount} fields need your attention.`}
-          </p>
+          <p className={styles.attentionBanner}>{t.attention(attentionCount)}</p>
         )}
-        {!extracting && partial && (
-          <p className={styles.attentionBanner}>
-            We read the beginning of your document, but couldn&rsquo;t automatically verify every field.
-            Please look over everything below carefully.
-          </p>
-        )}
+        {!extracting && partial && <p className={styles.attentionBanner}>{t.partial}</p>}
       </header>
 
       <section className={styles.section}>
-        <h2>Research team</h2>
-        <p className={styles.hint}>Listed in the order your paper presents them. Not a ranking, just the order.</p>
+        <h2>{t.teamHeading}</h2>
+        <p className={styles.hint}>{t.teamHint}</p>
 
         {extracting ? (
           <>
@@ -699,30 +704,34 @@ export default function ConfirmationScreen({ token }) {
               {researchers.map((r, i) => (
                 <li key={i} className={styles.researcherRow}>
                   <div className={styles.orderControls}>
-                    <button type="button" onClick={() => moveResearcher(i, -1)} disabled={i === 0} aria-label="Move up">&#8593;</button>
-                    <button type="button" onClick={() => moveResearcher(i, 1)} disabled={i === researchers.length - 1} aria-label="Move down">&#8595;</button>
+                    {/* Up/down is author order, not a visual direction, so the
+                        arrows are identical in both interfaces. */}
+                    <button type="button" onClick={() => moveResearcher(i, -1)} disabled={i === 0} aria-label={t.moveUp}>&#8593;</button>
+                    <button type="button" onClick={() => moveResearcher(i, 1)} disabled={i === researchers.length - 1} aria-label={t.moveDown}>&#8595;</button>
                   </div>
                   <input
                     className={styles.nameInput}
                     value={r.full_name}
                     onChange={(e) => updateResearcher(i, { full_name: e.target.value })}
-                    placeholder="Full name"
-                    aria-label={`Researcher ${i + 1} full name`}
+                    placeholder={t.fullName}
+                    aria-label={t.researcherName(i + 1)}
+                    // A name may be written in either script.
+                    dir="auto"
                   />
-                  <button type="button" className={styles.removeButton} onClick={() => removeResearcher(i)} aria-label="Remove">&times;</button>
+                  <button type="button" className={styles.removeButton} onClick={() => removeResearcher(i)} aria-label={t.remove}>&times;</button>
                   {showSocialLinks && (
                     <SocialLinks researcher={r} onChange={(patch) => updateResearcher(i, patch)} />
                   )}
                 </li>
               ))}
             </ul>
-            <button type="button" className={styles.addButton} onClick={addResearcher}>+ Add a researcher</button>
+            <button type="button" className={styles.addButton} onClick={addResearcher}>{t.addResearcher}</button>
           </>
         )}
       </section>
 
       <section className={styles.section}>
-        <h2>Research details</h2>
+        <h2>{t.detailsHeading}</h2>
         {METADATA_FIELDS.filter((f) => isFieldVisible(f, values)).map((f) => (
           <InlineField
             key={f.key}
@@ -730,18 +739,16 @@ export default function ConfirmationScreen({ token }) {
             // on screen. A lone box saying "Title (English)" invites
             // the same "where do I put my Arabic title?" confusion
             // this change exists to remove.
-            label={needsLanguageLabel(f, values) ? f.langLabel : f.label}
+            label={fieldLabel(f, needsLanguageLabel(f, values), t)}
             value={values[f.key] || ''}
             entry={satisfiedByPartner(f.key) ? { status: 'found' } : detail[f.key]}
             multiline={f.multiline}
-            dir={f.dir}
+            dir={valueDir(f, needsLanguageLabel(f, values))}
             disabled={extracting}
             emptyHint={
               // Only the language wording when the OTHER language is
               // also on screen; a lone box is just "we didn't find it".
-              f.pair && (values[f.pair] || '').trim()
-                ? 'Your paper doesn\u2019t appear to have this in this language. You can leave it empty.'
-                : 'Not found in your paper. Tap to add it.'
+              f.pair && (values[f.pair] || '').trim() ? t.pairEmptyHint : t.emptyHint
             }
             onChange={(v) => setValue(f.key, v)}
           />
@@ -749,12 +756,12 @@ export default function ConfirmationScreen({ token }) {
       </section>
 
       <Button type="submit" disabled={extracting || status === 'saving'}>
-        {extracting ? 'Reading your research\u2026' : status === 'saving' ? 'Saving\u2026' : 'Confirm these details'}
+        {extracting ? t.confirmExtracting : status === 'saving' ? t.confirmSaving : t.confirm}
       </Button>
 
       {pollTimedOut && extracting && (
         <p className={styles.timeoutNote}>
-          This is taking longer than usual.{' '}
+          {t.timeout}{' '}
           {/*
             Reloading used to be the whole retry. It re-ran the poll but
             could not restart a stalled extraction, because the route
@@ -765,42 +772,44 @@ export default function ConfirmationScreen({ token }) {
             the work back up, then resumes polling in place.
           */}
           <button type="button" className={styles.linkButton} onClick={retryExtraction} disabled={retrying}>
-            {retrying ? 'Restarting…' : 'Try again'}
+            {retrying ? t.timeoutRestarting : t.timeoutRetry}
           </button>
         </p>
       )}
 
-      {errorMsg && <p role="alert" className={styles.errorMessage}>{errorMsg}</p>}
+      {errorMsg && <p role="alert" className={styles.errorMessage}>{errorText}</p>}
     </form>
   )
 }
 
 function SocialLinks({ researcher, onChange }) {
+  const { locale } = useLocale()
+  const t = messagesFor(locale).confirmation
   const [open, setOpen] = useState(Boolean(researcher.linkedin_url || researcher.facebook_url))
 
   if (!open) {
     return (
       <button type="button" className={styles.addLinkButton} onClick={() => setOpen(true)}>
-        Add a LinkedIn or Facebook link
+        {t.socialAdd}
       </button>
     )
   }
 
   return (
     <div className={styles.socialInputs}>
-      <p className={styles.socialWhy}>
-        Adding a profile lets us credit and tag this researcher when the work is featured, so it reaches
-        their own network too. Both are optional.
-      </p>
+      <p className={styles.socialWhy}>{t.socialWhy}</p>
+      {/* URLs are always read left to right. */}
       <input
-        placeholder="LinkedIn URL (optional)"
-        aria-label="LinkedIn URL (optional)"
+        placeholder={t.linkedin}
+        aria-label={t.linkedin}
+        dir="ltr"
         value={researcher.linkedin_url}
         onChange={(e) => onChange({ linkedin_url: e.target.value })}
       />
       <input
-        placeholder="Facebook URL (optional)"
-        aria-label="Facebook URL (optional)"
+        placeholder={t.facebook}
+        aria-label={t.facebook}
+        dir="ltr"
         value={researcher.facebook_url}
         onChange={(e) => onChange({ facebook_url: e.target.value })}
       />

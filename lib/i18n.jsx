@@ -55,6 +55,15 @@ const AR_PHONE_ERRORS = {
     'هذا الرقم غير صالح للدولة المحددة. يرجى التحقق منه.',
 }
 
+// Every deliberate `raise exception` (SQLSTATE P0001) in the current
+// confirm_researcher_metadata (supabase/migrations/0010_confirm_year_never_erases.sql),
+// keyed by its exact English text. The SQL is unchanged.
+const AR_CONFIRM_ERRORS = {
+  'Invalid or expired confirmation link.': 'رابط التأكيد غير صالح أو منتهي الصلاحية.',
+  'At least one researcher is required.': 'يلزم وجود باحث واحد على الأقل.',
+  'Each researcher needs a name.': 'يجب إدخال اسم لكل باحث.',
+}
+
 export const MESSAGES = {
   en: {
     meta: {
@@ -152,6 +161,101 @@ export const MESSAGES = {
       trigger: (name) => `Country: ${name}. Change`,
       search: 'Search country or code',
       empty: 'No country matches that.',
+    },
+    confirmation: {
+      linkInvalid:
+        'We couldn’t find a submission for this link. If you believe this is a mistake, please contact us directly.',
+      done: {
+        heading: 'Thank you for confirming',
+        lead: 'Your research details are recorded exactly as you approved them.',
+        body:
+          'Your work now enters the platform’s review process, where it will be prepared for publication. We’ll reach out using the details you provided if anything else is needed.',
+        closing: 'Thank you for contributing your work to the Sudanese Research Platform.',
+      },
+      notResearch: {
+        heading: 'This doesn’t look like an academic paper',
+        body1:
+          'The file you uploaded doesn’t appear to be an academic paper, thesis, dissertation, conference paper, or journal article.',
+        body2:
+          'If you uploaded the wrong file by mistake, you can start a new submission with the right one. If you believe this is an error, please contact us and we’ll take a look.',
+      },
+      encrypted: {
+        heading: 'This document is password-protected',
+        body1: 'This document is password-protected and cannot be processed automatically.',
+        body2:
+          'Please remove the password from the file and submit it again. If you’re not sure how, most word processors offer this under a “Protect Document” or “Encrypt” setting when saving.',
+      },
+      newSubmission: 'Start a new submission',
+      transient: {
+        heading: 'We couldn’t finish reading it just now',
+        body1:
+          'There’s nothing wrong with your document. Our reading service was temporarily busy and didn’t respond in time.',
+        body2: 'Your submission is saved. You can try again right now, or leave it and we’ll follow up by email.',
+        retry: 'Try again',
+        retrying: 'Trying again…',
+      },
+      failed: {
+        heading: 'We couldn’t read this document',
+        body1:
+          'Something about this file stopped us from reading it automatically. This sometimes happens with unusual formats or scanned pages of low quality.',
+        body2: 'We still have your submission, and we’ll follow up with you by email.',
+      },
+      loadingHeading: 'Reading your research',
+      readyHeading: 'Here’s what we found',
+      loadingSubtitle: 'This usually takes under a minute. The page will fill in on its own.',
+      readySubtitle: 'Please check everything below, and correct anything we got wrong.',
+      attention: (n) => (n === 1 ? '1 field needs your attention.' : `${n} fields need your attention.`),
+      partial:
+        'We read the beginning of your document, but couldn’t automatically verify every field. Please look over everything below carefully.',
+      teamHeading: 'Research team',
+      teamHint: 'Listed in the order your paper presents them. Not a ranking, just the order.',
+      moveUp: 'Move up',
+      moveDown: 'Move down',
+      fullName: 'Full name',
+      researcherName: (n) => `Researcher ${n} full name`,
+      remove: 'Remove',
+      addResearcher: '+ Add a researcher',
+      detailsHeading: 'Research details',
+      // single: the only box of its pair on screen; paired: both are.
+      fields: {
+        title: { single: 'Title', paired: 'Title (English)' },
+        title_ar: { single: 'Title', paired: 'Title (Arabic)' },
+        supervisor_name: 'Supervisor',
+        university: 'University',
+        faculty: 'Faculty or school',
+        degree_type: 'Degree',
+        year: 'Year',
+        abstract: { single: 'Abstract', paired: 'Abstract (English)' },
+        abstract_ar: { single: 'Abstract', paired: 'Abstract (Arabic)' },
+      },
+      needsAttention: 'Needs your attention',
+      edit: 'Edit',
+      emptyHint: 'Not found in your paper. Tap to add it.',
+      pairEmptyHint: 'Your paper doesn’t appear to have this in this language. You can leave it empty.',
+      conflicting: 'Your paper gives two different answers here. Which is right?',
+      ambiguous: 'We weren’t certain about this one. Please check it.',
+      sourcePrefix: 'Found on ',
+      socialAdd: 'Add a LinkedIn or Facebook link',
+      socialWhy:
+        'Adding a profile lets us credit and tag this researcher when the work is featured, so it reaches their own network too. Both are optional.',
+      linkedin: 'LinkedIn URL (optional)',
+      facebook: 'Facebook URL (optional)',
+      confirm: 'Confirm these details',
+      confirmExtracting: 'Reading your research…',
+      confirmSaving: 'Saving…',
+      timeout: 'This is taking longer than usual.',
+      timeoutRetry: 'Try again',
+      timeoutRestarting: 'Restarting…',
+      errors: {
+        emptyResearcher: 'Please fill in every researcher’s name, or remove the empty row.',
+        missingTitle: 'Please add the title of your research, in English or Arabic, before confirming.',
+        invalidYear: 'Please enter the year as four digits, for example 2023.',
+        save: (code) =>
+          `We couldn’t save your confirmation. Please try again in a moment.${code ? ` (reference: ${code})` : ''}`,
+        network:
+          'We couldn’t reach the server to save your confirmation. Please check your connection and try again — nothing has been lost.',
+      },
+      rpcError: (message) => message,
     },
   },
   ar: {
@@ -258,6 +362,112 @@ export const MESSAGES = {
       trigger: (name) => `الدولة: ${name}. تغيير`,
       search: 'ابحث عن دولة أو رمز',
       empty: 'لا توجد دولة مطابقة.',
+    },
+    confirmation: {
+      linkInvalid:
+        'لم نتمكن من العثور على طلب تقديم مرتبط بهذا الرابط. إذا كنت تعتقد أن هناك خطأ، يرجى التواصل معنا مباشرةً.',
+      done: {
+        heading: 'شكراً لتأكيد التفاصيل',
+        lead: 'تم تسجيل تفاصيل بحثك كما وافقت عليها تماماً.',
+        body:
+          'ينتقل بحثك الآن إلى مرحلة المراجعة في المنصة تمهيداً لإعداده للنشر. سنتواصل معك باستخدام البيانات التي قدمتها إذا احتجنا إلى أي معلومات إضافية.',
+        closing: 'شكراً لمساهمتك ببحثك في المنصة السودانية للبحث الأكاديمي.',
+      },
+      notResearch: {
+        heading: 'لا يبدو هذا مستنداً أكاديمياً',
+        body1:
+          'لا يبدو أن الملف الذي رفعته بحث أكاديمي أو رسالة ماجستير أو أطروحة دكتوراه أو ورقة مؤتمر أو مقالاً علمياً.',
+        body2:
+          'إذا رفعت الملف الخطأ عن طريق الخطأ، يمكنك بدء تقديم جديد باستخدام الملف الصحيح. وإذا كنت تعتقد أن هذه النتيجة غير صحيحة، فتواصل معنا وسنراجعها.',
+      },
+      encrypted: {
+        heading: 'هذا المستند محمي بكلمة مرور',
+        body1: 'هذا المستند محمي بكلمة مرور ولا يمكن معالجته تلقائياً.',
+        body2:
+          'يرجى إزالة كلمة المرور من الملف ثم تقديمه مرة أخرى. إذا لم تكن متأكداً من الطريقة، توفر معظم برامج معالجة النصوص هذا الخيار ضمن إعدادات حماية المستند أو التشفير عند الحفظ.',
+      },
+      newSubmission: 'ابدأ تقديم بحث جديد',
+      transient: {
+        heading: 'لم نتمكن من إكمال قراءة البحث الآن',
+        body1: 'لا توجد مشكلة في مستندك. كانت خدمة قراءة المستندات لدينا مشغولة مؤقتاً ولم تستجب في الوقت المحدد.',
+        body2: 'تم حفظ طلبك. يمكنك المحاولة مرة أخرى الآن، أو تركه وسنتابع معك عبر البريد الإلكتروني.',
+        retry: 'حاول مرة أخرى',
+        retrying: 'جارٍ المحاولة مرة أخرى…',
+      },
+      failed: {
+        heading: 'لم نتمكن من قراءة هذا المستند',
+        body1:
+          'منعنا شيء في هذا الملف من قراءته تلقائياً. قد يحدث ذلك أحياناً مع التنسيقات غير المعتادة أو الصفحات الممسوحة ضوئياً بجودة منخفضة.',
+        body2: 'ما زال طلبك محفوظاً، وسنتابع معك عبر البريد الإلكتروني.',
+      },
+      loadingHeading: 'جارٍ قراءة بحثك',
+      readyHeading: 'هذه هي التفاصيل التي وجدناها',
+      loadingSubtitle: 'يستغرق هذا عادةً أقل من دقيقة. ستظهر التفاصيل في الصفحة تلقائياً.',
+      readySubtitle: 'يرجى مراجعة جميع التفاصيل أدناه وتصحيح أي شيء غير صحيح.',
+      // Arabic number agreement: singular, dual, then plural (3-10). Nine
+      // fields is the most that can ever be flagged.
+      attention: (n) =>
+        n === 1
+          ? 'هناك حقل واحد يحتاج إلى انتباهك.'
+          : n === 2
+            ? 'هناك حقلان يحتاجان إلى انتباهك.'
+            : `هناك ${n} حقول تحتاج إلى انتباهك.`,
+      partial:
+        'قرأنا بداية مستندك، لكننا لم نتمكن من التحقق تلقائياً من كل حقل. يرجى مراجعة جميع التفاصيل أدناه بعناية.',
+      teamHeading: 'فريق البحث',
+      teamHint: 'الأسماء مرتبة حسب ترتيب ظهورها في البحث. هذا ليس ترتيباً تفضيلياً، بل ترتيب الظهور فقط.',
+      moveUp: 'تحريك لأعلى',
+      moveDown: 'تحريك لأسفل',
+      fullName: 'الاسم الكامل',
+      researcherName: (n) => `الاسم الكامل للباحث ${n}`,
+      remove: 'إزالة الباحث',
+      addResearcher: '+ إضافة باحث',
+      detailsHeading: 'تفاصيل البحث',
+      fields: {
+        title: { single: 'العنوان', paired: 'العنوان (بالإنجليزية)' },
+        title_ar: { single: 'العنوان', paired: 'العنوان (بالعربية)' },
+        supervisor_name: 'المشرف',
+        university: 'الجامعة',
+        faculty: 'الكلية أو المدرسة',
+        degree_type: 'الدرجة العلمية',
+        year: 'السنة',
+        abstract: { single: 'الملخص', paired: 'الملخص (بالإنجليزية)' },
+        abstract_ar: { single: 'الملخص', paired: 'الملخص (بالعربية)' },
+      },
+      needsAttention: 'يحتاج إلى انتباهك',
+      edit: 'تعديل',
+      emptyHint: 'لم نعثر عليه في بحثك. اضغط لإضافته.',
+      pairEmptyHint: 'لا يبدو أن بحثك يتضمن هذا المحتوى بهذه اللغة. يمكنك ترك الحقل فارغاً.',
+      conflicting: 'يعرض بحثك إجابتين مختلفتين هنا. أيهما الصحيحة؟',
+      ambiguous: 'لم نكن متأكدين من هذه المعلومة. يرجى التحقق منها.',
+      sourcePrefix: 'المصدر: ',
+      socialAdd: (
+        <>
+          إضافة رابط <Ltr>LinkedIn</Ltr> أو <Ltr>Facebook</Ltr>
+        </>
+      ),
+      socialWhy:
+        'تتيح إضافة ملف شخصي لنا نسب العمل إلى هذا الباحث والإشارة إليه عند إبراز البحث، مما يساعد على وصوله إلى شبكته أيضاً. كلا الرابطين اختياري.',
+      linkedin: 'رابط LinkedIn (اختياري)',
+      facebook: 'رابط Facebook (اختياري)',
+      confirm: 'تأكيد هذه التفاصيل',
+      confirmExtracting: 'جارٍ قراءة بحثك…',
+      confirmSaving: 'جارٍ الحفظ…',
+      timeout: 'يستغرق هذا وقتاً أطول من المعتاد.',
+      timeoutRetry: 'حاول مرة أخرى',
+      timeoutRestarting: 'جارٍ إعادة المحاولة…',
+      errors: {
+        emptyResearcher: 'يرجى إدخال اسم لكل باحث أو إزالة الصف الفارغ.',
+        missingTitle: 'يرجى إضافة عنوان بحثك بالإنجليزية أو العربية قبل التأكيد.',
+        invalidYear: 'يرجى إدخال السنة بأربعة أرقام، مثلاً 2023.',
+        // The reference code is isolated LTR (LRI…PDI) so a code such as
+        // PGRST301 is never reordered inside the Arabic sentence.
+        save: (code) =>
+          `تعذر علينا حفظ تأكيدك. يرجى المحاولة مرة أخرى بعد قليل.${code ? ` (المرجع: ⁦${code}⁩)` : ''}`,
+        network:
+          'تعذر علينا الوصول إلى الخادم لحفظ تأكيدك. يرجى التحقق من اتصالك والمحاولة مرة أخرى — لم يتم فقدان أي من تعديلاتك.',
+      },
+      rpcError: (message) => AR_CONFIRM_ERRORS[message] || 'تعذر علينا حفظ تأكيدك. يرجى المحاولة مرة أخرى بعد قليل.',
     },
   },
 }

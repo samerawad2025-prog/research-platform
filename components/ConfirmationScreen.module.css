@@ -1,10 +1,10 @@
 /* Confirmation screen presentation, migrated onto the Phase 2 token
    foundation (app/globals.css, Milestone 1).
 
-   Presentation only. ConfirmationScreen.jsx is byte-identical: every
-   poll interval, retry threshold, safety-net trigger, researcher seed,
-   field-visibility rule, correction route and RPC call is exactly as
-   Phase 1 left it, and so is every word on screen.
+   Presentation only: every poll interval, retry threshold, safety-net
+   trigger, researcher seed, field-visibility rule, correction route and
+   RPC call is exactly as Phase 1 left it. Layout uses logical properties
+   so the same rules serve the English (LTR) and Arabic (RTL) interface.
 
    Measured defects fixed here, and nothing else:
      1. .fieldLabel  #8a8a82 = 3.33:1 — the field NAMES, under 4.5:1
@@ -102,6 +102,11 @@
   color: var(--ink);
 }
 
+/* Latin tracking pulls joined Arabic letterforms apart. */
+.header h1:lang(ar) {
+  letter-spacing: normal;
+}
+
 .subtitle {
   color: var(--ink-muted);
   margin: 0;
@@ -196,6 +201,12 @@
   margin: 0 0 var(--space-1);
 }
 
+/* Uppercase and wide tracking are Latin typographic devices; Arabic has
+   no case, and letter-spacing breaks its joined letterforms. */
+.fieldLabel:lang(ar) {
+  letter-spacing: normal;
+}
+
 /* The one rule `fieldAttention` has ever had — the class is referenced
    in the JSX but was never defined, so a flagged field looked exactly
    like an unflagged one apart from a 6px dot. Recolouring the label to
@@ -227,14 +238,14 @@
   justify-content: space-between;
   gap: var(--space-4);
   width: 100%;
-  /* Physical padding and text-align kept as-is: direction handling is
-     Milestone 4's job, done across the app with logical properties
-     rather than patched one selector at a time. */
-  padding: var(--space-1) var(--space-2) var(--space-1) 0;
+  /* Flush with the field label on the inline-start side, room for the
+     "Edit" hint on the inline-end side — in either direction. */
+  padding-block: var(--space-1);
+  padding-inline: 0 var(--space-2);
   background: transparent;
   border: none;
   border-radius: var(--radius-sm);
-  text-align: left;
+  text-align: start;
   cursor: text;
   font: inherit;
   color: inherit;
@@ -337,7 +348,7 @@
   font: inherit;
   font-size: var(--text-xs);
   color: var(--ink);
-  text-align: left;
+  text-align: start;
   justify-content: center;
 }
 
@@ -466,7 +477,7 @@
 .addLinkButton {
   margin: var(--space-1) 0 var(--space-1);
   width: 100%;
-  text-align: left;
+  text-align: start;
 }
 
 .socialInputs {
