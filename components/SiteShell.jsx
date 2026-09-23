@@ -52,6 +52,9 @@ export default function SiteShell({ children }) {
 
       <footer className={styles.footer}>
         <div className={styles.footerInner}>
+          {/* The official name as a quiet sign-off, in the current
+              language only. Plain text, not a second link home. */}
+          <p className={styles.footerName}>{t.wordmark}</p>
           <p className={styles.footerLead}>{t.footerLead}</p>
           {/* Label and value share one <span> so they flow as a single line
               of text inside the inline-flex link; as two flex items the
