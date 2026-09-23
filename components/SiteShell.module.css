@@ -32,6 +32,10 @@
 
 .header {
   background: var(--surface-raised);
+  /* A single brand rule across the top of every page: the one place the
+     teal appears as identity rather than as a control. A rule, not a
+     shape — it claims no logo. */
+  border-top: 3px solid var(--brand);
   border-bottom: 1px solid var(--line);
 }
 
@@ -48,6 +52,7 @@
   align-items: center;
   justify-content: space-between;
   column-gap: var(--space-4);
+  row-gap: var(--space-1);
   padding-block: var(--space-2);
 }
 
@@ -60,11 +65,30 @@
   text-decoration: none;
 }
 
+/* The official name, typeset as the wordmark. Identity comes from weight,
+   not size or tracking: at 16px bold the English name (~360px) still
+   shares one row with the nav and language toggle inside the 660px
+   content column, where 18px (~405px) pushed them onto a second row.
+
+   Arabic is set one step larger. At the same pixel size Arabic script
+   reads optically smaller than Latin, so --text-lg is what gives the two
+   names comparable authority; the Arabic name is short enough to fit.
+   Arabic never takes letter-spacing.
+
+   On a narrow screen the full name wraps rather than being abbreviated,
+   and text-wrap: balance splits it into two even lines instead of
+   stranding the last word. */
 .wordmark {
   color: var(--ink);
   font-size: var(--text-base);
-  font-weight: 600;
+  font-weight: 700;
   line-height: var(--leading-heading);
+  text-wrap: balance;
+}
+
+.wordmark:lang(ar) {
+  font-size: var(--text-lg);
+  letter-spacing: normal;
 }
 
 .navLink {
@@ -123,6 +147,12 @@
   line-height: var(--leading-body);
 }
 
+.footerName {
+  margin: 0 0 var(--space-1);
+  color: var(--ink);
+  font-weight: 600;
+}
+
 .footerLead {
   margin: 0 0 var(--space-2);
 }
@@ -130,7 +160,7 @@
 .contactList {
   display: flex;
   flex-wrap: wrap;
-  column-gap: var(--space-5);
+  column-gap: var(--space-4);
   margin: 0;
   padding: 0;
   list-style: none;
@@ -152,6 +182,10 @@
   .headerInner,
   .footerInner {
     padding-inline: var(--space-4);
+  }
+
+  .wordmark:lang(ar) {
+    font-size: var(--text-base);
   }
 
   .contactList {

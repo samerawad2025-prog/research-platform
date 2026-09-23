@@ -87,6 +87,25 @@
   --accent-ink: #ffffff;
   /* 5.83:1 against --accent. Text and icons on an accent fill. */
 
+  /* ---------- brand ----------
+     Aliases, not new colours: the brand IS the deep teal family above.
+     Identity surfaces (the header rule, the wordmark's surroundings)
+     reference --brand, so the brand colour can later diverge from the
+     interactive accent with a one-line change instead of a hunt through
+     every module. Interactive controls keep using --accent.
+
+     Brand rules, kept here so they travel with the tokens:
+       - The brand colour is the teal family only. --attention and
+         --danger are functional state colours and never brand colours.
+       - The official name is typeset, not drawn: identity comes from
+         weight, size and spacing, not tracking. No logo or symbol is
+         approved; do not introduce one here.
+       - Arabic text always keeps letter-spacing: normal (tracking breaks
+         joined letterforms), is never uppercased or synthetically
+         italicised, and keeps at least --leading-heading. */
+  --brand: var(--accent);
+  --brand-strong: var(--accent-strong);
+
   /* ---------- attention, danger, focus ---------- */
 
   --attention: #96690f;

@@ -31,6 +31,15 @@ const Ltr = ({ children }) => <bdi dir="ltr">{children}</bdi>
 export const CONTACT_EMAIL = 'sarpcontact2026@gmail.com'
 export const CONTACT_PHONE = '+249117754018'
 
+// The platform's official name in each language: the one visible
+// identity (header wordmark, landing title, footer, browser title and the
+// completion message all read from here, so they cannot drift apart
+// again). No abbreviation is used anywhere in the interface.
+const OFFICIAL_NAME = {
+  en: 'Sudanese Academic Research Platform',
+  ar: 'المنصة السودانية للبحث الأكاديمي',
+}
+
 // Every deliberate `raise exception` (SQLSTATE P0001) in the current
 // submit_paper (supabase/migrations/0004_whatsapp_field.sql), keyed by its
 // exact English text. The SQL is unchanged; this only decides how each
@@ -67,12 +76,12 @@ const AR_CONFIRM_ERRORS = {
 export const MESSAGES = {
   en: {
     meta: {
-      title: 'Sudanese Academic Research Platform',
+      title: OFFICIAL_NAME.en,
       description: 'Submit Sudanese academic research for review and future publication.',
     },
     shell: {
       skipLink: 'Skip to main content',
-      wordmark: 'Sudanese Academic Research Platform',
+      wordmark: OFFICIAL_NAME.en,
       navSubmit: 'Submit research',
       footerLead: 'Questions about a submission? Contact the platform team.',
       emailLabel: 'Email:',
@@ -83,7 +92,7 @@ export const MESSAGES = {
       switchAriaLabel: 'عرض الموقع بالعربية',
     },
     landing: {
-      title: 'Sudanese Academic Research Platform',
+      title: OFFICIAL_NAME.en,
       lead:
         'A straightforward way to submit Sudanese academic research for review and future publication. The platform reads key details from your document, so you don’t have to retype them.',
       cta: 'Submit your research',
@@ -173,7 +182,7 @@ export const MESSAGES = {
         lead: 'Your research details are recorded exactly as you approved them.',
         body:
           'Your work now enters the platform’s review process, where it will be prepared for publication. We’ll reach out using the details you provided if anything else is needed.',
-        closing: 'Thank you for contributing your work to the Sudanese Research Platform.',
+        closing: `Thank you for contributing your work to the ${OFFICIAL_NAME.en}.`,
       },
       notResearch: {
         heading: 'This doesn’t look like an academic paper',
@@ -263,12 +272,12 @@ export const MESSAGES = {
   },
   ar: {
     meta: {
-      title: 'المنصة السودانية للبحث الأكاديمي',
+      title: OFFICIAL_NAME.ar,
       description: 'تقديم البحوث الأكاديمية السودانية للمراجعة والنشر مستقبلاً.',
     },
     shell: {
       skipLink: 'انتقل إلى المحتوى الرئيسي',
-      wordmark: 'المنصة السودانية للبحث الأكاديمي',
+      wordmark: OFFICIAL_NAME.ar,
       navSubmit: 'تقديم بحث',
       footerLead: 'هل لديك سؤال حول تقديم بحث؟ تواصل مع فريق المنصة.',
       emailLabel: 'البريد الإلكتروني:',
@@ -278,7 +287,7 @@ export const MESSAGES = {
       switchAriaLabel: 'View site in English',
     },
     landing: {
-      title: 'المنصة السودانية للبحث الأكاديمي',
+      title: OFFICIAL_NAME.ar,
       lead:
         'طريقة مباشرة لتقديم البحوث الأكاديمية السودانية للمراجعة والنشر مستقبلاً. تقرأ المنصة التفاصيل الأساسية من مستندك، حتى لا تضطر إلى إعادة كتابتها.',
       cta: 'قدّم بحثك',
@@ -377,7 +386,7 @@ export const MESSAGES = {
         lead: 'تم تسجيل تفاصيل بحثك كما وافقت عليها تماماً.',
         body:
           'ينتقل بحثك الآن إلى مرحلة المراجعة في المنصة تمهيداً لإعداده للنشر. سنتواصل معك باستخدام البيانات التي قدمتها إذا احتجنا إلى أي معلومات إضافية.',
-        closing: 'شكراً لمساهمتك ببحثك في المنصة السودانية للبحث الأكاديمي.',
+        closing: `شكراً لمساهمتك ببحثك في ${OFFICIAL_NAME.ar}.`,
       },
       notResearch: {
         heading: 'لا يبدو هذا مستنداً أكاديمياً',

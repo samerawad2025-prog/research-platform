@@ -19,6 +19,10 @@
   line-height: var(--leading-heading);
   letter-spacing: -0.01em;
   margin: 0 0 var(--space-3);
+  /* The page title is the official name, which wraps on a phone; balance
+     it into even lines rather than stranding one word (in Arabic,
+     «الأكاديمي» fell onto a line of its own at 320px). */
+  text-wrap: balance;
 }
 
 /* Negative tracking tightens Latin display type; applied to Arabic it
