@@ -500,29 +500,6 @@
 
 /* ---------- actions ---------- */
 
-.confirmButton {
-  width: 100%;
-  padding: var(--space-4);
-  background: var(--accent);
-  color: var(--accent-ink);
-  border: none;
-  border-radius: var(--radius-md);
-  font-size: var(--text-base);
-  font-weight: 600;
-  font-family: inherit;
-  cursor: pointer;
-  transition: background var(--motion-duration) var(--motion-ease);
-}
-
-.confirmButton:hover:not(:disabled) {
-  background: var(--accent-strong);
-}
-
-.confirmButton:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
 .timeoutNote {
   margin-top: var(--space-3);
   text-align: center;

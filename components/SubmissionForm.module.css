@@ -103,25 +103,8 @@
   line-height: var(--leading-body);
 }
 
-.submitButton {
-  width: 100%;
-  /* --space-4 rather than the nearer --space-3: 0.75rem would have made
-     this target smaller than it was before the migration, and a primary
-     action on a phone is the last place to lose height. */
-  padding: var(--space-4);
+.submitButtonWrap {
   margin-top: var(--space-4);
-  background: var(--accent);
-  color: var(--accent-ink);
-  border: none;
-  border-radius: var(--radius-sm);
-  font-size: var(--text-base);
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.submitButton:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
 }
 
 .errorMessage {
