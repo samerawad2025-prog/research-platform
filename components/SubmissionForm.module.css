@@ -123,12 +123,23 @@
   line-height: var(--leading-body);
 }
 
+/* Hidden without pushing it off-screen. The old `left: -9999px` sent it
+   9999px off the inline-end side of an RTL page, where overflow scrolls.
+   Left in place, 1px and clipped to nothing, it takes no space and
+   creates no overflow in either direction, while staying a real input
+   in the DOM for bots to fill (tabIndex -1 and aria-hidden are
+   unchanged in the JSX). */
 .honeypot {
   position: absolute;
-  left: -9999px;
   width: 1px;
   height: 1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
   opacity: 0;
+  pointer-events: none;
 }
 
 @media (max-width: 480px) {

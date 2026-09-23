@@ -30,6 +30,7 @@ export default function PhoneField({
   value,
   onValueChange,
   validation,
+  errorText, // validation.error in the interface language
   showError,
   onBlur,
 }) {
@@ -74,7 +75,7 @@ export default function PhoneField({
 
       {invalid && (
         <p id={errorId} role="alert" className={styles.error}>
-          {validation.error}
+          {errorText}
         </p>
       )}
 

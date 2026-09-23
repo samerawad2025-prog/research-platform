@@ -4,10 +4,9 @@
    NAME is already implied by the flag and repeated in the list.
 
    Migrated onto the Phase 2 token foundation. Keyboard and ARIA
-   behaviour live in CountrySelect.jsx and are untouched. The popup's
-   physical `left: 0` is deliberately left alone here — direction
-   handling is Milestone 4's job, done systematically with logical
-   properties rather than patched one selector at a time. */
+   behaviour live in CountrySelect.jsx. The popup is placed with logical
+   insets, so it opens from the trigger's inline-start edge in both
+   English (left) and Arabic (right). */
 
 .root {
   position: relative;
@@ -84,8 +83,8 @@
 .popup {
   position: absolute;
   z-index: 40;
-  top: calc(100% + var(--space-1));
-  left: 0;
+  inset-block-start: calc(100% + var(--space-1));
+  inset-inline-start: 0;
   /* Component width: wide enough for the longest country name at the
      list's type size. Not a content measure. */
   width: 19rem;

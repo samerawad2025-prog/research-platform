@@ -47,15 +47,15 @@ export default function SiteShell({ children }) {
       </header>
 
       <main id="main-content" tabIndex={-1} className={styles.main}>
-        {/* TEMPORARY Milestone 4 boundary. SubmissionForm and
-            ConfirmationScreen are not translated yet and still carry
-            physical left/right rules, so page content is pinned to
-            English/LTR here even when the shell is Arabic. Converted pages
-            (the landing page) opt out by setting their own lang/dir.
-            Task 2 opts SubmissionForm in; Task 3 opts ConfirmationScreen in
-            and removes this wrapper. It must not reach production before
-            then — the Milestone 4 branch merges only as a whole. */}
-        <div lang="en" dir="ltr" className={styles.legacyLtr}>
+        {/* TEMPORARY Milestone 4 boundary. ConfirmationScreen is not
+            translated yet and still carries physical left/right rules, so
+            page content is pinned to English/LTR here even when the shell
+            is Arabic. Converted pages (the landing page and SubmissionForm)
+            opt out by setting their own lang/dir. Task 3 opts
+            ConfirmationScreen in and removes this wrapper. It must not
+            reach production before then — the Milestone 4 branch merges
+            only as a whole. */}
+        <div lang="en" dir="ltr">
           {children}
         </div>
       </main>
