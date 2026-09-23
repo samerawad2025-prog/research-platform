@@ -17,6 +17,7 @@ import { normalizeYear } from '../lib/extraction/applyResult'
 import { isFieldVisible, needsLanguageLabel, routeByScript } from '../lib/fields/languagePairs'
 import { seedResearchers } from '../lib/fields/researcherSeed'
 import { mark, report } from '../lib/timing'
+import Button from './ui/Button'
 import styles from './ConfirmationScreen.module.css'
 
 // Extraction completes in 5-32 seconds in every production run
@@ -742,9 +743,9 @@ export default function ConfirmationScreen({ token }) {
         ))}
       </section>
 
-      <button type="submit" className={styles.confirmButton} disabled={extracting || status === 'saving'}>
+      <Button type="submit" disabled={extracting || status === 'saving'}>
         {extracting ? 'Reading your research\u2026' : status === 'saving' ? 'Saving\u2026' : 'Confirm these details'}
-      </button>
+      </Button>
 
       {pollTimedOut && extracting && (
         <p className={styles.timeoutNote}>

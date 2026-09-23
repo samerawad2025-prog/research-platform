@@ -12,6 +12,7 @@ import { supabase } from '../lib/supabaseClient'
 import PhoneField from './PhoneField'
 import { DEFAULT_COUNTRY, validateWhatsApp, formatAsYouType } from '../lib/validation/phone'
 import { mark, adoptPendingMarks } from '../lib/timing'
+import Button from './ui/Button'
 import styles from './SubmissionForm.module.css'
 
 const SCOPE_OPTIONS = [
@@ -421,9 +422,11 @@ export default function SubmissionForm() {
         ))}
       </fieldset>
 
-      <button type="submit" disabled={!canSubmit} className={styles.submitButton}>
-        {status === 'submitting' ? 'Submitting…' : 'Submit my research'}
-      </button>
+      <div className={styles.submitButtonWrap}>
+        <Button type="submit" disabled={!canSubmit}>
+          {status === 'submitting' ? 'Submitting…' : 'Submit my research'}
+        </Button>
+      </div>
 
       {!canSubmit && status !== 'submitting' && outstanding.length > 0 && (
         <p className={styles.pendingNote}>

@@ -1,0 +1,31 @@
+/* The shared primary-action button: the two full-width, accent-filled
+   submit buttons in SubmissionForm and ConfirmationScreen duplicated this
+   exact rule set already, differing only because they were authored in
+   separate CSS modules. Radius is standardised on --radius-md (what
+   ConfirmationScreen already used); Submission's button moves from
+   --radius-sm to match. Disabled opacity is standardised on 0.45 (what
+   ConfirmationScreen and .primaryLink already use), rather than
+   Submission's 0.6. */
+
+.button {
+  width: 100%;
+  padding: var(--space-4);
+  background: var(--accent);
+  color: var(--accent-ink);
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: var(--text-base);
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background var(--motion-duration) var(--motion-ease);
+}
+
+.button:hover:not(:disabled) {
+  background: var(--accent-strong);
+}
+
+.button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
