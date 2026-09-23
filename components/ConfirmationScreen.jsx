@@ -397,8 +397,12 @@ export default function ConfirmationScreen({ token }) {
   // Asks the server to restart extraction, then restarts the poll
   // without a page reload so the timings already recorded for this
   // submission survive.
+  //
+  // pollTimedOut is cleared only once the request has settled, together
+  // with the nonce bump. Clearing it first removed the whole timeout
+  // note, and with it the button, so its "Restarting…" state could
+  // never be seen.
   async function retryExtraction() {
-    setPollTimedOut(false)
     setRetrying(true)
     try {
       await fetch('/api/extract', {
@@ -410,6 +414,7 @@ export default function ConfirmationScreen({ token }) {
       // Nothing to show: the poll below reports the real outcome.
     }
     setRetrying(false)
+    setPollTimedOut(false)
     setRetryNonce((n) => n + 1) // re-runs the polling effect
   }
 
@@ -505,7 +510,7 @@ export default function ConfirmationScreen({ token }) {
     // trace anywhere. From the submitter's side, pressing Confirm
     // simply did nothing (BUG_HISTORY.md #38).
     try {
-      const { error } = await supabase.rpc('confirm_researcher_metadata', {
+      const { error, status: httpStatus } = await supabase.rpc('confirm_researcher_metadata', {
         p_token: token,
         p_researchers: researchers,
         p_corrections: corrections,
@@ -517,10 +522,17 @@ export default function ConfirmationScreen({ token }) {
         // submitter cannot act on, so it is shown alongside a plain
         // message rather than raw - without it, a failure is
         // unreportable and therefore undiagnosable.
+        //
+        // A connection failure does not throw: postgrest-js catches the
+        // rejected fetch and RETURNS it as an error with status 0 (no
+        // HTTP response was received), so that - not the catch below -
+        // is where "couldn't reach the server" is actually known.
         setErrorMsg(
           error.code === 'P0001' && error.message
             ? { key: 'rpc', message: error.message }
-            : { key: 'save', code: error.code }
+            : httpStatus === 0
+              ? { key: 'network' }
+              : { key: 'save', code: error.code }
         )
         setStatus('error')
         return
@@ -528,8 +540,10 @@ export default function ConfirmationScreen({ token }) {
 
       setStatus('done')
     } catch (err) {
+      // Not a network failure (those are returned, above), so nothing
+      // more specific than "couldn't save" is known here.
       console.error('confirm_researcher_metadata threw:', err)
-      setErrorMsg({ key: 'network' })
+      setErrorMsg({ key: 'save' })
       setStatus('error')
     }
   }
