@@ -21,6 +21,12 @@
   margin: 0 0 var(--space-3);
 }
 
+/* Negative tracking tightens Latin display type; applied to Arabic it
+   pulls joined letterforms apart and hurts legibility. */
+.title:lang(ar) {
+  letter-spacing: normal;
+}
+
 .lead {
   font-size: var(--text-lg);
   line-height: var(--leading-body);

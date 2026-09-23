@@ -13,25 +13,13 @@ import PhoneField from './PhoneField'
 import { DEFAULT_COUNTRY, validateWhatsApp, formatAsYouType } from '../lib/validation/phone'
 import { mark, adoptPendingMarks } from '../lib/timing'
 import Button from './ui/Button'
+import { useLocale } from './LocaleProvider'
+import { dirFor, messagesFor } from '../lib/i18n'
 import styles from './SubmissionForm.module.css'
 
-const SCOPE_OPTIONS = [
-  {
-    value: 'full_paper',
-    label_en: 'Publish the complete paper',
-    label_ar: 'نشر البحث كاملاً',
-  },
-  {
-    value: 'metadata_and_article',
-    label_en: 'Publish an accessible article + summary',
-    label_ar: 'نشر مقال مبسط وملخص فقط',
-  },
-  {
-    value: 'abstract_and_citation',
-    label_en: 'Publish only the abstract and citation',
-    label_ar: 'نشر الملخص والاستشهاد فقط',
-  },
-]
+// Stored values sent to submit_paper. Their visible labels live in
+// lib/i18n.jsx under submission.scope, keyed by these exact values.
+const SCOPE_OPTIONS = ['full_paper', 'metadata_and_article', 'abstract_and_citation']
 
 const MAX_FILE_BYTES = 20 * 1024 * 1024 // matches the storage bucket's own limit
 const ACCEPTED_EXTENSIONS = ['.pdf', '.docx']
@@ -67,27 +55,39 @@ function buildFilePath(fileName) {
 // user-facing text. Anything else (constraint violations, connection
 // failures, internal errors) carries a different code and must never
 // be shown raw, since it would leak technical detail and help nobody.
+//
+// Returns which message applies rather than its wording, so the text is
+// chosen at render time in the current interface language — an error
+// already on screen follows a language switch.
 function userFacingError(err) {
   if (err?.__stage === 'rpc' && err?.code === 'P0001' && err?.message) {
-    return err.message
+    return { key: 'rpc', message: err.message }
   }
 
   if (err?.__stage === 'upload') {
     const raw = String(err?.message || '').toLowerCase()
     if (raw.includes('exceeded') || raw.includes('too large') || raw.includes('maximum size')) {
-      return 'That file is too large. The limit is 20 MB, so please upload a smaller version.'
+      return { key: 'uploadTooLarge' }
     }
     if (raw.includes('mime') || raw.includes('type')) {
-      return 'That file type isn\u2019t supported. Please upload a PDF or DOCX file.'
+      return { key: 'uploadType' }
     }
     // Deliberately does not blame the connection. An upload can also be
     // rejected outright by storage, and telling someone to check their
     // network sends them chasing the wrong thing - which is exactly what
     // happened when an Arabic-named file failed (BUG_HISTORY.md #17).
-    return 'We couldn\u2019t upload your file. Please try again in a moment.'
+    return { key: 'uploadGeneric' }
   }
 
-  return 'Something went wrong on our side. Please try again in a moment.'
+  return { key: 'internal' }
+}
+
+function errorText(error, t) {
+  if (!error) return ''
+  if (error.key === 'rpc') return t.rpcError(error.message)
+  if (error.key === 'phone') return t.phoneError(error.message)
+  if (error.key === 'tooBig') return t.errors.tooBig(error.sizeMb)
+  return t.errors[error.key]
 }
 
 const initialForm = {
@@ -111,10 +111,13 @@ function isEmailish(value) {
 
 export default function SubmissionForm() {
   const router = useRouter()
+  const { locale } = useLocale()
+  const t = messagesFor(locale).submission
+  const dir = dirFor(locale)
   const [form, setForm] = useState(initialForm)
   const [file, setFile] = useState(null)
   const [status, setStatus] = useState('idle') // idle | submitting | extracting | error
-  const [errorMsg, setErrorMsg] = useState('')
+  const [errorMsg, setErrorMsg] = useState(null) // { key, ... } — see errorText()
   // Which fields the person has already interacted with. An error is
   // only SHOWN once a field has been touched, so the form doesn't open
   // covered in red before anyone has typed anything - but validity
@@ -148,12 +151,12 @@ export default function SubmissionForm() {
   // Shown under the submit button so a disabled button is never a dead
   // end the person has to guess their way out of.
   const outstanding = []
-  if (!form.full_name.trim()) outstanding.push('your name')
-  if (!isEmailish(form.email)) outstanding.push('a valid email address')
-  if (whatsapp.state === 'invalid') outstanding.push('a valid WhatsApp number (or clear the field)')
-  if (!fileOk) outstanding.push('a PDF or DOCX file under 20 MB')
-  if (!form.permission_to_process) outstanding.push('your permission to process the file')
-  if (!form.publication_scope.length) outstanding.push('at least one publishing choice')
+  if (!form.full_name.trim()) outstanding.push(t.outstanding.name)
+  if (!isEmailish(form.email)) outstanding.push(t.outstanding.email)
+  if (whatsapp.state === 'invalid') outstanding.push(t.outstanding.whatsapp)
+  if (!fileOk) outstanding.push(t.outstanding.file)
+  if (!form.permission_to_process) outstanding.push(t.outstanding.permission)
+  if (!form.publication_scope.length) outstanding.push(t.outstanding.scope)
 
   function touch(field) {
     setTouched((t) => ({ ...t, [field]: true }))
@@ -181,24 +184,24 @@ export default function SubmissionForm() {
     if (form.website) return // honeypot — bots fill every field
 
     if (!file) {
-      setErrorMsg('Please attach your research file (PDF or DOCX).')
+      setErrorMsg({ key: 'noFile' })
       return
     }
     if (file.size > MAX_FILE_BYTES) {
       const sizeMb = (file.size / (1024 * 1024)).toFixed(1)
-      setErrorMsg(`That file is ${sizeMb} MB. The limit is 20 MB, so please upload a smaller version.`)
+      setErrorMsg({ key: 'tooBig', sizeMb })
       return
     }
     if (!ACCEPTED_EXTENSIONS.some((ext) => file.name.toLowerCase().endsWith(ext))) {
-      setErrorMsg('Please upload a PDF or DOCX file. Older .doc files aren\u2019t supported.')
+      setErrorMsg({ key: 'wrongType' })
       return
     }
     if (!form.permission_to_process) {
-      setErrorMsg('Please confirm you allow us to process your research.')
+      setErrorMsg({ key: 'noPermission' })
       return
     }
     if (!form.publication_scope.length) {
-      setErrorMsg('Please choose at least one thing you\u2019re comfortable with us publishing.')
+      setErrorMsg({ key: 'noScope' })
       return
     }
     if (whatsapp.state === 'invalid') {
@@ -206,12 +209,12 @@ export default function SubmissionForm() {
       // stale render, or scripted input). Kept as a real guard rather
       // than trusting the disabled attribute as a security boundary.
       setTouched((t) => ({ ...t, whatsapp: true }))
-      setErrorMsg(whatsapp.error)
+      setErrorMsg({ key: 'phone', message: whatsapp.error })
       return
     }
 
     setStatus('submitting')
-    setErrorMsg('')
+    setErrorMsg(null)
 
     // Stage 1 begins here, at the click, not at the first server
     // timestamp. Everything before papers.created_at used to be
@@ -287,18 +290,16 @@ export default function SubmissionForm() {
 
   if (status === 'extracting') {
     return (
-      <div className={styles.successMessage}>
-        <p>
-          Thank you for sharing your work. We&rsquo;re reading through it now
-          to find your title, abstract, and research team, this usually
-          takes under a minute.
-        </p>
+      <div className={styles.successMessage} lang={locale} dir={dir}>
+        <p>{t.extracting}</p>
       </div>
     )
   }
 
   return (
-    <form onSubmit={handleSubmit} className={styles.form}>
+    // lang/dir opt this form out of SiteShell's temporary English/LTR
+    // boundary: the whole flow follows the interface language now.
+    <form onSubmit={handleSubmit} className={styles.form} lang={locale} dir={dir}>
       <input
         type="text"
         value={form.website}
@@ -310,10 +311,10 @@ export default function SubmissionForm() {
       />
 
       <fieldset className={styles.section}>
-        <legend>About you / عنك</legend>
+        <legend>{t.aboutYou}</legend>
 
         <label className={styles.field}>
-          Full name / الاسم الكامل
+          {t.fullName}
           <input
             required
             value={form.full_name}
@@ -324,7 +325,7 @@ export default function SubmissionForm() {
         </label>
 
         <label className={styles.field}>
-          Email / البريد الإلكتروني
+          {t.email}
           <input
             type="email"
             required
@@ -337,13 +338,13 @@ export default function SubmissionForm() {
         </label>
         {touched.email && form.email.trim() !== '' && !isEmailish(form.email) && (
           <p id="email-error" role="alert" className={styles.fieldError}>
-            That doesn&rsquo;t look like an email address. Please check it.
+            {t.emailInvalid}
           </p>
         )}
 
         <PhoneField
-          label="WhatsApp number (optional) / رقم الواتساب (اختياري)"
-          hint="We may use this only to contact you about your research submission if necessary."
+          label={t.whatsappLabel}
+          hint={t.whatsappHint}
           country={form.whatsapp_country}
           onCountryChange={(c) => {
             // Reformat what is already typed for the newly chosen
@@ -363,16 +364,17 @@ export default function SubmissionForm() {
             touch('whatsapp') // live from the first keystroke, not only on blur
           }}
           validation={whatsapp}
+          errorText={whatsapp.error ? t.phoneError(whatsapp.error) : null}
           showError={Boolean(touched.whatsapp)}
           onBlur={() => touch('whatsapp')}
         />
       </fieldset>
 
       <fieldset className={styles.section}>
-        <legend>Your research / بحثك</legend>
+        <legend>{t.yourResearch}</legend>
 
         <label className={styles.field}>
-          Upload your research file (PDF or DOCX)
+          {t.uploadLabel}
           <input
             type="file"
             accept=".pdf,.docx"
@@ -380,14 +382,11 @@ export default function SubmissionForm() {
             onChange={(e) => setFile(e.target.files[0])}
           />
         </label>
-        <p className={styles.hint}>
-          We&rsquo;ll read the title, authors, and other details directly from
-          your document — no need to retype them here.
-        </p>
+        <p className={styles.hint}>{t.uploadHint}</p>
       </fieldset>
 
       <fieldset className={styles.section}>
-        <legend>Consent / الموافقة</legend>
+        <legend>{t.consent}</legend>
 
         <label className={styles.checkboxOption}>
           <input
@@ -395,48 +394,37 @@ export default function SubmissionForm() {
             checked={form.permission_to_process}
             onChange={(e) => update('permission_to_process', e.target.checked)}
           />
-          <span>
-            I agree to let this platform, including an external AI service,
-            process my research to extract details like the title, authors,
-            and abstract. / أوافق على معالجة بحثي من قبل المنصة، بما في ذلك
-            إرساله إلى خدمة ذكاء اصطناعي خارجية للمساعدة في استخراج تفاصيل
-            مثل العنوان والباحثين والملخص.
-          </span>
+          <span>{t.consentText}</span>
         </label>
 
-        <p className={styles.subLegend}>
-          What are you comfortable with us publishing? Select all that apply. /
-          ما الذي توافق على نشره؟ اختر كل ما ينطبق
-        </p>
-        {SCOPE_OPTIONS.map((opt) => (
-          <label key={opt.value} className={styles.checkboxOption}>
+        <p className={styles.subLegend}>{t.scopeQuestion}</p>
+        {SCOPE_OPTIONS.map((value) => (
+          <label key={value} className={styles.checkboxOption}>
             <input
               type="checkbox"
-              checked={form.publication_scope.includes(opt.value)}
-              onChange={() => toggleScope(opt.value)}
+              checked={form.publication_scope.includes(value)}
+              onChange={() => toggleScope(value)}
             />
-            <span>
-              {opt.label_en} / {opt.label_ar}
-            </span>
+            <span>{t.scope[value]}</span>
           </label>
         ))}
       </fieldset>
 
       <div className={styles.submitButtonWrap}>
         <Button type="submit" disabled={!canSubmit}>
-          {status === 'submitting' ? 'Submitting…' : 'Submit my research'}
+          {status === 'submitting' ? t.submitting : t.submit}
         </Button>
       </div>
 
       {!canSubmit && status !== 'submitting' && outstanding.length > 0 && (
         <p className={styles.pendingNote}>
-          Still needed: {outstanding.join(', ')}.
+          {t.stillNeeded(outstanding)}
         </p>
       )}
 
       {errorMsg && (
         <p role="alert" className={styles.errorMessage}>
-          {errorMsg}
+          {errorText(errorMsg, t)}
         </p>
       )}
     </form>

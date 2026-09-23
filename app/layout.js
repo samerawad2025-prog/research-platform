@@ -1,54 +1,32 @@
-import Link from "next/link";
+import { cookies } from "next/headers";
 import "./globals.css";
-import styles from "./layout.module.css";
+import LocaleProvider from "../components/LocaleProvider";
+import SiteShell from "../components/SiteShell";
+import { LOCALE_COOKIE, dirFor, messagesFor, normalizeLocale } from "../lib/i18n";
+import styles from "../components/SiteShell.module.css";
 
-export const metadata = {
-  title: "Sudanese Academic Research Platform",
-  description: "Submit Sudanese academic research for review and future publication.",
-};
+// The language is read from the cookie on the server so a returning
+// Arabic reader gets lang="ar" dir="rtl" in the very first HTML — no
+// English/LTR flash that a client-side correction would cause.
+async function currentLocale() {
+  const store = await cookies();
+  return normalizeLocale(store.get(LOCALE_COOKIE)?.value);
+}
 
-export default function RootLayout({ children }) {
+export async function generateMetadata() {
+  const { meta } = messagesFor(await currentLocale());
+  return { title: meta.title, description: meta.description };
+}
+
+export default async function RootLayout({ children }) {
+  const locale = await currentLocale();
+
   return (
-    <html lang="en" dir="ltr">
+    <html lang={locale} dir={dirFor(locale)}>
       <body className={styles.body}>
-        <a href="#main-content" className={styles.skipLink}>
-          Skip to main content
-        </a>
-
-        <header className={styles.header}>
-          <div className={styles.headerInner}>
-            <Link href="/" className={styles.wordmark}>
-              Sudanese Academic Research Platform
-            </Link>
-            <nav>
-              <Link href="/submit" className={styles.navLink}>
-                Submit research
-              </Link>
-            </nav>
-          </div>
-        </header>
-
-        <main id="main-content" tabIndex={-1} className={styles.main}>
-          {children}
-        </main>
-
-        <footer className={styles.footer}>
-          <div className={styles.footerInner}>
-            <p className={styles.footerLead}>Questions about a submission? Contact the platform team.</p>
-            <ul className={styles.contactList}>
-              <li>
-                <a href="mailto:sarpcontact2026@gmail.com" className={styles.contactLink}>
-                  Email: sarpcontact2026@gmail.com
-                </a>
-              </li>
-              <li>
-                <a href="https://wa.me/249117754018" className={styles.contactLink}>
-                  WhatsApp: +249117754018
-                </a>
-              </li>
-            </ul>
-          </div>
-        </footer>
+        <LocaleProvider initialLocale={locale}>
+          <SiteShell>{children}</SiteShell>
+        </LocaleProvider>
       </body>
     </html>
   );

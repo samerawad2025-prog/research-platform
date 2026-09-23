@@ -9,7 +9,8 @@
   min-height: 100dvh;
 }
 
-/* Off-screen until focused, then pinned top-left above everything. */
+/* Off-screen until focused, then pinned to the top inline-start corner
+   (top-left in English, top-right in Arabic) above everything. */
 .skipLink {
   position: absolute;
   inset-block-start: var(--space-2);
@@ -75,6 +76,31 @@
 .wordmark:hover,
 .navLink:hover {
   text-decoration: underline;
+}
+
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+/* A small secondary utility control, deliberately not the shared primary
+   Button: it changes the interface language, it does not submit. */
+.langToggle {
+  min-height: 2.75rem;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--line-control);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--text-sm);
+  cursor: pointer;
+  transition: border-color var(--motion-duration) var(--motion-ease);
+}
+
+.langToggle:hover {
+  border-color: var(--accent);
 }
 
 .main {

@@ -18,6 +18,8 @@
 
 import { useEffect, useMemo, useRef, useState, useId } from 'react'
 import { listCountries } from '../lib/validation/phone'
+import { useLocale } from './LocaleProvider'
+import { messagesFor } from '../lib/i18n'
 import styles from './CountrySelect.module.css'
 
 function flagEmoji(code) {
@@ -26,6 +28,8 @@ function flagEmoji(code) {
 
 // Matches on country name, ISO code, or dial code, with or without
 // the leading "+", so "249", "+249", "sd" and "sud" all find Sudan.
+// Both names are always searched, whatever the interface language:
+// someone in the Arabic interface may still type "Sudan", and vice versa.
 function matches(country, query) {
   if (!query) return true
   const q = query.trim().toLowerCase().replace(/^\+/, '')
@@ -38,7 +42,14 @@ function matches(country, query) {
 }
 
 export default function CountrySelect({ value, onChange, disabled }) {
-  const countries = useMemo(() => listCountries(), [])
+  const { locale } = useLocale()
+  const t = messagesFor(locale).country
+  // listCountries() is cached and sorted by English name. Arabic sorts a
+  // copy by Arabic name so the shared cache is never mutated.
+  const countries = useMemo(() => {
+    const all = listCountries()
+    return locale === 'ar' ? [...all].sort((a, b) => a.name_ar.localeCompare(b.name_ar, 'ar')) : all
+  }, [locale])
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [activeIndex, setActiveIndex] = useState(0)
@@ -132,10 +143,12 @@ export default function CountrySelect({ value, onChange, disabled }) {
         disabled={disabled}
         aria-haspopup="listbox"
         aria-expanded={open}
-        aria-label={`Country: ${selected?.name_en}. Change`}
+        aria-label={t.trigger(t.name(selected))}
       >
         <span className={styles.flag} aria-hidden="true">{flagEmoji(selected.code)}</span>
-        <span className={styles.dial}>+{selected.callingCode}</span>
+        {/* Dial codes are always read left to right; without dir="ltr" an
+            RTL line renders "+249" as "249+". */}
+        <span className={styles.dial} dir="ltr">+{selected.callingCode}</span>
         <svg className={styles.chevron} viewBox="0 0 12 12" aria-hidden="true">
           <path d="M3 4.5 6 7.5 9 4.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
@@ -152,8 +165,10 @@ export default function CountrySelect({ value, onChange, disabled }) {
             aria-controls={`${id}-list`}
             aria-autocomplete="list"
             aria-activedescendant={filtered[activeIndex] ? `${id}-opt-${activeIndex}` : undefined}
-            aria-label="Search country or code"
-            placeholder="Search country or code"
+            aria-label={t.search}
+            placeholder={t.search}
+            // Arabic or Latin queries each get their own caret direction.
+            dir="auto"
             value={query}
             onChange={(e) => {
               setQuery(e.target.value)
@@ -180,12 +195,12 @@ export default function CountrySelect({ value, onChange, disabled }) {
                 onMouseEnter={() => setActiveIndex(i)}
               >
                 <span className={styles.flag} aria-hidden="true">{flagEmoji(c.code)}</span>
-                <span className={styles.name}>{c.name_en}</span>
-                <span className={styles.code}>+{c.callingCode}</span>
+                <span className={styles.name}>{t.name(c)}</span>
+                <span className={styles.code} dir="ltr">+{c.callingCode}</span>
               </li>
             ))}
 
-            {filtered.length === 0 && <li className={styles.empty}>No country matches that.</li>}
+            {filtered.length === 0 && <li className={styles.empty}>{t.empty}</li>}
           </ul>
         </div>
       )}
