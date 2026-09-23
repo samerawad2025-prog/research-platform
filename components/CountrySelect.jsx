@@ -152,6 +152,7 @@ export default function CountrySelect({ value, onChange, disabled }) {
             aria-controls={`${id}-list`}
             aria-autocomplete="list"
             aria-activedescendant={filtered[activeIndex] ? `${id}-opt-${activeIndex}` : undefined}
+            aria-label="Search country or code"
             placeholder="Search country or code"
             value={query}
             onChange={(e) => {

@@ -11,7 +11,7 @@
 // model was unsure about are visibly flagged, and one action at the
 // bottom confirms the whole thing.
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useId } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { normalizeYear } from '../lib/extraction/applyResult'
 import { isFieldVisible, needsLanguageLabel, routeByScript } from '../lib/fields/languagePairs'
@@ -109,6 +109,8 @@ function needsAttention(entry) {
 function InlineField({ label, value, entry, multiline, dir, onChange, disabled, emptyHint }) {
   const [editing, setEditing] = useState(false)
   const attention = needsAttention(entry)
+  const labelId = useId()
+  const buttonId = useId()
 
   if (disabled) {
     return (
@@ -122,7 +124,7 @@ function InlineField({ label, value, entry, multiline, dir, onChange, disabled, 
 
   return (
     <div className={`${styles.field} ${attention ? styles.fieldAttention : ''}`}>
-      <h3 className={styles.fieldLabel}>
+      <h3 className={styles.fieldLabel} id={labelId}>
         {label}
         {attention && <span className={styles.attentionDot} aria-label="Needs your attention" />}
       </h3>
@@ -135,6 +137,7 @@ function InlineField({ label, value, entry, multiline, dir, onChange, disabled, 
             rows={4}
             dir={dir}
             autoFocus
+            aria-labelledby={labelId}
             onChange={(e) => onChange(e.target.value)}
             onBlur={() => setEditing(false)}
           />
@@ -144,12 +147,13 @@ function InlineField({ label, value, entry, multiline, dir, onChange, disabled, 
             value={value}
             dir={dir}
             autoFocus
+            aria-labelledby={labelId}
             onChange={(e) => onChange(e.target.value)}
             onBlur={() => setEditing(false)}
           />
         )
       ) : (
-        <button type="button" className={styles.valueButton} onClick={() => setEditing(true)}>
+        <button type="button" id={buttonId} className={styles.valueButton} aria-labelledby={`${labelId} ${buttonId}`} onClick={() => setEditing(true)}>
           {value ? (
             <span className={styles.value} dir={dir}>{value}</span>
           ) : (
@@ -703,6 +707,7 @@ export default function ConfirmationScreen({ token }) {
                     value={r.full_name}
                     onChange={(e) => updateResearcher(i, { full_name: e.target.value })}
                     placeholder="Full name"
+                    aria-label={`Researcher ${i + 1} full name`}
                   />
                   <button type="button" className={styles.removeButton} onClick={() => removeResearcher(i)} aria-label="Remove">&times;</button>
                   {showSocialLinks && (
@@ -789,11 +794,13 @@ function SocialLinks({ researcher, onChange }) {
       </p>
       <input
         placeholder="LinkedIn URL (optional)"
+        aria-label="LinkedIn URL (optional)"
         value={researcher.linkedin_url}
         onChange={(e) => onChange({ linkedin_url: e.target.value })}
       />
       <input
         placeholder="Facebook URL (optional)"
+        aria-label="Facebook URL (optional)"
         value={researcher.facebook_url}
         onChange={(e) => onChange({ facebook_url: e.target.value })}
       />
