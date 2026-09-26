@@ -138,8 +138,13 @@ function createPreM1Database() {
   execFileSync('psql', ['-X', '-q', '-v', 'ON_ERROR_STOP=1', '-d', DB, '-f', tmp], { stdio: ['ignore', 'ignore', 'pipe'] })
   sqlOk(`insert into researchers (id, full_name, email) values ('00000000-0000-0000-0000-000000000001', 'Synthetic Submitter', 'synthetic@example.invalid')`)
 }
+// 0011, and on the M2A branch 0012 as well: the route reads columns from
+// both, and this also runs the pre-M1 production route against both.
 function applyMigration() {
-  execFileSync('psql', ['-X', '-q', '-v', 'ON_ERROR_STOP=1', '-d', DB, '-f', path.join(ROOT, 'supabase/migrations/0011_manual_entry.sql')], { stdio: ['ignore', 'ignore', 'pipe'] })
+  for (const m of ['0011_manual_entry.sql', '0012_submission_acceptance.sql']) {
+    const file = path.join(ROOT, 'supabase/migrations', m)
+    if (fs.existsSync(file)) execFileSync('psql', ['-X', '-q', '-v', 'ON_ERROR_STOP=1', '-d', DB, '-f', file], { stdio: ['ignore', 'ignore', 'pipe'] })
+  }
 }
 
 let seq = 0

@@ -118,6 +118,19 @@ A planning document is never evidence that something is built.
 
 ### M2 (B): Server-enforced acceptance, controlled uploads, two publication settings, legacy permissions
 
+**Status (2026-09-26): split into M2A (backend foundation) and M2B (interface and cutover).**
+- **M2A is built and tested in isolation, on branch `claude/phase3-m2a-acceptance-upload`, in a PR stacked on M1.** It is not deployed, and it is inactive by default. It covers:
+  - the agreement registry;
+  - acceptance records with server timestamps and a processing-decision snapshot;
+  - upload authorization for one server-chosen path;
+  - finalization that creates the paper exactly once, bound to the document's SHA-256;
+  - request limits and bounded cleanup.
+- **One authority for processing.** `papers.submission_extraction_policy` holds the decision, and `submission_decision_source` records its origin. The server records `automatic` only when both `EXTRACTION_MODE` and the policy row are automatic.
+- **The old anonymous path is still open.** Production is not secured until M2B cuts over and a later migration closes it.
+- The contract, assumptions and cutover are in `docs/submission-flow.md`.
+- Unverified: Supabase Storage's signed-upload semantics, which were tested only against a substitute.
+
+
 **Why.** Today the acceptance and scope checks run only in the page. Storage has an anonymous INSERT policy on the `papers` bucket whose only condition is the bucket name (`supabase/schema.sql`), and `submit_paper` is granted to `anon`. A direct request can upload a file or create a submission without accepting anything.
 
 **Scope.**

@@ -19,6 +19,12 @@ Four labels are used here and in `PHASE_3_PLAN.md`. Product intent comes from th
 
 ### Built and verified, not deployed (2026-09-26)
 
+**Phase 3 M2A:** the server-controlled acceptance and upload foundation (`docs/submission-flow.md`, migration `0012`). It is on branch `claude/phase3-m2a-acceptance-upload`, in a PR stacked on M1.
+- It is **not merged, not deployed and inactive**: the endpoints need `SUBMISSION_ACCEPTANCE_FLOW=enabled`, and every agreement row is seeded inactive.
+- The old anonymous upload and `submit_paper` path is unchanged and still open, so **M2A does not secure production**.
+- Verified with mocked checks in CI, and against a real local Postgres with a storage substitute. The Supabase Storage semantics are unverified.
+
+
 **Phase 3 M1:** configurable extraction (`EXTRACTION_MODE=automatic|manual`) and a complete manual metadata path. It is on branch `claude/phase3-m1-extraction-mode`, in a PR stacked on the M0 documentation PR. It is **not merged and not in production**, and migration `0011` is **not applied**.
 
 After the correction passes:
