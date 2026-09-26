@@ -143,6 +143,8 @@ export const MESSAGES = {
       submitting: 'Submitting…',
       extracting:
         'Thank you for sharing your work. We’re reading through it now to find your title, abstract, and research team, this usually takes under a minute.',
+      // Manual mode: the next screen asks for the details instead.
+      manualNext: 'Thank you for sharing your work. Next, you’ll add its details yourself.',
       stillNeeded: (items) => `Still needed: ${items.join(', ')}.`,
       outstanding: {
         name: 'your name',
@@ -258,6 +260,21 @@ export const MESSAGES = {
       timeout: 'This is taking longer than usual.',
       timeoutRetry: 'Try again',
       timeoutRestarting: 'Restarting…',
+      // Hand entry: shown when the details are typed by the researcher,
+      // either because this site is set up that way (no mention of
+      // automatic reading at all) or because reading did not work.
+      manual: {
+        heading: 'Add your research details',
+        subtitle:
+          'Please enter the details of your research below, then confirm them. Only the title and the research team are required.',
+        fallbackNote:
+          'We couldn’t fill these in from your document this time, so please enter them yourself. What you enter here is what will be saved.',
+        emptyHint: 'Tap to add.',
+        enterYourself: 'Enter the details yourself',
+        switching: 'One moment…',
+        orEnter: 'Or, if you prefer, you can enter your research details yourself now.',
+        unavailable: 'We can’t read your document automatically right now. You can enter the details yourself instead.',
+      },
       errors: {
         emptyResearcher: 'Please fill in every researcher’s name, or remove the empty row.',
         missingTitle: 'Please add the title of your research, in English or Arabic, before confirming.',
@@ -266,6 +283,8 @@ export const MESSAGES = {
           `We couldn’t save your confirmation. Please try again in a moment.${code ? ` (reference: ${code})` : ''}`,
         network:
           'We couldn’t reach the server to save your confirmation. Please check your connection and try again — nothing has been lost.',
+        manualChoice:
+          'We couldn’t switch to entering the details yourself just now. Please try again in a moment.',
       },
       rpcError: (message) => message,
     },
@@ -345,6 +364,7 @@ export const MESSAGES = {
       submitting: 'جارٍ تقديم البحث…',
       extracting:
         'شكراً لمشاركتك بحثك. نقرأه الآن لاستخراج العنوان والملخص وفريق البحث، ويستغرق ذلك عادةً أقل من دقيقة.',
+      manualNext: 'شكراً لمشاركتك بحثك. في الخطوة التالية، ستضيف تفاصيله بنفسك.',
       stillNeeded: (items) => `ما يزال مطلوباً: ${items.join('، ')}.`,
       outstanding: {
         name: 'اسمك',
@@ -471,6 +491,17 @@ export const MESSAGES = {
       timeout: 'يستغرق هذا وقتاً أطول من المعتاد.',
       timeoutRetry: 'حاول مرة أخرى',
       timeoutRestarting: 'جارٍ إعادة المحاولة…',
+      manual: {
+        heading: 'أضف تفاصيل بحثك',
+        subtitle: 'يرجى إدخال تفاصيل بحثك أدناه ثم تأكيدها. العنوان وفريق البحث فقط مطلوبان.',
+        fallbackNote:
+          'لم نتمكن هذه المرة من تعبئة هذه التفاصيل من مستندك، لذا يرجى إدخالها بنفسك. ما تُدخله هنا هو ما سيُحفظ.',
+        emptyHint: 'اضغط للإضافة.',
+        enterYourself: 'أدخل التفاصيل بنفسك',
+        switching: 'لحظة من فضلك…',
+        orEnter: 'أو يمكنك، إن أردت، إدخال تفاصيل بحثك بنفسك الآن.',
+        unavailable: 'لا يمكننا قراءة مستندك تلقائياً في الوقت الحالي. يمكنك إدخال التفاصيل بنفسك بدلاً من ذلك.',
+      },
       errors: {
         emptyResearcher: 'يرجى إدخال اسم لكل باحث أو إزالة الصف الفارغ.',
         missingTitle: 'يرجى إضافة عنوان بحثك بالإنجليزية أو العربية قبل التأكيد.',
@@ -481,6 +512,7 @@ export const MESSAGES = {
           `تعذر علينا حفظ تأكيدك. يرجى المحاولة مرة أخرى بعد قليل.${code ? ` (المرجع: ⁦${code}⁩)` : ''}`,
         network:
           'تعذر علينا الوصول إلى الخادم لحفظ تأكيدك. يرجى التحقق من اتصالك والمحاولة مرة أخرى — لم يتم فقدان أي من تعديلاتك.',
+        manualChoice: 'تعذر علينا الآن الانتقال إلى إدخال التفاصيل بنفسك. يرجى المحاولة مرة أخرى بعد قليل.',
       },
       rpcError: (message) => AR_CONFIRM_ERRORS[message] || 'تعذر علينا حفظ تأكيدك. يرجى المحاولة مرة أخرى بعد قليل.',
     },

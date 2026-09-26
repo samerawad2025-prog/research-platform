@@ -69,3 +69,9 @@ jobs:
 
       - name: Researcher seeding (BUG_HISTORY #33)
         run: node scripts/test-researcher-seed.js
+
+      - name: Extraction mode and manual entry (Phase 3 M1)
+        run: node scripts/test-extraction-mode.js
+
+      - name: Confirmation screen states (Phase 3 M1)
+        run: node scripts/test-confirmation-view.js

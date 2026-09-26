@@ -1,4 +1,5 @@
 import SubmissionForm from "../../components/SubmissionForm";
+import { resolveExtractionMode } from "../../lib/env";
 
 // This page talks to Supabase in the browser, not at build time — don't
 // let Next.js try to pre-render it during `next build`, which would
@@ -6,5 +7,7 @@ import SubmissionForm from "../../components/SubmissionForm";
 export const dynamic = "force-dynamic";
 
 export default function SubmitPage() {
-  return <SubmissionForm />;
+  // Read per request (the page is force-dynamic), from the same rule the
+  // extraction route enforces.
+  return <SubmissionForm manualMode={resolveExtractionMode().mode === "manual"} />;
 }

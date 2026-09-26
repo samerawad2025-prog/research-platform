@@ -17,6 +17,31 @@ Four labels are used here and in `PHASE_3_PLAN.md`. Product intent comes from th
 - **The Phase 1 pipeline:** submission → two-pass extraction → confirmation. Evidence is in "Phase 1 closure" below. Nothing in it has changed since.
 - **Phase 2 (interface, accessibility, bilingual support, brand): complete.** The evidence is under "Phase 2 closure" below.
 
+### Built and verified, not deployed (2026-09-26)
+
+**Phase 3 M1:** configurable extraction (`EXTRACTION_MODE=automatic|manual`) and a complete manual metadata path. It is on branch `claude/phase3-m1-extraction-mode`, in a PR stacked on the M0 documentation PR. It is **not merged and not in production**, and migration `0011` is **not applied**.
+
+After the correction passes:
+- the manual decision (by server mode or by the researcher) is stored durably in `papers.manual_entry_at` / `manual_entry_source`;
+- every provider request is preceded by a re-check that stops it once manual entry or a confirmation is recorded (already-dispatched requests cannot be recalled);
+- each new paper is stamped with the submission-time processing policy, so a paper submitted during manual operation is never extracted automatically later.
+
+Migration `0011` is a **prerequisite for deploying M1 in any mode**, and its policy row starts as `manual`.
+
+Verified by:
+- **Mocked** (in-memory database, network spy): `scripts/test-extraction-mode.js`, which runs the real route logic, and `scripts/test-confirmation-view.js`.
+- **Real local Postgres 16**: `supabase/tests/run-0011.sh`, covering the migration SQL checks, the route logic, and the pre-M1 production route running against the migrated schema.
+- **Localhost Chromium, mocked Supabase**: EN/AR runs at 360–1280px.
+
+Production still runs automatic extraction exactly as before. The rollout keeps five decisions separate:
+1. database readiness (apply `0011` first);
+2. the submission policy row (`extraction_policy.mode`, which starts as `manual`);
+3. deploying the application;
+4. the production extraction mode;
+5. whether the provider arrangement is suitable, which is still unverified.
+
+See `docs/deployment.md` "Rollout". Details: `PHASE_3_PLAN.md` M1.
+
 ### Approved, not built
 
 The founder's Phase 3 decisions of 2026-09-26:
@@ -30,7 +55,7 @@ The founder's Phase 3 decisions of 2026-09-26:
 - citation export;
 - truthful activity counts.
 
-These are recorded in `PHASE_3_PLAN.md` §1 as milestones M1–M6. None of them exists in code yet.
+These are recorded in `PHASE_3_PLAN.md` §1 as milestones M1–M6. Apart from M1 (above, built but not deployed), none of them exists in code yet.
 
 The submission agreement in `docs/legal/` is **written but not active**. See `docs/legal/README.md` for what must be true before it can be activated.
 
@@ -57,7 +82,7 @@ These are facts about current code, not new bugs. Each is scheduled in `PHASE_3_
 
 - **Bug N is still open.** The `not_research` path in `app/api/extract/route.js` sets no `failure_code`. It is cosmetic.
 - **The Gemini default model is stale.** The code default in `lib/ai/providers/gemini.js` is still `gemini-3.6-flash`. Production overrides it through `GEMINI_MODEL`.
-- **Correction:** `.env.local.example` does **not** exist in the repository. The technical-debt entry below that describes its `GEMINI_MODEL` comment is wrong about the file existing. `README.md` referred to it as well; as of this update `README.md` no longer does.
+- **Correction:** `.env.local.example` does **not** exist in the repository. The technical-debt entry below that describes its `GEMINI_MODEL` comment is wrong about the file existing. `README.md` referred to it as well; as of this update `README.md` no longer does. *(M1 branch: an accurate, non-secret `.env.local.example` is added, and `README.md` points to it.)*
 - **Previews share the production database.** A separate Supabase project for previews is still recommended.
 
 ---
