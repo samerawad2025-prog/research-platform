@@ -73,8 +73,11 @@ create table papers (
   -- "what did we run, and what did it produce?" — and separate again
   -- from metadata_confirmed_at below, which answers a third, different
   -- question: "has a human actually reviewed this?"
+  -- 'manual': no automatic extraction was attempted, because the server
+  -- was in EXTRACTION_MODE=manual; the researcher enters the details.
+  -- Never 'completed' for such a paper (migration 0011).
   extraction_status text not null default 'pending'
-    check (extraction_status in ('pending', 'processing', 'completed', 'partial', 'failed')),
+    check (extraction_status in ('pending', 'processing', 'completed', 'partial', 'failed', 'manual')),
 
   -- When the extract route CLAIMED this paper, not when it was
   -- submitted. The two are usually seconds apart but not always: the

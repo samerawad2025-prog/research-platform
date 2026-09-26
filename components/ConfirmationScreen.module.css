@@ -598,3 +598,25 @@
   .completionPage { margin: var(--space-6) auto; padding: var(--space-5) var(--space-4); }
   .editHint { opacity: 1; }
 }
+
+/* Secondary action on a notice screen ("Enter the details yourself"
+   beside "Try again"): link-weight, but a full-height touch target. */
+.secondaryAction {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.75rem;
+  padding: var(--space-2) var(--space-3);
+  background: none;
+  border: none;
+  color: var(--accent);
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+  cursor: pointer;
+}
+
+.secondaryAction:hover {
+  color: var(--accent-strong);
+}

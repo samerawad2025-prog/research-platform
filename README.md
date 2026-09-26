@@ -24,6 +24,6 @@ npm run lint
 npm test           # the runnable scripts/test-*.js suites
 ```
 
-There is no `.env.local.example`. Create a git-ignored `.env.local` with the variables listed in `docs/deployment.md`. At minimum you need `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` and `SUPABASE_SERVICE_ROLE_KEY`. `AI_PROVIDER` defaults to `mock`, so no AI key is needed for local work.
+Copy `.env.local.example` to a git-ignored `.env.local` and fill it in; `docs/deployment.md` explains every variable. `EXTRACTION_MODE` defaults to `manual` (no document is sent to any AI provider), and in `automatic` mode `AI_PROVIDER` defaults to `mock`, so no AI key is needed for local work.
 
 Only one Supabase project exists, so local and preview builds that point at it write to the production database. See `CURRENT_STATUS.md`.

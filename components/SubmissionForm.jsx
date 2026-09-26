@@ -109,7 +109,9 @@ function isEmailish(value) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim())
 }
 
-export default function SubmissionForm() {
+// manualMode comes from the server page (EXTRACTION_MODE). It only picks
+// the wording of the brief hand-off message; /api/extract enforces the mode.
+export default function SubmissionForm({ manualMode = false }) {
   const router = useRouter()
   const { locale } = useLocale()
   const t = messagesFor(locale).submission
@@ -297,7 +299,7 @@ export default function SubmissionForm() {
   if (status === 'extracting') {
     return (
       <div className={styles.successMessage} lang={locale} dir={dir}>
-        <p>{t.extracting}</p>
+        <p>{manualMode ? t.manualNext : t.extracting}</p>
       </div>
     )
   }

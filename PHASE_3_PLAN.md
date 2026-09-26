@@ -58,7 +58,7 @@ A planning document is never evidence that something is built.
 | # | Letter | Milestone | Depends on | Blocks |
 |---|---|---|---|---|
 | M0 | — | Documentation reconciliation and this plan | — | — (this milestone) |
-| M1 | A | Processing configuration and manual metadata path | — | Provides the fallback for §6. It does not settle provider suitability. |
+| M1 | A | Processing configuration and manual metadata path — **built, in review** (PR stacked on M0) | — | Provides the fallback for §6. It does not settle provider suitability. |
 | M2 | B | Server-enforced acceptance, controlled uploads, two publication settings, legacy permissions | M1 recommended first | Supports §3/§4; M4 |
 | M3 | C | Facebook removal and independent LinkedIn visibility | Must land **no later than** M2 (see M3) | Agreement activation |
 | M4 | D | Administrative review, checks, institution eligibility, publication permissions | M2, M3 | M5 |
@@ -74,6 +74,14 @@ A planning document is never evidence that something is built.
 **Why.** Section 6 of the agreement promises that submitted content is not used for general-purpose AI model training. The Gemini API project's billing/data-use arrangement is **unverified**. Google's unpaid API terms permit product improvement and human review, so the promise must not be activated while possibly incompatible processing runs. The project also must not depend on buying an AI plan. So external extraction needs an off switch, and the confirmation flow needs to work without it.
 
 **What the switch does not do.** It provides a fallback. It does not make the provider arrangement suitable, and it does not establish that it is. While production runs automatic extraction under an unverified arrangement, the §6 commitment is not supported, whatever the state of this milestone.
+
+**Status (2026-09-26): implemented and verified on branch `claude/phase3-m1-extraction-mode`, not merged, not deployed.** What was built, where it differs from the plan below:
+- **Setting.** `EXTRACTION_MODE=automatic|manual` (not `external|disabled`). A missing or unrecognised value means `manual`. It is read in `lib/env.js` (`resolveExtractionMode`). Production must set `automatic` **before** the merge, or the live workflow changes on deploy; see `docs/deployment.md` "Rollout".
+- **Server enforcement.** The route's logic moved, otherwise unchanged, into `lib/extraction/extractHandler.js`, which `app/api/extract/route.js` wraps. The mode is checked first, before the preview guard, the database, the storage download or the provider. In manual mode no request of any kind leaves the server: not from the form's trigger, the page's safety net, the stuck nudge or "Try again", and not from a direct API call. The only write moves a still-`pending` paper to `manual`.
+- **State.** Migration `0011` adds `extraction_status = 'manual'`. It is authored and tested locally (`supabase/tests/run-0011.sh`, Postgres 16), and **not applied to production**. The code works without it: the paper stays `pending`, the refusal is logged as `manual_status_not_recorded`, and the screen still shows hand entry. A `manual` paper is never claimed for extraction, even after a switch back to automatic. A confirmed paper never starts a provider call.
+- **Human edits win.** Applying a result, and moving the applied-result pointer on any outcome, now happens in the same statement as the "not yet confirmed" condition. A result that arrives after the researcher confirmed is appended to `ai_generations`, and the confirmed values stay untouched.
+- **Screen.** In manual mode the confirmation page opens straight into an editable form: no polling beyond the first read, no shimmer, no "needs attention" flags, and wording that never mentions configuration. In automatic mode every place automatic reading did not produce a result now also offers "Enter the details yourself": the transient-failure, encrypted and generic-failure screens, the two-minute timeout, and "unavailable here" (a preview, or a server configuration fault). Choosing it stops the poll at once. The not-research notice is unchanged. It uses the same fields, validation and confirm RPC in EN and AR.
+- **Not done here (by design):** no provider call can be recalled once sent; typed-but-unconfirmed entries are not saved as drafts across a reload; a document the model classified as not research gets no manual path (the notice and contact route remain).
 
 **Scope.**
 - A server-side processing mode, for example `EXTRACTION_MODE=external|disabled`, read in `lib/env.js` next to the existing preview guard. When `disabled`, `/api/extract` performs no external provider call and sends no document content anywhere.
