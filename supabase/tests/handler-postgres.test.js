@@ -78,7 +78,7 @@ function lit(v) {
 }
 
 // --- supabase-js builder → SQL ------------------------------------------------
-function pgClient(files) {
+function pgClient(files, gate = {}) {
   function builder(table) {
     const q = { table, op: 'select', cols: '*', filters: [], patch: null, rows: null, returning: null, single: null }
     const where = () =>
@@ -120,7 +120,10 @@ function pgClient(files) {
   }
   return {
     from: builder,
-    storage: { from: () => ({ download: async (p) => (files[p] ? { data: new Blob([files[p]]), error: null } : { data: null, error: { message: 'not found' } }) }) },
+    storage: { from: () => ({ download: async (p) => {
+      if (gate.promise) await gate.promise
+      return files[p] ? { data: new Blob([files[p]]), error: null } : { data: null, error: { message: 'not found' } }
+    } }) },
   }
 }
 
@@ -195,7 +198,8 @@ async function main() {
   process.env.MOCK_SCENARIO = 'thesis'
   const pdf = await (async () => { const d = await PDFDocument.create(); d.addPage().drawText('Synthetic thesis', { x: 50, y: 700 }); return Buffer.from(await d.save()) })()
   const files = new Proxy({}, { get: () => pdf })
-  const client = pgClient(files)
+  const gate = {}
+  const client = pgClient(files, gate)
 
   // ---------------------------------------------------------------- before 0011
   createPreM1Database()
@@ -229,6 +233,80 @@ async function main() {
 
   // ---------------------------------------------------------------- apply 0011
   applyMigration()
+
+  await check('after 0011: the policy starts manual, stamps every insert, is immutable, and leaves old rows null', async () => {
+    assert.strictEqual(sqlOk('select mode from extraction_policy'), 'manual')
+    assert.strictEqual(row(historical.id).submission_extraction_policy, null, 'pre-migration rows are not rewritten')
+    const a = seedPaper({ submission_extraction_policy: 'automatic' })
+    assert.strictEqual(row(a.id).submission_extraction_policy, 'manual', 'the inserting code cannot choose the stamp')
+    sqlOk(`update extraction_policy set mode = 'automatic', changed_at = now()`)
+    const b = seedPaper()
+    assert.strictEqual(row(b.id).submission_extraction_policy, 'automatic')
+    sqlOk(`update papers set submission_extraction_policy = 'automatic' where id = ${lit(a.id)}`)
+    assert.strictEqual(row(a.id).submission_extraction_policy, 'manual', 'the stamp cannot be changed afterwards')
+    // Through the real anonymous submission RPC, as the live form does it.
+    const out = json(`set role anon; select submit_paper('Synthetic Person', 'synthetic2@example.invalid', 'x.pdf', true, array['abstract_and_citation'], null)`)
+    assert.strictEqual(row(out.paper_id).submission_extraction_policy, 'automatic')
+    sqlOk(`update extraction_policy set mode = 'manual', changed_at = now()`)
+    const out2 = json(`set role anon; select submit_paper('Synthetic Person', 'synthetic3@example.invalid', 'y.pdf', true, array['abstract_and_citation'], null)`)
+    assert.strictEqual(row(out2.paper_id).submission_extraction_policy, 'manual')
+    // anon cannot read or change the policy.
+    assert.ok(psql(`set role anon; select mode from extraction_policy`).error, 'anon read the policy')
+    assert.ok(psql(`set role anon; update extraction_policy set mode = 'automatic'`).error, 'anon changed the policy')
+  })
+
+  await check('after 0011, gap: submitted under manual policy, recording failed, later automatic - no provider call', async () => {
+    sqlOk(`update extraction_policy set mode = 'manual'`)
+    const p = seedPaper()
+    sqlOk(`create or replace function block_manual2() returns trigger language plpgsql as $$ begin
+             if new.manual_entry_at is not null then raise exception 'simulated write failure'; end if; return new; end $$;
+           create trigger block_manual2 before update on papers for each row execute function block_manual2();`)
+    for (let i = 0; i < 2; i++) {
+      const r = await newCall(client, p.token, { EXTRACTION_MODE: 'manual' })
+      assert.strictEqual(r.body.recorded, false)
+    }
+    const whileFailing = await newCall(client, p.token, { EXTRACTION_MODE: 'automatic' })
+    assert.strictEqual(whileFailing.status, 503)
+    assert.strictEqual(whileFailing.s.runs + whileFailing.s.providers, 0)
+    sqlOk('drop trigger block_manual2 on papers; drop function block_manual2();')
+    sqlOk(`update extraction_policy set mode = 'automatic'`)
+    const later = await newCall(client, p.token, { EXTRACTION_MODE: 'automatic' })
+    assert.strictEqual(later.body.restricted, 'submission_policy')
+    assert.strictEqual(later.s.runs + later.s.providers, 0)
+    assert.strictEqual(row(p.id).manual_entry_source, 'mode')
+    assert.strictEqual(row(p.id).extraction_status, 'pending')
+  })
+
+  await check('after 0011, gap: manual choice during a paused download - no provider request, honest history', async () => {
+    sqlOk(`update extraction_policy set mode = 'automatic'`)
+    const p = seedPaper()
+    let release
+    gate.promise = new Promise((r) => { release = r })
+    const sent = []
+    const provider = { extractMetadata: async ({ pass }) => { sent.push(pass); return { provider: 'fake', model: 'fake', result: { document_type: 'thesis' } } } }
+    const s = counted({ getProvider: () => provider, runExtraction })
+    const running = newCall(client, p.token, { EXTRACTION_MODE: 'automatic' }, s)
+    await new Promise((r) => setTimeout(r, 300))
+    assert.strictEqual(row(p.id).extraction_status, 'processing', 'worker claimed first')
+    const c = await choose(client, p.token)
+    assert.strictEqual(c.body.recorded, true)
+    release(); gate.promise = null
+    const r = await running
+    assert.deepStrictEqual(sent, [])
+    assert.strictEqual(r.body.reason, 'stopped_before_dispatch')
+    const last = json(`select to_jsonb(g) from ai_generations g where paper_id = ${lit(p.id)} order by created_at desc limit 1`)
+    assert.strictEqual(last.provider, 'none')
+    assert.strictEqual(row(p.id).failure_code, 'stopped_before_dispatch')
+  })
+
+  await check('rollback limit, shown: the pre-M1 route ignores the submission policy stamp', async () => {
+    sqlOk(`update extraction_policy set mode = 'manual'`)
+    const p = seedPaper()
+    const r = await callOld(oldPOST, p.token)
+    assert.strictEqual(r.status, 200)
+    assert.strictEqual(row(p.id).extraction_status, 'completed', 'old code extracts it anyway')
+    sqlOk(`update extraction_policy set mode = 'automatic'`)
+  })
 
   await check('after 0011, pre-M1 production code: extraction, the confirmation read and confirm all still work', async () => {
     const p = seedPaper()
@@ -289,15 +367,20 @@ async function main() {
     assert.strictEqual(row(transient.id).failure_code, 'api_error')
   })
 
-  await check('after 0011, race: choice recorded mid-run - result appended, not applied', async () => {
+  await check('after 0011, race: choice recorded while pass 1 is out - it finishes, is kept, is not applied; pass 2 is not sent', async () => {
     const p = seedPaper()
     const gensBefore = generations(p.id)
-    const s = counted({
-      getProvider: () => ({}),
-      runExtraction: async (a) => { await choose(client, p.token); return runExtraction({ ...a, provider: getProvider() }) },
-    })
+    const sent = []
+    // Pass 1 has been dispatched when the choice lands; it cannot be recalled.
+    const provider = { extractMetadata: async ({ pass }) => {
+      sent.push(pass)
+      if (pass === 1) await choose(client, p.token)
+      return { provider: 'fake', model: 'fake', result: { document_type: 'thesis', title: { status: 'found', value: 'Model title' } } }
+    } }
+    const s = counted({ getProvider: () => provider, runExtraction })
     const r = await newCall(client, p.token, { EXTRACTION_MODE: 'automatic' }, s)
     assert.strictEqual(r.status, 200, JSON.stringify(r.body))
+    assert.deepStrictEqual(sent, [1])
     assert.strictEqual(r.body.appliedToPapers, false)
     const after = row(p.id)
     assert.strictEqual(after.title, null)

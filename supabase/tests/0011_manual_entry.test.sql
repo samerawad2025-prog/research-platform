@@ -10,7 +10,7 @@ begin
   if (select count(*) from papers) <> 4 then raise exception 'expected 4 seeded papers'; end if;
   if exists (
     select 1 from papers p join pre_migration_snapshot s on s.id = p.id
-    where (to_jsonb(p) - 'manual_entry_at' - 'manual_entry_source') <> s.row_json
+    where (to_jsonb(p) - 'manual_entry_at' - 'manual_entry_source' - 'submission_extraction_policy') <> s.row_json
        or p.manual_entry_at is not null or p.manual_entry_source is not null
   ) then raise exception 'a pre-existing papers row changed during the migration'; end if;
   if (select count(*) from ai_generations) <> 1 then raise exception 'history rows changed'; end if;
@@ -99,7 +99,7 @@ do $$
 begin
   if exists (
     select 1 from papers p join pre_migration_snapshot s on s.id = p.id
-    where p.title = 'Confirmed thesis' and (to_jsonb(p) - 'manual_entry_at' - 'manual_entry_source') <> s.row_json
+    where p.title = 'Confirmed thesis' and (to_jsonb(p) - 'manual_entry_at' - 'manual_entry_source' - 'submission_extraction_policy') <> s.row_json
   ) then raise exception 'the pre-existing confirmed record changed'; end if;
 end $$;
 

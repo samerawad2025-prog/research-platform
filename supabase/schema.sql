@@ -126,10 +126,49 @@ create table papers (
   admin_notes text,
   created_at timestamptz not null default now(),
 
+  -- The processing policy in force when this paper was submitted,
+  -- stamped by trigger from extraction_policy and immutable (migration
+  -- 0011). Null only on rows older than that migration.
+  submission_extraction_policy text
+    check (submission_extraction_policy in ('automatic', 'manual')),
+
   -- The manual-entry decision is recorded as a pair or not at all.
   constraint papers_manual_entry_pair_check
     check ((manual_entry_at is null) = (manual_entry_source is null))
 );
+
+-- The processing policy for NEW submissions (Phase 3 M1, migration 0011).
+-- One row; starts 'manual'; changed only by an operator. RLS on with no
+-- policies, like every table here.
+create table extraction_policy (
+  id boolean primary key default true check (id),
+  mode text not null check (mode in ('automatic', 'manual')),
+  changed_at timestamptz not null default now()
+);
+alter table extraction_policy enable row level security;
+insert into extraction_policy (id, mode) values (true, 'manual');
+
+create or replace function stamp_submission_extraction_policy()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $fn$
+begin
+  if tg_op = 'INSERT' then
+    new.submission_extraction_policy :=
+      coalesce((select mode from extraction_policy where id), 'manual');
+  else
+    new.submission_extraction_policy := old.submission_extraction_policy;
+  end if;
+  return new;
+end;
+$fn$;
+revoke all on function stamp_submission_extraction_policy() from public;
+
+create trigger papers_stamp_extraction_policy
+  before insert or update of submission_extraction_policy on papers
+  for each row execute function stamp_submission_extraction_policy();
 
 create index papers_confirmation_token_hash_idx on papers (confirmation_token_hash);
 

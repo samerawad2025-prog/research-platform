@@ -444,7 +444,9 @@ export default function ConfirmationScreen({ token, manualMode = false }) {
       seededRef.current = true
       setServerManual(true)
     }
-    else if (body?.reason === 'preview_extraction_disabled' || body?.reason === 'server_config') setExtractionUnavailable(true)
+    else if (['preview_extraction_disabled', 'server_config', 'database_not_ready', 'manual_not_recorded'].includes(body?.reason)) {
+      setExtractionUnavailable(true)
+    }
   }
 
   // Records the researcher's choice to enter the details themselves,

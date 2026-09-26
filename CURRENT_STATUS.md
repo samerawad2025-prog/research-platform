@@ -21,18 +21,24 @@ Four labels are used here and in `PHASE_3_PLAN.md`. Product intent comes from th
 
 **Phase 3 M1:** configurable extraction (`EXTRACTION_MODE=automatic|manual`) and a complete manual metadata path. It is on branch `claude/phase3-m1-extraction-mode`, in a PR stacked on the M0 documentation PR. It is **not merged and not in production**, and migration `0011` is **not applied**.
 
-After the correction pass, the manual decision (by server mode or by the researcher) is stored durably in `papers.manual_entry_at` / `manual_entry_source`, and migration `0011` is a **prerequisite for deploying M1 in any mode**.
+After the correction passes:
+- the manual decision (by server mode or by the researcher) is stored durably in `papers.manual_entry_at` / `manual_entry_source`;
+- every provider request is preceded by a re-check that stops it once manual entry or a confirmation is recorded (already-dispatched requests cannot be recalled);
+- each new paper is stamped with the submission-time processing policy, so a paper submitted during manual operation is never extracted automatically later.
+
+Migration `0011` is a **prerequisite for deploying M1 in any mode**, and its policy row starts as `manual`.
 
 Verified by:
 - **Mocked** (in-memory database, network spy): `scripts/test-extraction-mode.js`, which runs the real route logic, and `scripts/test-confirmation-view.js`.
 - **Real local Postgres 16**: `supabase/tests/run-0011.sh`, covering the migration SQL checks, the route logic, and the pre-M1 production route running against the migrated schema.
 - **Localhost Chromium, mocked Supabase**: EN/AR runs at 360–1280px.
 
-Production still runs automatic extraction exactly as before. The rollout keeps four decisions separate:
+Production still runs automatic extraction exactly as before. The rollout keeps five decisions separate:
 1. database readiness (apply `0011` first);
-2. deploying the application;
-3. the production extraction mode;
-4. whether the provider arrangement is suitable, which is still unverified.
+2. the submission policy row (`extraction_policy.mode`, which starts as `manual`);
+3. deploying the application;
+4. the production extraction mode;
+5. whether the provider arrangement is suitable, which is still unverified.
 
 See `docs/deployment.md` "Rollout". Details: `PHASE_3_PLAN.md` M1.
 

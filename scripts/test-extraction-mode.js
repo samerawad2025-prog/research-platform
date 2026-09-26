@@ -58,7 +58,7 @@ const providerCalls = () => network.calls.filter((u) => u.includes('generativela
 // rejected with Postgres' undefined-column error. failUpdate, when set,
 // decides whether an update fails (to simulate a write that does not
 // persist for any other reason).
-const NEW_COLUMNS = ['manual_entry_at', 'manual_entry_source']
+const NEW_COLUMNS = ['manual_entry_at', 'manual_entry_source', 'submission_extraction_policy']
 const STATUSES = ['pending', 'processing', 'completed', 'partial', 'failed']
 
 function makeDb({ papers = [], migrationApplied = true } = {}) {
@@ -131,6 +131,8 @@ function makeDb({ papers = [], migrationApplied = true } = {}) {
       from: () => ({
         download: async (path) => {
           db.downloads.push(path)
+          // A test can hold the download open to act while it is in flight.
+          if (db.downloadGate) await db.downloadGate
           const bytes = db.files[path]
           if (!bytes) return { data: null, error: { message: 'not found' } }
           return { data: new Blob([bytes]), error: null }
@@ -667,6 +669,160 @@ async function main() {
     const preview = await handleManualChoice({ token, getSupabaseAdmin: () => { throw new Error('no key') }, log: quietLog() })
     assert.strictEqual(preview.status, 503)
     assert.strictEqual(preview.body.recorded, false)
+  })
+
+  // --- the boundary between claiming and sending (M1 correction pass 2) ------------
+  // A provider stand-in used with the REAL orchestrator: counts every pass it
+  // is asked to send, and can run a callback while a pass is "in flight".
+  function countingProvider({ duringPass } = {}) {
+    const p = { sent: [] }
+    p.extractMetadata = async ({ pass }) => {
+      p.sent.push(pass)
+      if (duringPass) await duringPass(pass)
+      // Pass 1 finds almost nothing, so the orchestrator wants a pass 2.
+      return { provider: 'fake', model: 'fake', result: pass === 1 ? { document_type: 'thesis', title: { status: 'found', value: 'From pass 1' } } : {} }
+    }
+    return p
+  }
+  const realOrchestrator = (provider) => spies({ getProvider: () => provider, runExtraction })
+
+  await check('gap: manual choice recorded while the storage download is paused - no provider request starts', async () => {
+    resetNetwork()
+    const { token, row } = paperRow()
+    const db = makeDb({ papers: [row] })
+    db.files[row.file_path] = await syntheticPdf('Synthetic')
+    let release
+    db.downloadGate = new Promise((r) => { release = r })
+    const provider = countingProvider()
+    const running = call(db, token, { EXTRACTION_MODE: 'automatic' }, realOrchestrator(provider))
+    await new Promise((r) => setTimeout(r, 20))
+    assert.strictEqual(db.papers[0].extraction_status, 'processing', 'the worker won its claim first')
+    assert.strictEqual(db.downloads.length, 1, 'and is inside the download')
+    const c = await choose(db, token)
+    assert.strictEqual(c.body.recorded, true, 'the researcher records manual entry')
+    release()
+    const res = await running
+    assert.deepStrictEqual(provider.sent, [], 'no pass was sent')
+    assert.strictEqual(res.status, 200)
+    assert.strictEqual(res.body.reason, 'stopped_before_dispatch')
+    const gen = db.ai_generations.at(-1)
+    assert.strictEqual(gen.provider, 'none', 'history does not claim a provider was reached')
+    assert.strictEqual(gen.result_data._diagnostics.dispatchesAllowedBefore, 0)
+    assert.strictEqual(db.papers[0].failure_code, 'stopped_before_dispatch')
+    assert.strictEqual(db.papers[0].manual_entry_source, 'researcher')
+    assert.strictEqual(db.papers[0].title, null)
+    assert.strictEqual(network.calls.length, 0)
+  })
+
+  await check('gap: manual choice recorded during pass 1 - pass 1 finishes, pass 2 is never sent, nothing applied', async () => {
+    const { token, row } = paperRow()
+    const db = makeDb({ papers: [row] })
+    db.files[row.file_path] = await syntheticPdf('Synthetic')
+    const provider = countingProvider({ duringPass: async (pass) => { if (pass === 1) await choose(db, token) } })
+    const res = await call(db, token, { EXTRACTION_MODE: 'automatic' }, realOrchestrator(provider))
+    assert.deepStrictEqual(provider.sent, [1], 'the already-sent pass 1 completed; pass 2 did not start')
+    assert.strictEqual(res.body.status, 'partial')
+    assert.strictEqual(res.body.partialReason, 'stopped_before_dispatch')
+    assert.strictEqual(res.body.appliedToPapers, false)
+    const p = db.papers[0]
+    assert.strictEqual(p.title, null, 'the late pass 1 result is not applied')
+    assert.strictEqual(p.last_applied_generation_id, null)
+    assert.ok(db.ai_generations.some((g) => g.notes === 'Pass 1'), 'pass 1 is kept in the history')
+    assert.ok(db.ai_generations.some((g) => String(g.notes).includes('[stopped_before_dispatch]')))
+  })
+
+  await check('gap: confirmation recorded during pass 1 also stops pass 2', async () => {
+    const { token, row } = paperRow()
+    const db = makeDb({ papers: [row] })
+    db.files[row.file_path] = await syntheticPdf('Synthetic')
+    const provider = countingProvider({ duringPass: async () => { Object.assign(db.papers[0], { title: 'Mine', metadata_confirmed_at: new Date().toISOString() }) } })
+    await call(db, token, { EXTRACTION_MODE: 'automatic' }, realOrchestrator(provider))
+    assert.deepStrictEqual(provider.sent, [1])
+    assert.strictEqual(db.papers[0].title, 'Mine')
+  })
+
+  await check('gap: manual choice recorded before a provider retry - the retry is not sent', () =>
+    withProcessEnv({ ...GEMINI_ENV }, async () => {
+      resetNetwork()
+      const { token, row } = paperRow()
+      const db = makeDb({ papers: [row] })
+      db.files[row.file_path] = await syntheticPdf('Synthetic')
+      // The first request gets a 503 (normally retried after a short wait);
+      // while it is out, the researcher records manual entry.
+      network.respond = async () => { await choose(db, token); return new Response('{"error":{"message":"high demand"}}', { status: 503 }) }
+      const res = await call(db, token, { ...GEMINI_ENV, EXTRACTION_MODE: 'automatic' })
+      assert.strictEqual(providerCalls().length, 1, 'exactly the one already-sent request; no retry')
+      assert.strictEqual(res.body.reason, 'stopped_before_dispatch')
+      const gen = db.ai_generations.at(-1)
+      assert.strictEqual(gen.provider, 'gemini', 'one request did go out, and the history says so')
+      assert.strictEqual(gen.result_data._diagnostics.dispatchesAllowedBefore, 1)
+      assert.strictEqual(db.papers[0].title, null)
+    })
+  )
+
+  await check('gap: if the pre-dispatch re-check cannot be read, nothing is sent', async () => {
+    const { token, row } = paperRow()
+    const db = makeDb({ papers: [row] })
+    db.files[row.file_path] = await syntheticPdf('Synthetic')
+    const provider = countingProvider()
+    // Break reads of the paper only after the claim has been made.
+    const realFrom = db.client.from
+    let claimed = false
+    db.client.from = (t) => {
+      const b = realFrom(t)
+      if (t === 'papers' && claimed) { const sel = b.select; b.select = (cols) => (cols === 'manual_entry_at, metadata_confirmed_at' ? { eq: () => ({ maybeSingle: async () => ({ data: null, error: { message: 'down' } }) }) } : sel(cols)) }
+      return b
+    }
+    db.downloadGate = Promise.resolve().then(() => { claimed = true })
+    const res = await call(db, token, { EXTRACTION_MODE: 'automatic' }, realOrchestrator(provider))
+    assert.deepStrictEqual(provider.sent, [])
+    assert.strictEqual(res.body.reason, 'internal', 'a retryable failure, not a silent send')
+  })
+
+  // --- submissions made during manual operation (the missing-decision gap) -------
+  await check('gap: submitted under a manual policy, every recording request failed, later automatic - never extracted', async () => {
+    resetNetwork()
+    const { token, row } = paperRow({ submission_extraction_policy: 'manual' })
+    const db = makeDb({ papers: [row] })
+    db.files[row.file_path] = await syntheticPdf('Synthetic')
+    // Manual mode: the recording write fails every time.
+    db.failUpdate = (patch) => 'manual_entry_at' in patch
+    for (let i = 0; i < 3; i++) {
+      const r = await call(db, token, { EXTRACTION_MODE: 'manual' })
+      assert.strictEqual(r.body.recorded, false)
+    }
+    assert.strictEqual(db.papers[0].manual_entry_at, null, 'the decision was never stored')
+    // The deployment switches to automatic; the database is healthy again.
+    db.failUpdate = null
+    const provider = countingProvider()
+    const s = realOrchestrator(provider)
+    const later = await call(db, token, { EXTRACTION_MODE: 'automatic' }, s)
+    assert.strictEqual(later.body.restricted, 'submission_policy')
+    assert.deepStrictEqual(provider.sent, [])
+    assert.strictEqual(s.extractionRuns + db.downloads.length, 0)
+    assert.strictEqual(db.papers[0].manual_entry_source, 'mode', 'the restriction is now also recorded as a decision')
+    assert.strictEqual(db.papers[0].extraction_status, 'pending', 'no attempt is invented')
+    // And while recording fails, it still refuses, and says so.
+    const { token: t2, row: r2 } = paperRow({ submission_extraction_policy: 'manual' })
+    const db2 = makeDb({ papers: [r2] })
+    db2.failUpdate = (patch) => 'manual_entry_at' in patch
+    const refused = await call(db2, t2, { EXTRACTION_MODE: 'automatic' }, realOrchestrator(countingProvider()))
+    assert.strictEqual(refused.status, 503)
+    assert.strictEqual(refused.body.reason, 'manual_not_recorded')
+    assert.strictEqual(refused.spies.extractionRuns, 0)
+  })
+
+  await check('existing behaviour: automatic-policy and pre-0011 submissions still extract normally', async () => {
+    for (const stamp of ['automatic', null]) {
+      const { token, row } = paperRow({ submission_extraction_policy: stamp })
+      const db = makeDb({ papers: [row] })
+      db.files[row.file_path] = await syntheticPdf('Synthetic')
+      const provider = countingProvider()
+      const res = await call(db, token, { EXTRACTION_MODE: 'automatic' }, realOrchestrator(provider))
+      assert.strictEqual(res.status, 200, String(stamp))
+      assert.deepStrictEqual(provider.sent, [1, 2], String(stamp))
+      assert.strictEqual(db.papers[0].title, 'From pass 1', String(stamp))
+    }
   })
 
   resetNetwork()

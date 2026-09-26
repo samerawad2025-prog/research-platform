@@ -18,6 +18,23 @@
 --                                              themselves
 -- Both null (every existing row) means no manual decision.
 --
+--   extraction_policy            one row: the processing policy for NEW
+--                                submissions, 'automatic' or 'manual'.
+--                                Starts as 'manual'. Changed only by an
+--                                operator in the SQL editor.
+--   papers.submission_extraction_policy
+--                                stamped by a trigger at insert from that
+--                                row, and immutable afterwards. Null only on
+--                                rows that existed before this migration.
+--
+-- The M1 route extracts automatically only when BOTH the server runs
+-- EXTRACTION_MODE=automatic AND the paper was submitted under an
+-- 'automatic' policy (or predates this migration). This is the interim
+-- safeguard for submissions made during manual operation whose manual
+-- decision was never recorded: their stamp says 'manual', so no later
+-- switch can extract them. Recording the decision in the submission
+-- request itself belongs to M2's server-controlled submission path.
+--
 -- Deliberately separate from extraction_status: that column keeps its
 -- history ('pending', 'failed', 'completed', ...). A paper that had an
 -- extraction attempt is never relabelled as if none happened. Once
@@ -49,6 +66,49 @@ alter table papers add column if not exists manual_entry_source text;
 alter table papers drop constraint if exists papers_manual_entry_source_check;
 alter table papers add constraint papers_manual_entry_source_check
   check (manual_entry_source in ('mode', 'researcher'));
+
+-- The submission-time policy. One row, locked to the service role like
+-- every other table (RLS on, no policies). Starts as 'manual': automatic
+-- processing of new submissions has to be switched on deliberately.
+create table if not exists extraction_policy (
+  id boolean primary key default true check (id),
+  mode text not null check (mode in ('automatic', 'manual')),
+  changed_at timestamptz not null default now()
+);
+alter table extraction_policy enable row level security;
+revoke all on table extraction_policy from anon, authenticated;
+insert into extraction_policy (id, mode) values (true, 'manual') on conflict (id) do nothing;
+
+alter table papers add column if not exists submission_extraction_policy text;
+alter table papers drop constraint if exists papers_submission_extraction_policy_check;
+alter table papers add constraint papers_submission_extraction_policy_check
+  check (submission_extraction_policy in ('automatic', 'manual'));
+
+-- Stamps every new paper with the policy in force at that moment, whatever
+-- the inserting code sends; a missing policy row counts as 'manual'. On
+-- update, the column cannot change: it records history.
+create or replace function stamp_submission_extraction_policy()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $fn$
+begin
+  if tg_op = 'INSERT' then
+    new.submission_extraction_policy :=
+      coalesce((select mode from extraction_policy where id), 'manual');
+  else
+    new.submission_extraction_policy := old.submission_extraction_policy;
+  end if;
+  return new;
+end;
+$fn$;
+revoke all on function stamp_submission_extraction_policy() from public;
+
+drop trigger if exists papers_stamp_extraction_policy on papers;
+create trigger papers_stamp_extraction_policy
+  before insert or update of submission_extraction_policy on papers
+  for each row execute function stamp_submission_extraction_policy();
 
 -- Recorded together or not at all.
 alter table papers drop constraint if exists papers_manual_entry_pair_check;
@@ -137,6 +197,11 @@ commit;
 --   select count(*) from papers where manual_entry_at is not null;  -- review these first
 --   begin;
 --   <re-run get_paper_for_confirmation from migration 0007>;
+--   drop trigger if exists papers_stamp_extraction_policy on papers;
+--   drop function if exists stamp_submission_extraction_policy();
+--   alter table papers drop constraint if exists papers_submission_extraction_policy_check;
+--   alter table papers drop column if exists submission_extraction_policy;
+--   drop table if exists extraction_policy;
 --   alter table papers drop constraint if exists papers_manual_entry_pair_check;
 --   alter table papers drop constraint if exists papers_manual_entry_source_check;
 --   alter table papers drop column if exists manual_entry_source;
