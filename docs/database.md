@@ -12,7 +12,7 @@ Anyone credited on a paper, including the person who submitted it.
 | full_name | |
 | email | Private. Never returned by any public-facing RPC. |
 | whatsapp_number | Private, optional. Same footing as email. Loosely validated, not strict E.164. |
-| linkedin_url, facebook_url | Only ever stored if the paper's `publication_scope` includes `metadata_and_article`. |
+| linkedin_url, facebook_url | Only ever stored if the paper's `publication_scope` includes `metadata_and_article`. *Planned (`PHASE_3_PLAN.md` M3, not built): Facebook no longer collected, existing values retained but not displayed; LinkedIn stored regardless of scope, with a separate public-display choice defaulting to off.* |
 | school, department, graduation_year | Declared, not currently populated by anything. |
 
 ## `papers`
@@ -25,7 +25,7 @@ The central table.
 | document_type | `thesis` / `journal_article` / `conference_paper` / `research_report` / `not_research` |
 | methodology, keywords/themes | **Legacy, unused.** Left nullable on purpose — dropped from the extraction prompt for speed, not worth a destructive migration to remove. |
 | file_path | Path inside the private `papers` storage bucket |
-| publication_scope | Subset of `{full_paper, metadata_and_article, abstract_and_citation}` |
+| publication_scope | Subset of `{full_paper, metadata_and_article, abstract_and_citation}`. *Planned (`PHASE_3_PLAN.md` M2, not built): superseded for new submissions by a two-value publication setting (`record_abstract` / `record_abstract_fulltext`) bound to a server-side acceptance record. This column is kept unchanged on legacy rows as consent evidence and never expanded.* |
 | extraction_status | `pending \| processing \| completed \| partial \| failed`. `partial` means pass 1 succeeded and its data is live, but pass 2 failed after its own retry — nothing was lost, some fields just weren't double-checked. |
 | failure_code | Populated on failure: `max_tokens \| malformed_json \| api_error \| timeout \| empty_response \| config \| encrypted_document \| not_research \| internal` |
 | metadata_confirmed_at | Null until the submitter confirms. Once set, a later automatic extraction must never silently overwrite these columns again — it's still recorded in `ai_generations`, just not applied. |
@@ -43,6 +43,8 @@ Both exist, both empty. Reserved for a future step (turning confirmed metadata i
 
 ## Storage
 Bucket `papers`: private, 20MB limit, `allowed_mime_types` restricted to PDF and DOCX only (`.doc` deliberately excluded — no reliable dependency-light parser exists for the legacy binary format).
+
+Anonymous users can INSERT into the bucket; the policy "anon can upload research files" checks only `bucket_id = 'papers'`. Nothing ties an upload to an accepted submission, so the form's consent checks are client-side only. There is no anonymous read, update or delete. *Planned (`PHASE_3_PLAN.md` M2, not built):* remove this policy. Uploads would then go through time-limited signed URLs, issued by the server for a server-chosen path, only after a server-recorded acceptance.
 
 ## RPC functions — the entire public API surface
 

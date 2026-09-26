@@ -1,5 +1,23 @@
 # PHASE_2_PLAN.md
 
+> **Status (2026-09-26): historical. Phase 2 is closed, and this plan is superseded by `PHASE_3_PLAN.md`.** This file is kept unedited below as the record of what was planned on 2026-09-16.
+>
+> **What happened to the items below:**
+> - Bug letters below are this file's own. `CURRENT_STATUS.md` later reused some letters for different items, so match bugs by description, not by letter.
+>   - A (typed `failure_code`), D, E and H were closed in Phase 1.
+>   - B (`partial` never exercised) was closed by the first real `partial` outcome on 2026-09-19.
+>   - G (`maxDuration`) was merged in PR #1 and deployed. `CURRENT_STATUS.md` records it as its item B.
+>   - C (six orphaned `pending` papers) became moot when the original Supabase project was deleted on 2026-09-18.
+>   - F remains a structural limitation.
+>   - The evidence for all of these is in `CURRENT_STATUS.md`.
+> - CI now exists (`.github/workflows/checks.yml`), and `README.md` was rewritten on 2026-09-26.
+> - The phone input and country picker shipped in Phase 1 (#22, #23, #26).
+> - The landing page and visual design system became Phase 2, delivered through PRs #6–#15 (see "Phase 2 closure" in `CURRENT_STATUS.md`).
+> - The "further out" features in §2 (publication workflow, public search, admin dashboard) are now scheduled, in a changed form, as `PHASE_3_PLAN.md` M4–M6.
+> - Article generation, social-media drafts and public profile pages are **not** scheduled.
+>
+> Do not act on the "Status" or "Recommended order" columns below; they describe 2026-09-16.
+
 **Generated:** 2026-09-16, by reading `CURRENT_STATUS.md`, `CLEANUP_PLAN.md`, and `CLAUDE_CODE_HANDOVER.md` (all dated 2026-09-13, fetched from the live `research-platform` branch) plus this session's own findings from 2026-09-15/16. **Planning document only — nothing in this file has been implemented.**
 
 Two items below (G, H) did not exist in any of the three source documents — they were found and already fixed in code during this session, but that fix (`samerawad2025-prog/research-platform#1`) is **not yet merged into `research-platform`**, which per this project's own recurring failure mode (`CLAUDE.md`: "deployment lag has been mistaken for a code bug at least three separate times") means they must be tracked as open until merge is confirmed and verified against live data, not treated as closed just because a patch exists.

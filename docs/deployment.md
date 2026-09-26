@@ -8,11 +8,13 @@
 | `SUPABASE_SERVICE_ROLE_KEY` | Yes | Server-only. Bypasses RLS. A missing value here once caused an uncaught crash with zero diagnostics (`BUG_HISTORY.md` #4) — now caught explicitly with a clear `config` error. |
 | `AI_PROVIDER` | No, defaults to `mock` | `mock` or `gemini` |
 | `GEMINI_API_KEY` | Only if `AI_PROVIDER=gemini` | |
-| `GEMINI_MODEL` | No, defaults to `gemini-3.6-flash` | Pinned to a specific GA model, not a `-latest` alias (Google's own docs mark `-latest` aliases experimental) |
+| `GEMINI_MODEL` | No, defaults to `gemini-3.6-flash` | Pinned to a specific GA model, not a `-latest` alias (Google's own docs mark `-latest` aliases experimental). Production was set to `gemini-3.5-flash-lite` on 2026-09-21 (`CURRENT_STATUS.md`; not re-read since; see the note below). The code default is stale. |
 | `GEMINI_MAX_OUTPUT_TOKENS` | No, defaults to `4096` | Explicit on purpose — see `extraction-pipeline.md` |
 | `GEMINI_THINKING_LEVEL` | No, defaults to `low` | `minimal \| low \| medium \| high` |
-| `GEMINI_TIMEOUT_MS` | No, defaults to `120000` | |
+| `GEMINI_TIMEOUT_MS` | No, defaults to `45000` | Default lowered from 120000 in `bbebf8b1`. Deleted from production on 2026-09-21 (`CURRENT_STATUS.md`). |
 | `MOCK_SCENARIO` | No, defaults to `thesis` | `article`, `not_research` — only used when `AI_PROVIDER=mock` |
+
+**Planned, not built:** Phase 3 M1 adds a processing-mode variable (for example `EXTRACTION_MODE=external|disabled`) so that external extraction can be switched off without a code change. It does not exist yet. See `PHASE_3_PLAN.md`.
 
 **No tool has ever been available to verify what's actually set in Vercel's environment variable store remotely.** If something behaves like a missing/wrong variable, check the Vercel dashboard directly.
 

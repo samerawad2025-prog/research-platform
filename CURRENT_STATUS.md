@@ -1,6 +1,115 @@
 # CURRENT_STATUS.md
 
-**Last verified:** September 21, 2026 — **Phase 1 is closed.** See "Phase 1 closure" below for the evidence.
+**Last updated:** September 26, 2026 (Phase 3, Milestone 0; documentation only). **Phases 1 and 2 are closed. Phase 3 is planned in `PHASE_3_PLAN.md` and not yet started in code.** The 2026-09-26 section below is current. Everything under it is dated history and says so.
+
+---
+
+## Status as of 2026-09-26
+
+Four labels are used here and in `PHASE_3_PLAN.md`. Product intent comes from the founder's latest decisions. Implementation status comes only from code, migrations and deployment evidence.
+
+### Implemented and verified
+
+- **Production** serves commit `f45dc690` (merge of PR #15, the last Phase 2 PR).
+  - Vercel project `research-platform-5zpu`, production branch `research-platform`.
+  - Checked against the Vercel API on 2026-09-26: the public alias `research-platform-5zpu.vercel.app` points to deployment `dpl_77r2jpmzju3aEd93mjsDG7SFsj7S`, which is READY, targets production, was built from `f45dc690`, and was created 2026-09-25 21:21 UTC with `source: redeploy`.
+  - It replaced `dpl_5gnPshTXaWZ6BVaNMHm5X7NBkrvz`, the deployment verified when PR #15 merged. The code is the same commit. Who triggered the redeploy, and whether any environment variable changed with it, is **unverified** (see below).
+- **The Phase 1 pipeline:** submission → two-pass extraction → confirmation. Evidence is in "Phase 1 closure" below. Nothing in it has changed since.
+- **Phase 2 (interface, accessibility, bilingual support, brand): complete.** The evidence is under "Phase 2 closure" below.
+
+### Approved, not built
+
+The founder's Phase 3 decisions of 2026-09-26:
+- submissions from any institution;
+- UofK-only publication at first;
+- two publication settings;
+- one acceptance checkbox;
+- Facebook removed and LinkedIn visibility made explicit;
+- administrative review;
+- public pages;
+- citation export;
+- truthful activity counts.
+
+These are recorded in `PHASE_3_PLAN.md` §1 as milestones M1–M6. None of them exists in code yet.
+
+The submission agreement in `docs/legal/` is **written but not active**. See `docs/legal/README.md` for what must be true before it can be activated.
+
+### Proposed for later
+
+See `PHASE_3_PLAN.md` §4: research directions, citation alerts, similarity screening, optional integrations, and the items deferred from Phase 2.
+
+### Unverified
+
+- **The Gemini API project's billing and data-use arrangement.** Nobody has checked it. The free-tier quota behaviour recorded on 2026-09-21 (below) is not accepted as proof of it either way. This decides whether external extraction is compatible with the agreement's no-training commitment (`PHASE_3_PLAN.md` M1).
+- **The 2026-09-25 production redeploy.** Its trigger, and whether environment variables changed, are unknown.
+- **Supabase plan, backup settings and storage region.** The region was recorded as `eu-central-1` on 2026-09-18; the plan and backups were never recorded.
+- The rest are listed in `PHASE_3_PLAN.md` §5, each with the milestone it affects.
+
+### Known gaps in the running system (relevant to Phase 3)
+
+These are facts about current code, not new bugs. Each is scheduled in `PHASE_3_PLAN.md`.
+
+- **Storage upload is not tied to the form.** Storage allows anonymous uploads into the `papers` bucket with no condition beyond the bucket name (`supabase/schema.sql`, policy "anon can upload research files"). `submit_paper` is granted to `anon`. So the form's consent and scope checks are client-side only. Scheduled in M2.
+- **Social links depend on the article scope.** `confirm_researcher_metadata` stores LinkedIn and Facebook links only when `publication_scope` contains `metadata_and_article`. Scheduled in M3, which must land no later than M2.
+- **Processing permission is not a real choice.** `permission_to_process` is `true` on every row. The form requires the box to be checked, and `submit_paper` rejects any other value. Under the new agreement this is replaced by the single acceptance (M2). The legacy column is kept as evidence.
+
+### Open items carried forward
+
+- **Bug N is still open.** The `not_research` path in `app/api/extract/route.js` sets no `failure_code`. It is cosmetic.
+- **The Gemini default model is stale.** The code default in `lib/ai/providers/gemini.js` is still `gemini-3.6-flash`. Production overrides it through `GEMINI_MODEL`.
+- **Correction:** `.env.local.example` does **not** exist in the repository. The technical-debt entry below that describes its `GEMINI_MODEL` comment is wrong about the file existing. `README.md` referred to it as well; as of this update `README.md` no longer does.
+- **Previews share the production database.** A separate Supabase project for previews is still recommended.
+
+---
+
+## Phase 2 closure — 2026-09-23
+
+**Phase 2 is closed.** It was delivered as seven milestones in ten pull requests, each merged to `research-platform` after CI and founder review:
+
+| PR | Merge commit | Date | Content |
+|---|---|---|---|
+| #6 | `8d43c67f` | 2026-09-22 | M1: design token foundation |
+| #7 | `eaf1341a` | 2026-09-22 | M2: submission UI migrated to tokens |
+| #8 | `73be872e` | 2026-09-23 | M2: confirmation UI migrated to tokens |
+| #9 | `0970112b` | 2026-09-23 | M2: button primitive |
+| #10 | `5892728d` | 2026-09-23 | M2: accessible names |
+| #11 | `436c745f` | 2026-09-23 | M3: site shell and landing page |
+| #12 | `65cb6fb2` | 2026-09-23 | M4: bilingual EN/AR with RTL |
+| #13 | `9e6ab277` | 2026-09-23 | M5: submission UX |
+| #14 | `061125d8` | 2026-09-23 | M6: confirmation UX |
+| #15 | `f45dc690` | 2026-09-23 | M7: brand foundation (official name, favicon) |
+
+**Scope evidence, from the repository.** `git diff 8d43c67f^1 f45dc690` touches no file under:
+- `supabase/`
+- `app/api/`
+- `lib/ai/`
+- `lib/extraction/`
+- `package.json`
+- `package-lock.json`
+
+So Phase 2 changed no migration, RPC, API route, extraction logic or dependency. The Phase 1 pipeline evidence still applies to the running code.
+
+**Production evidence at closure.**
+- Deployment `dpl_5gnPshTXaWZ6BVaNMHm5X7NBkrvz` was READY and built from `f45dc690`, and the public alias resolved to it.
+- The served English pages, CSS, dictionary and favicon matched the merged code.
+- Arabic rendering was verified on localhost, not in production: the production browser attempt was blocked by the session's network tunnel. The Arabic strings were confirmed in the deployed bundle.
+- Production verification made GET requests only. It wrote nothing to the database or storage and made no extraction calls.
+
+**Deferred out of Phase 2** (these did not keep it open):
+- SARP name clearance, and any compact mark;
+- visible SARP use, if it is ever cleared;
+- the final domain;
+- the Open Graph image;
+- per-page titles;
+- the missing space in the footer email link's accessible name ("Email:sarpcontact…").
+
+These are carried in `PHASE_3_PLAN.md` §4.
+
+---
+
+> **Everything below this line is dated history** (2026-09-18 to 2026-09-21). It stays accurate for what it says, as of when it was said. Where it conflicts with the 2026-09-26 section above, the section above is current.
+
+**Last verified (historical header):** September 21, 2026. **Phase 1 is closed.** See "Phase 1 closure" below for the evidence.
 
 **Originally generated:** September 18, 2026, by direct query against the **current** live Supabase production database (project `mzpkiuovjppmavqkppem`, region `eu-central-1`). This supersedes the "Known issues" section of `CLAUDE_CODE_HANDOVER.md` as the current source of truth; that file's history sections remain accurate for *how* things were found and fixed.
 
@@ -76,7 +185,7 @@ Closure means the submission → extraction → confirmation pipeline is verifie
 
 ---
 
-## Deployment state — read this first
+## Deployment state (historical, 2026-09-20; superseded by "Status as of 2026-09-26" above)
 
 **Production now serves `4c2f9755` (PR #4, merged 2026-09-20).** Deployment `dpl_4mPPSz2t` is READY on the production alias.
 
@@ -174,13 +283,15 @@ Vercel runtime logs for the relevant window are **not recoverable** — the logs
 - `lib/extraction/keywordScan.js` has no markers for `year`, so a DOCX missing only its year falls through to the 12,000-character fallback slice rather than a targeted excerpt. Harmless (the fallback works) but wasteful.
 - **No DOM/component test harness exists.** Pure logic is well covered, but nothing exercises a rendered component, so `CountrySelect`'s keyboard and pointer behaviour is reasoned from the ARIA pattern rather than verified. Exercise it by hand on the preview.
 - **No DOM/component test harness** still means `CountrySelect`'s keyboard and pointer behaviour is reasoned from the ARIA pattern, not verified by a test. (The old note here about the confirmation poll being unable to rescue a stuck paper is obsolete: bug J is closed, and the screen now re-triggers extraction server-side.)
-- `README.md` describes the project as "Step 2" and points to a nonexistent `DEPLOYMENT_GUIDE.md` (identified 2026-09-13 in `CLEANUP_PLAN.md`, still unfixed).
-- `.env.local.example`'s `GEMINI_MODEL` comment and the code default in `lib/ai/providers/gemini.js` both still say `gemini-3.6-flash`, while production now runs `gemini-3.5-flash-lite` via the env var. The env var wins, so behaviour is correct, but the two defaults should be updated to stop them misleading the next reader.
+- ~~`README.md` describes the project as "Step 2" and points to a nonexistent `DEPLOYMENT_GUIDE.md`~~ **Fixed 2026-09-26** (Phase 3 M0): `README.md` rewritten as a short pointer to the current docs.
+- *(Corrected 2026-09-26: `.env.local.example` does not exist in the repository; only the code default below is real.)* `.env.local.example`'s `GEMINI_MODEL` comment and the code default in `lib/ai/providers/gemini.js` both still say `gemini-3.6-flash`, while production now runs `gemini-3.5-flash-lite` via the env var. The env var wins, so behaviour is correct, but the two defaults should be updated to stop them misleading the next reader.
 - `methodology`/`keywords`/`themes` columns remain in `papers`, unused since extraction scope was simplified — intentionally dead, documented, leave alone.
 - `supabase/functions/*.sql` mirrors `schema.sql` with nothing enforcing they stay in sync.
 - Preview deployments write into the **same** database as production (only one Supabase project exists). An accepted near-zero-budget tradeoff; be aware test submissions from preview branches land in the real `papers` table.
 
-## Next recommended priorities
+## Next recommended priorities (historical, 2026-09-21)
+
+> Superseded. Phase 2 was delivered as the design-system and UX milestones in the "Phase 2 closure" table above. Items 1 and 2 below are still open and are carried in `PHASE_3_PLAN.md` §4. The next work is `PHASE_3_PLAN.md` M1.
 
 1. **Bug N** — set `failure_code` on the `not_research` path. Cosmetic; do it whenever that file is next open.
 2. **Update the two stale `gemini-3.6-flash` defaults** in `lib/ai/providers/gemini.js` and `.env.local.example` to match what production actually runs.
