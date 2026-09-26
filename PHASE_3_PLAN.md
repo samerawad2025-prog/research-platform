@@ -58,7 +58,7 @@ A planning document is never evidence that something is built.
 | # | Letter | Milestone | Depends on | Blocks |
 |---|---|---|---|---|
 | M0 | — | Documentation reconciliation and this plan | — | — (this milestone) |
-| M1 | A | Processing configuration and manual metadata path | — | Provides the fallback for §6. It does not settle provider suitability. |
+| M1 | A | Processing configuration and manual metadata path — **built, in review** (PR stacked on M0) | — | Provides the fallback for §6. It does not settle provider suitability. |
 | M2 | B | Server-enforced acceptance, controlled uploads, two publication settings, legacy permissions | M1 recommended first | Supports §3/§4; M4 |
 | M3 | C | Facebook removal and independent LinkedIn visibility | Must land **no later than** M2 (see M3) | Agreement activation |
 | M4 | D | Administrative review, checks, institution eligibility, publication permissions | M2, M3 | M5 |
@@ -74,6 +74,24 @@ A planning document is never evidence that something is built.
 **Why.** Section 6 of the agreement promises that submitted content is not used for general-purpose AI model training. The Gemini API project's billing/data-use arrangement is **unverified**. Google's unpaid API terms permit product improvement and human review, so the promise must not be activated while possibly incompatible processing runs. The project also must not depend on buying an AI plan. So external extraction needs an off switch, and the confirmation flow needs to work without it.
 
 **What the switch does not do.** It provides a fallback. It does not make the provider arrangement suitable, and it does not establish that it is. While production runs automatic extraction under an unverified arrangement, the §6 commitment is not supported, whatever the state of this milestone.
+
+**Status (2026-09-26): implemented and verified on branch `claude/phase3-m1-extraction-mode`, not merged, not deployed.** What was built, where it differs from the plan below:
+- **Setting.** `EXTRACTION_MODE=automatic|manual` (not `external|disabled`). A missing or unrecognised value means `manual`. It is read in `lib/env.js` (`resolveExtractionMode`). Which mode production runs is a separate product decision from deploying the code; see `docs/deployment.md` "Rollout", which keeps database readiness, application deployment, the mode and provider suitability apart.
+- **Server enforcement.** The route's logic moved, otherwise unchanged, into `lib/extraction/extractHandler.js`, which `app/api/extract/route.js` wraps. The mode is checked first, before the preview guard, the database, the storage download or the provider. In manual mode no request of any kind leaves the server: not from the form's trigger, the page's safety net, the stuck nudge or "Try again", and not from a direct API call. The only write stores the manual decision on the paper.
+- **State (revised in the M1 correction pass).**
+  - Migration `0011` adds `papers.manual_entry_at` + `manual_entry_source` (`mode` or `researcher`), separate from `extraction_status`, so a paper's extraction history is never relabelled.
+  - The migration is a **prerequisite for deploying M1 in any mode**. Without it the route answers `503 database_not_ready` and never calls the provider.
+  - It is authored and tested against a real local Postgres (`supabase/tests/run-0011.sh`), including the pre-M1 production route running against the migrated schema. It is **not applied to production**.
+  - Once a decision is stored, no claim, retry or stale reclaim starts a provider call for that paper, in any mode. A confirmed paper never starts one either.
+  - A failed write of the decision is reported as `recorded: false` (HTTP 503), never as success.
+- **Researcher's choice is durable.** "Enter the details yourself" calls `POST /api/manual-entry`, which is server-side, token-authorized, and gives the anonymous role no new access. It records `researcher` atomically, and the page switches only once the server confirms. Refreshing or reopening the link keeps the choice, because `get_paper_for_confirmation` returns it. If the choice cannot be stored, the page says so and does not switch.
+- **Human edits win.** Applying a result, and moving the applied-result pointer on any outcome, happens in the same statement as the "not confirmed and no manual decision" condition. A result that arrives after the researcher confirmed, or after manual entry was recorded, is appended to `ai_generations` and not applied.
+- **Screen.** In manual mode the confirmation page opens straight into an editable form: no polling beyond the first read, no shimmer, no "needs attention" flags, and wording that never mentions configuration. In automatic mode every place automatic reading did not produce a result now also offers "Enter the details yourself": the transient-failure, encrypted and generic-failure screens, the two-minute timeout, and "unavailable here" (a preview, or a server configuration fault). Choosing it stops the poll at once. The not-research notice is unchanged. It uses the same fields, validation and confirm RPC in EN and AR.
+- **Not done here (by design):**
+  - No provider call can be recalled once sent.
+  - Typed-but-unconfirmed entries are not saved as drafts. The browser now warns before leaving with unconfirmed changes.
+  - A document the model classified as not research gets no manual path, unless manual entry was already recorded. The notice and contact route remain.
+  - The pre-M1 application ignores stored decisions, so it must not be restored while unconfirmed manual papers exist (`docs/deployment.md`, rollback).
 
 **Scope.**
 - A server-side processing mode, for example `EXTRACTION_MODE=external|disabled`, read in `lib/env.js` next to the existing preview guard. When `disabled`, `/api/extract` performs no external provider call and sends no document content anywhere.

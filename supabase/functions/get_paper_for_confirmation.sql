@@ -59,6 +59,11 @@ begin
     'publication_scope', v_paper.publication_scope,
     'extraction_status', v_paper.extraction_status,
     'metadata_confirmed_at', v_paper.metadata_confirmed_at,
+    -- Phase 3 M1 (migration 0011): whether this submission's details
+    -- are being entered by hand, and why ('mode' or 'researcher'), so
+    -- the choice survives a refresh or a reopened link.
+    'manual_entry_source', v_paper.manual_entry_source,
+    'manual_entry_at', v_paper.manual_entry_at,
     'researchers', v_researchers,
     'extraction_detail', v_extraction
   );
