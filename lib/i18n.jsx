@@ -271,6 +271,7 @@ export const MESSAGES = {
           'We couldn’t fill these in from your document this time, so please enter them yourself. What you enter here is what will be saved.',
         emptyHint: 'Tap to add.',
         enterYourself: 'Enter the details yourself',
+        switching: 'One moment…',
         orEnter: 'Or, if you prefer, you can enter your research details yourself now.',
         unavailable: 'We can’t read your document automatically right now. You can enter the details yourself instead.',
       },
@@ -282,6 +283,8 @@ export const MESSAGES = {
           `We couldn’t save your confirmation. Please try again in a moment.${code ? ` (reference: ${code})` : ''}`,
         network:
           'We couldn’t reach the server to save your confirmation. Please check your connection and try again — nothing has been lost.',
+        manualChoice:
+          'We couldn’t switch to entering the details yourself just now. Please try again in a moment.',
       },
       rpcError: (message) => message,
     },
@@ -495,6 +498,7 @@ export const MESSAGES = {
           'لم نتمكن هذه المرة من تعبئة هذه التفاصيل من مستندك، لذا يرجى إدخالها بنفسك. ما تُدخله هنا هو ما سيُحفظ.',
         emptyHint: 'اضغط للإضافة.',
         enterYourself: 'أدخل التفاصيل بنفسك',
+        switching: 'لحظة من فضلك…',
         orEnter: 'أو يمكنك، إن أردت، إدخال تفاصيل بحثك بنفسك الآن.',
         unavailable: 'لا يمكننا قراءة مستندك تلقائياً في الوقت الحالي. يمكنك إدخال التفاصيل بنفسك بدلاً من ذلك.',
       },
@@ -508,6 +512,7 @@ export const MESSAGES = {
           `تعذر علينا حفظ تأكيدك. يرجى المحاولة مرة أخرى بعد قليل.${code ? ` (المرجع: ⁦${code}⁩)` : ''}`,
         network:
           'تعذر علينا الوصول إلى الخادم لحفظ تأكيدك. يرجى التحقق من اتصالك والمحاولة مرة أخرى — لم يتم فقدان أي من تعديلاتك.',
+        manualChoice: 'تعذر علينا الآن الانتقال إلى إدخال التفاصيل بنفسك. يرجى المحاولة مرة أخرى بعد قليل.',
       },
       rpcError: (message) => AR_CONFIRM_ERRORS[message] || 'تعذر علينا حفظ تأكيدك. يرجى المحاولة مرة أخرى بعد قليل.',
     },

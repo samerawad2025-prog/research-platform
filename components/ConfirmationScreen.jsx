@@ -283,6 +283,11 @@ export default function ConfirmationScreen({ token, manualMode = false }) {
   const [serverManual, setServerManual] = useState(false)
   const serverManualRef = useRef(false)
   const [extractionUnavailable, setExtractionUnavailable] = useState(false)
+  // True while the researcher's manual choice is being recorded.
+  const [choosingManual, setChoosingManual] = useState(false)
+  // Anything typed since the page loaded or was last confirmed. Drafts
+  // are not saved on the server, so leaving would lose it.
+  const dirtyRef = useRef(false)
   const seededRef = useRef(false)
 
   useEffect(() => {
@@ -364,11 +369,11 @@ export default function ConfirmationScreen({ token, manualMode = false }) {
 
       const stillWorking = applyPaperData(data)
 
-      // Manual mode still tells the server once, so a pending paper is
-      // recorded as manual entry. The server sends nothing anywhere for
-      // it; this only keeps the record honest if the form's own call
-      // never landed.
-      if (attempt === 0 && manualMode && data.extraction_status === 'pending' && !data.metadata_confirmed_at) {
+      // Manual mode still tells the server once, so the manual decision is
+      // stored on the paper. The server sends nothing anywhere for it;
+      // this only makes the record durable if the form's own call never
+      // landed.
+      if (attempt === 0 && manualMode && !data.manual_entry_at && !data.metadata_confirmed_at) {
         triggerExtraction('confirm_page_manual')
       }
 
@@ -442,18 +447,57 @@ export default function ConfirmationScreen({ token, manualMode = false }) {
     else if (body?.reason === 'preview_extraction_disabled' || body?.reason === 'server_config') setExtractionUnavailable(true)
   }
 
-  // Switches this visit to hand entry. Stops the poll and locks the
-  // fields first, so a result that lands a moment later can never
-  // replace what the person is typing. If they confirm, the server's
-  // own "only while unconfirmed" rule keeps any later result off their
-  // record as well.
-  function chooseManual() {
+  // Records the researcher's choice to enter the details themselves,
+  // then switches the page. The server stores the decision on the paper
+  // (atomically, token-checked), so a refresh, a reopened link or a
+  // later change of mode keeps it, no new provider call starts for the
+  // paper, and a result already on its way is not applied.
+  //
+  // The page only switches once the server says the decision is stored.
+  // If it could not be stored, the person is told and can try again;
+  // the page does not pretend otherwise.
+  async function chooseManual() {
+    if (choosingManual) return
+    setChoosingManual(true)
+    setErrorMsg(null)
+    let recorded = false
+    try {
+      const res = await fetch('/api/manual-entry', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token }),
+      })
+      const body = await res.json().catch(() => ({}))
+      recorded = res.ok && (body.recorded === true || body.confirmed === true)
+    } catch {
+      recorded = false
+    }
+    setChoosingManual(false)
+    if (!recorded) {
+      setErrorMsg({ key: 'manualChoice' })
+      mark(token, 'manual_entry_not_recorded')
+      return
+    }
+    // Stop the poll and lock the fields, so a result that lands a moment
+    // later can never replace what the person is about to type.
     manualChoiceRef.current = true
     seededRef.current = true
     setManualChoice(true)
-    setErrorMsg(null)
     mark(token, 'manual_entry_chosen')
   }
+
+  // Warn before leaving with typed changes that are not confirmed yet.
+  // Only while there is something to lose; the browser shows its own
+  // standard wording.
+  useEffect(() => {
+    function onBeforeUnload(e) {
+      if (!dirtyRef.current) return
+      e.preventDefault()
+      e.returnValue = ''
+    }
+    window.addEventListener('beforeunload', onBeforeUnload)
+    return () => window.removeEventListener('beforeunload', onBeforeUnload)
+  }, [])
 
   // Asks the server to restart extraction, then restarts the poll
   // without a page reload so the timings already recorded for this
@@ -481,14 +525,17 @@ export default function ConfirmationScreen({ token, manualMode = false }) {
   }
 
   function setValue(key, v) {
+    dirtyRef.current = true
     setValues((prev) => ({ ...prev, [key]: v }))
   }
 
   function updateResearcher(index, patch) {
+    dirtyRef.current = true
     setResearchers((list) => list.map((r, i) => (i === index ? { ...r, ...patch } : r)))
   }
 
   function moveResearcher(index, direction) {
+    dirtyRef.current = true
     setResearchers((list) => {
       const next = [...list]
       const target = index + direction
@@ -499,10 +546,12 @@ export default function ConfirmationScreen({ token, manualMode = false }) {
   }
 
   function removeResearcher(index) {
+    dirtyRef.current = true
     setResearchers((list) => list.filter((_, i) => i !== index).map((r, i) => ({ ...r, author_order: i + 1 })))
   }
 
   function addResearcher() {
+    dirtyRef.current = true
     setResearchers((list) => [...list, { full_name: '', author_order: list.length + 1, linkedin_url: '', facebook_url: '' }])
   }
 
@@ -600,6 +649,7 @@ export default function ConfirmationScreen({ token, manualMode = false }) {
         return
       }
 
+      dirtyRef.current = false
       setStatus('done')
     } catch (err) {
       // Not a network failure (those are returned, above), so nothing
@@ -673,10 +723,17 @@ export default function ConfirmationScreen({ token, manualMode = false }) {
   // primary style only where it is the one way forward; next to "Try
   // again" or "Start a new submission" it is the secondary choice.
   const enterYourselfButton = (primary) => (
-    <button type="button" className={primary ? styles.primaryLink : styles.secondaryAction} onClick={chooseManual}>
-      {t.manual.enterYourself}
+    <button
+      type="button"
+      className={primary ? styles.primaryLink : styles.secondaryAction}
+      onClick={chooseManual}
+      disabled={choosingManual}
+    >
+      {choosingManual ? t.manual.switching : t.manual.enterYourself}
     </button>
   )
+  const choiceError =
+    errorMsg?.key === 'manualChoice' ? <p role="alert" className={styles.errorMessage}>{errorText}</p> : null
 
   // A CV, invoice, or anything that isn't research. Say so plainly
   // rather than dropping the person into a confirmation screen full of
@@ -705,6 +762,7 @@ export default function ConfirmationScreen({ token, manualMode = false }) {
         <a href="/submit" className={styles.primaryLink}>{t.newSubmission}</a>
         <p>{t.manual.orEnter}</p>
         {enterYourselfButton(false)}
+        {choiceError}
       </div>
     )
   }
@@ -734,6 +792,7 @@ export default function ConfirmationScreen({ token, manualMode = false }) {
         <p>{t.failed.body2}</p>
         <p>{t.manual.orEnter}</p>
         {enterYourselfButton(true)}
+        {choiceError}
       </div>
     )
   }
@@ -876,8 +935,8 @@ export default function ConfirmationScreen({ token, manualMode = false }) {
             {retrying ? t.timeoutRestarting : t.timeoutRetry}
           </button>
           {' '}
-          <button type="button" className={styles.linkButton} onClick={chooseManual}>
-            {t.manual.enterYourself}
+          <button type="button" className={styles.linkButton} onClick={chooseManual} disabled={choosingManual}>
+            {choosingManual ? t.manual.switching : t.manual.enterYourself}
           </button>
         </p>
       )}

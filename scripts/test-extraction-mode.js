@@ -16,7 +16,7 @@ const assert = require('node:assert')
 const crypto = require('node:crypto')
 const { PDFDocument } = require('pdf-lib')
 
-const { handleExtract } = require('../lib/extraction/extractHandler')
+const { handleExtract, handleManualChoice } = require('../lib/extraction/extractHandler')
 const { resolveExtractionMode } = require('../lib/env')
 const { runExtraction } = require('../lib/extraction/orchestrator')
 const { getProvider } = require('../lib/ai')
@@ -52,17 +52,24 @@ const providerCalls = () => network.calls.filter((u) => u.includes('generativela
 // Supports exactly the query shapes the handler uses. Each awaited
 // statement runs synchronously, so a compare-and-swap is atomic here the
 // same way a single UPDATE is atomic in Postgres.
-const STATUSES_BEFORE_0011 = ['pending', 'processing', 'completed', 'partial', 'failed']
-const STATUSES_AFTER_0011 = [...STATUSES_BEFORE_0011, 'manual']
+//
+// migrationApplied: false models a database without migration 0011 the
+// way PostgREST reports it: any statement that names manual_entry_* is
+// rejected with Postgres' undefined-column error. failUpdate, when set,
+// decides whether an update fails (to simulate a write that does not
+// persist for any other reason).
+const NEW_COLUMNS = ['manual_entry_at', 'manual_entry_source']
+const STATUSES = ['pending', 'processing', 'completed', 'partial', 'failed']
 
 function makeDb({ papers = [], migrationApplied = true } = {}) {
   const db = {
     papers: papers.map((p) => ({ ...p })),
     ai_generations: [],
     downloads: [],
-    allowedStatuses: migrationApplied ? STATUSES_AFTER_0011 : STATUSES_BEFORE_0011,
     files: {},
+    failUpdate: null,
   }
+  const undefinedColumn = { code: '42703', message: 'column papers.manual_entry_at does not exist' }
 
   function builder(table) {
     const q = { table, op: 'select', filters: [], patch: null, rows: null, returning: false, single: null }
@@ -76,9 +83,17 @@ function makeDb({ papers = [], migrationApplied = true } = {}) {
 
     function run() {
       const rows = db[q.table]
+      const namesNewColumn =
+        (q.columns && NEW_COLUMNS.some((c) => q.columns.includes(c))) ||
+        q.filters.some(([, col]) => NEW_COLUMNS.includes(col)) ||
+        (q.patch && NEW_COLUMNS.some((c) => c in q.patch))
+      if (!migrationApplied && q.table === 'papers' && namesNewColumn) return { data: null, error: undefinedColumn }
       if (q.op === 'update') {
-        if ('extraction_status' in q.patch && !db.allowedStatuses.includes(q.patch.extraction_status)) {
+        if ('extraction_status' in q.patch && !STATUSES.includes(q.patch.extraction_status)) {
           return { data: null, error: { code: '23514', message: 'violates check constraint "papers_extraction_status_check"' } }
+        }
+        if (db.failUpdate && db.failUpdate(q.patch)) {
+          return { data: null, error: { code: '08006', message: 'connection failure' } }
         }
         const hit = rows.filter(matches)
         for (const r of hit) Object.assign(r, q.patch)
@@ -97,7 +112,7 @@ function makeDb({ papers = [], migrationApplied = true } = {}) {
     }
 
     const b = {
-      select() { if (q.op !== 'select') q.returning = true; return b },
+      select(cols) { if (q.op !== 'select') q.returning = true; else q.columns = cols || '*'; return b },
       update(patch) { q.op = 'update'; q.patch = patch; return b },
       insert(rows) { q.op = 'insert'; q.rows = rows; return b },
       eq(col, v) { q.filters.push(['eq', col, v]); return b },
@@ -141,6 +156,8 @@ function paperRow(overrides = {}) {
     metadata_confirmed_at: null,
     failure_code: null,
     last_applied_generation_id: null,
+    manual_entry_at: null,
+    manual_entry_source: null,
     title: null,
     title_ar: null,
     year: null,
@@ -189,6 +206,10 @@ function withProcessEnv(vars, fn) {
   })
 }
 
+async function choose(db, token, log = quietLog()) {
+  return handleManualChoice({ token, getSupabaseAdmin: () => db.client, log })
+}
+
 async function syntheticPdf(text) {
   const doc = await PDFDocument.create()
   const page = doc.addPage()
@@ -215,7 +236,7 @@ async function main() {
     ['EXTRACTION_MODE missing', { ...GEMINI_ENV }],
     ['EXTRACTION_MODE invalid', { ...GEMINI_ENV, EXTRACTION_MODE: 'autmatic' }],
   ]) {
-    await check(`manual (${label}): a direct request reads nothing, calls nothing, records manual`, () =>
+    await check(`manual (${label}): a direct request reads nothing, calls nothing, and durably records the decision`, () =>
       withProcessEnv(GEMINI_ENV, async () => {
         resetNetwork()
         const { token, row } = paperRow()
@@ -224,13 +245,22 @@ async function main() {
         const res = await call(db, token, env)
         assert.strictEqual(res.status, 200)
         assert.strictEqual(res.body.mode, 'manual')
-        assert.strictEqual(res.body.status, 'manual')
+        assert.strictEqual(res.body.recorded, true)
+        assert.strictEqual(res.body.manualEntry, 'mode')
         assert.strictEqual(network.calls.length, 0, 'no network call of any kind')
         assert.strictEqual(res.spies.providerRequested, 0, 'provider never constructed')
         assert.strictEqual(res.spies.extractionRuns, 0, 'orchestrator never ran')
         assert.strictEqual(db.downloads.length, 0, 'the document was never even read')
         assert.strictEqual(db.ai_generations.length, 0)
-        assert.strictEqual(db.papers[0].extraction_status, 'manual')
+        assert.strictEqual(db.papers[0].manual_entry_source, 'mode')
+        assert.ok(db.papers[0].manual_entry_at)
+        assert.strictEqual(db.papers[0].extraction_status, 'pending', 'no extraction attempt is invented or erased')
+
+        // Later the deployment is fixed to automatic. The paper stays manual.
+        const later = await call(db, token, { ...GEMINI_ENV, EXTRACTION_MODE: 'automatic' })
+        assert.strictEqual(later.body.alreadyHandled, true)
+        assert.strictEqual(later.spies.extractionRuns + later.spies.providerRequested, 0)
+        assert.strictEqual(network.calls.length + db.downloads.length, 0, 'still nothing sent after the switch')
         if (label !== 'EXTRACTION_MODE=manual') {
           assert.ok(res.log.lines.some((l) => l.includes('extraction_mode_defaulted')), 'a defaulted mode is logged')
         }
@@ -246,6 +276,9 @@ async function main() {
       const transientFailed = paperRow({ extraction_status: 'failed', failure_code: 'api_error', extraction_started_at: old })
       const stale = paperRow({ extraction_status: 'processing', extraction_started_at: old })
       const db = makeDb({ papers: [pending.row, transientFailed.row, stale.row] })
+      // Real files, so a missing guard would get all the way to the provider.
+      for (const p of db.papers) db.files[p.file_path] = await syntheticPdf('Synthetic')
+      network.respond = () => new Response('{}', { status: 400 })
       const env = { ...GEMINI_ENV, EXTRACTION_MODE: 'manual' }
       const s = spies()
       for (let i = 0; i < 5; i++) {
@@ -254,25 +287,65 @@ async function main() {
       assert.strictEqual(network.calls.length, 0)
       assert.strictEqual(s.providerRequested + s.extractionRuns, 0)
       assert.strictEqual(db.downloads.length, 0)
-      assert.deepStrictEqual(db.papers.map((p) => p.extraction_status), ['manual', 'failed', 'processing'],
-        'only a pending paper moves; failed and processing are left as they are')
+      assert.deepStrictEqual(db.papers.map((p) => p.extraction_status), ['pending', 'failed', 'processing'],
+        'extraction history is left exactly as it was')
+      assert.deepStrictEqual(db.papers.map((p) => p.manual_entry_source), ['mode', 'mode', 'mode'],
+        'each paper now carries the manual decision')
+      assert.strictEqual(db.papers[1].failure_code, 'api_error', 'the earlier failure stays on the record')
+
+      // And after a switch back to automatic, none of them is picked up -
+      // not the pending one, not the retryable failure, not the stale claim.
+      const auto = spies()
+      for (const p of [pending, transientFailed, stale]) await call(db, p.token, { ...GEMINI_ENV, EXTRACTION_MODE: 'automatic' }, auto)
+      assert.strictEqual(auto.extractionRuns + auto.providerRequested + network.calls.length + db.downloads.length, 0)
     })
   )
 
-  await check('manual: works, and still sends nothing, before migration 0011 is applied', async () => {
+  await check('database behind the code (0011 missing): every entry point refuses, says so, and sends nothing', () =>
+    withProcessEnv(GEMINI_ENV, async () => {
+      resetNetwork()
+      const old = new Date(Date.now() - 10 * 60_000).toISOString()
+      const papers = [paperRow(), paperRow({ extraction_status: 'failed', failure_code: 'timeout', extraction_started_at: old }), paperRow({ extraction_status: 'processing', extraction_started_at: old })]
+      const db = makeDb({ papers: papers.map((p) => p.row), migrationApplied: false })
+      const before = JSON.stringify(db.papers)
+      const s = spies()
+      for (const env of [{ ...GEMINI_ENV, EXTRACTION_MODE: 'manual' }, { ...GEMINI_ENV, EXTRACTION_MODE: 'automatic' }, { ...GEMINI_ENV }]) {
+        for (const p of papers) {
+          const res = await call(db, p.token, env, s)
+          assert.strictEqual(res.status, 503, JSON.stringify(res.body))
+          assert.strictEqual(res.body.reason, 'database_not_ready')
+          assert.notStrictEqual(res.body.recorded, true, 'never claims a recorded decision')
+        }
+      }
+      for (const p of papers) {
+        const c = await choose(db, p.token)
+        assert.strictEqual(c.status, 503)
+        assert.strictEqual(c.body.recorded, false)
+      }
+      assert.strictEqual(s.extractionRuns + s.providerRequested + network.calls.length + db.downloads.length, 0)
+      assert.strictEqual(JSON.stringify(db.papers), before, 'nothing was written')
+    })
+  )
+
+  await check('a failed write of the manual decision is reported as not recorded, and still sends nothing', async () => {
     resetNetwork()
     const { token, row } = paperRow()
-    const db = makeDb({ papers: [row], migrationApplied: false })
-    const res = await call(db, token, { EXTRACTION_MODE: 'manual' })
-    assert.strictEqual(res.status, 200)
-    assert.strictEqual(res.body.mode, 'manual')
+    const db = makeDb({ papers: [row] })
+    db.failUpdate = (patch) => 'manual_entry_at' in patch
+    const log = quietLog()
+    const res = await call(db, token, { EXTRACTION_MODE: 'manual' }, spies(), log)
+    assert.strictEqual(res.status, 503)
+    assert.strictEqual(res.body.reason, 'manual_not_recorded')
     assert.strictEqual(res.body.recorded, false)
-    assert.strictEqual(db.papers[0].extraction_status, 'pending', 'the refused write leaves the row alone')
-    assert.ok(res.log.lines.some((l) => l.includes('manual_status_not_recorded') && l.includes('"migrationMissing":true')))
-    assert.strictEqual(network.calls.length + res.spies.extractionRuns + db.downloads.length, 0)
+    assert.ok(log.lines.some((l) => l.includes('manual_entry_not_recorded')))
+    const c = await choose(db, token)
+    assert.strictEqual(c.status, 503)
+    assert.strictEqual(c.body.recorded, false)
+    assert.strictEqual(db.papers[0].manual_entry_at, null)
+    assert.strictEqual(res.spies.extractionRuns + network.calls.length + db.downloads.length, 0)
   })
 
-  await check('manual: a deployment without the service key (preview) still answers manual', async () => {
+  await check('manual: a deployment without the service key (preview) says it recorded nothing, and sends nothing', async () => {
     resetNetwork()
     const s = spies()
     const res = await handleExtract({
@@ -283,8 +356,9 @@ async function main() {
       runExtraction: s.runExtraction,
       log: quietLog(),
     })
-    assert.strictEqual(res.status, 200)
+    assert.strictEqual(res.status, 503)
     assert.strictEqual(res.body.mode, 'manual')
+    assert.strictEqual(res.body.recorded, false)
     assert.strictEqual(network.calls.length + s.extractionRuns + s.providerRequested, 0)
   })
 
@@ -303,14 +377,14 @@ async function main() {
     assert.strictEqual(db.papers[0].extraction_status, 'pending')
   })
 
-  await check('a manual paper is not picked up if the mode is later switched to automatic', async () => {
+  await check('a paper with a recorded manual decision is not picked up in automatic mode', async () => {
     resetNetwork()
-    const { token, row } = paperRow({ extraction_status: 'manual' })
+    const { token, row } = paperRow({ manual_entry_at: new Date().toISOString(), manual_entry_source: 'researcher' })
     const db = makeDb({ papers: [row] })
     const res = await call(db, token, { EXTRACTION_MODE: 'automatic', AI_PROVIDER: 'mock' })
     assert.strictEqual(res.body.alreadyHandled, true)
     assert.strictEqual(res.spies.extractionRuns, 0)
-    assert.strictEqual(db.papers[0].extraction_status, 'manual')
+    assert.strictEqual(db.papers[0].extraction_status, 'pending')
   })
 
   // --- automatic mode ----------------------------------------------------------
@@ -500,6 +574,99 @@ async function main() {
     await Promise.all([call(db, token, env, s), call(db, token, env, s)])
     assert.strictEqual(s.extractionRuns, 1, 'reclaimed exactly once')
     assert.strictEqual(db.papers[0].title, 'Recovered')
+  })
+
+  // --- the researcher's own choice (POST /api/manual-entry) ------------------------
+  await check('choice: recorded once, survives reopening, and every extraction entry point respects it', () =>
+    withProcessEnv(GEMINI_ENV, async () => {
+      resetNetwork()
+      const old = new Date(Date.now() - 10 * 60_000).toISOString()
+      for (const start of [
+        { extraction_status: 'pending' },
+        { extraction_status: 'failed', failure_code: 'timeout', extraction_started_at: old, last_applied_generation_id: 'gen-fail' },
+        { extraction_status: 'processing', extraction_started_at: old },
+      ]) {
+        const { token, row } = paperRow(start)
+        const db = makeDb({ papers: [row] })
+        db.files[row.file_path] = Buffer.from('%PDF-synthetic')
+        const first = await choose(db, token)
+        assert.strictEqual(first.status, 200)
+        assert.deepStrictEqual(first.body, { recorded: true, manualEntry: 'researcher' })
+        const at = db.papers[0].manual_entry_at
+        // Reopening the link or pressing the button again changes nothing.
+        const again = await choose(db, token)
+        assert.deepStrictEqual(again.body, { recorded: true, manualEntry: 'researcher' })
+        assert.strictEqual(db.papers[0].manual_entry_at, at)
+        // Direct call, retry and stale recovery, in automatic mode.
+        const s = spies()
+        for (let i = 0; i < 3; i++) await call(db, token, { ...GEMINI_ENV, EXTRACTION_MODE: 'automatic' }, s)
+        assert.strictEqual(s.extractionRuns + s.providerRequested + network.calls.length + db.downloads.length, 0, start.extraction_status)
+        // History is untouched: the attempt that happened is still recorded as it was.
+        assert.strictEqual(db.papers[0].extraction_status, start.extraction_status)
+        assert.strictEqual(db.papers[0].failure_code, start.failure_code ?? null)
+        assert.strictEqual(db.papers[0].last_applied_generation_id, start.last_applied_generation_id ?? null)
+      }
+    })
+  )
+
+  await check('race: manual choice recorded while the provider is running - the late result is kept in history but not applied', async () => {
+    const { token, row } = paperRow()
+    const db = makeDb({ papers: [row] })
+    db.files[row.file_path] = Buffer.from('%PDF-synthetic')
+    let choice
+    const s = spies({
+      getProvider: () => ({}),
+      runExtraction: async () => {
+        choice = await choose(db, token)
+        return extractionReturning('Title the model found')
+      },
+    })
+    const res = await call(db, token, { EXTRACTION_MODE: 'automatic' }, s)
+    assert.strictEqual(choice.body.recorded, true)
+    assert.strictEqual(s.extractionRuns, 1, 'the request already sent finishes')
+    assert.strictEqual(res.body.appliedToPapers, false)
+    const p = db.papers[0]
+    assert.strictEqual(p.title, null, 'the model title did not become the metadata')
+    assert.strictEqual(p.last_applied_generation_id, null)
+    assert.strictEqual(p.extraction_status, 'completed', 'the run is recorded honestly')
+    assert.ok(db.ai_generations.length >= 1, 'and kept in the append-only history')
+    assert.strictEqual(p.manual_entry_source, 'researcher')
+  })
+
+  await check('race: choice and claim arriving together never produce an applied result, whichever wins', async () => {
+    for (const order of ['choice-first', 'claim-first']) {
+      const { token, row } = paperRow()
+      const db = makeDb({ papers: [row] })
+      db.files[row.file_path] = Buffer.from('%PDF-synthetic')
+      const s = spies({
+        getProvider: () => ({}),
+        runExtraction: async () => { await new Promise((r) => setTimeout(r, 20)); return extractionReturning('Model title') },
+      })
+      const env = { EXTRACTION_MODE: 'automatic' }
+      const [a, b] = order === 'choice-first'
+        ? [() => choose(db, token), () => call(db, token, env, s)]
+        : [() => call(db, token, env, s), () => choose(db, token)]
+      await Promise.all([a(), b()])
+      assert.strictEqual(db.papers[0].manual_entry_source, 'researcher', order)
+      assert.strictEqual(db.papers[0].title, null, order)
+      assert.ok(s.extractionRuns <= 1, order)
+      if (order === 'choice-first') assert.strictEqual(s.extractionRuns, 0, 'a recorded choice stops the claim')
+    }
+  })
+
+  await check('choice: a confirmed record is left byte-identical; tokens are checked', async () => {
+    const { token, row } = paperRow({ extraction_status: 'completed', metadata_confirmed_at: new Date().toISOString(), title: 'Mine', last_applied_generation_id: 'g1' })
+    const db = makeDb({ papers: [row] })
+    const before = JSON.stringify(db.papers[0])
+    const res = await choose(db, token)
+    assert.deepStrictEqual(res.body, { recorded: false, confirmed: true })
+    assert.strictEqual(JSON.stringify(db.papers[0]), before)
+    assert.strictEqual((await choose(db, 'wrong')).status, 404)
+    assert.strictEqual((await choose(db, row.id)).status, 404, 'a bare paper id is not a credential')
+    assert.strictEqual((await choose(db, undefined)).status, 400)
+    const preview = await handleManualChoice({ token, getSupabaseAdmin: () => { throw new Error('no key') }, log: quietLog() })
+    assert.strictEqual(preview.status, 503)
+    assert.strictEqual(preview.body.recorded, false)
   })
 
   resetNetwork()

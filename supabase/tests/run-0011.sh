@@ -4,7 +4,8 @@
 #   PGHOST=/path/to/socket PGPORT=55432 PGUSER=postgres supabase/tests/run-0011.sh
 # Loads the pre-migration schema from git (origin/research-platform),
 # seeds synthetic rows in every relevant state, applies 0011, then runs
-# the assertions in 0011_manual_extraction_status.test.sql.
+# the assertions in 0011_manual_entry.test.sql, then the route logic
+# (current and pre-M1 production) against the same real database.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 DB=m1_migration_test
@@ -29,10 +30,18 @@ values
    'partial', null, encode(extensions.digest('tok-partial', 'sha256'), 'hex'), null),
   ('Failed', null, 'd.pdf', true, '{abstract_and_citation}', '00000000-0000-0000-0000-000000000001',
    'failed', null, encode(extensions.digest('tok-failed', 'sha256'), 'hex'), null);
-create table pre_migration_snapshot as select id, row(p.*)::text as row_text from papers p;
+insert into ai_generations (paper_id, generation_type, provider, model_used, status, result_data, notes)
+select id, 'metadata_extraction', 'gemini', 'synthetic', 'failed', '{"_failure_code":"timeout"}', '[timeout] synthetic'
+from papers where title = 'Failed';
+update papers set failure_code = 'timeout' where title = 'Failed';
+create table pre_migration_snapshot as select id, to_jsonb(p) as row_json from papers p;
 SQL
-psql -q -v ON_ERROR_STOP=1 -d "$DB" -f supabase/migrations/0011_manual_extraction_status.sql
+psql -q -v ON_ERROR_STOP=1 -d "$DB" -f supabase/migrations/0011_manual_entry.sql
 # Idempotent: applying it twice is harmless.
-psql -q -v ON_ERROR_STOP=1 -d "$DB" -f supabase/migrations/0011_manual_extraction_status.sql
-psql -v ON_ERROR_STOP=1 -d "$DB" -f supabase/tests/0011_manual_extraction_status.test.sql
+psql -q -v ON_ERROR_STOP=1 -d "$DB" -f supabase/migrations/0011_manual_entry.sql
+psql -v ON_ERROR_STOP=1 -d "$DB" -f supabase/tests/0011_manual_entry.test.sql
 dropdb "$DB"
+
+# The route logic against a real database, before and after 0011, plus
+# the pre-M1 production route for rollout compatibility.
+node supabase/tests/handler-postgres.test.js

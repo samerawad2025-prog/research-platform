@@ -73,11 +73,18 @@ create table papers (
   -- "what did we run, and what did it produce?" — and separate again
   -- from metadata_confirmed_at below, which answers a third, different
   -- question: "has a human actually reviewed this?"
-  -- 'manual': no automatic extraction was attempted, because the server
-  -- was in EXTRACTION_MODE=manual; the researcher enters the details.
-  -- Never 'completed' for such a paper (migration 0011).
   extraction_status text not null default 'pending'
-    check (extraction_status in ('pending', 'processing', 'completed', 'partial', 'failed', 'manual')),
+    check (extraction_status in ('pending', 'processing', 'completed', 'partial', 'failed')),
+
+  -- The decision to enter this paper's details by hand (Phase 3 M1,
+  -- migration 0011). 'mode': the server was in EXTRACTION_MODE=manual
+  -- when the paper was first handled. 'researcher': the researcher chose
+  -- it. Kept apart from extraction_status so an earlier extraction
+  -- attempt is never relabelled. Once set, no new provider call starts
+  -- for the paper and no late result is applied to its metadata.
+  manual_entry_at timestamptz,
+  manual_entry_source text
+    check (manual_entry_source in ('mode', 'researcher')),
 
   -- When the extract route CLAIMED this paper, not when it was
   -- submitted. The two are usually seconds apart but not always: the
@@ -117,7 +124,11 @@ create table papers (
     )),
 
   admin_notes text,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+
+  -- The manual-entry decision is recorded as a pair or not at all.
+  constraint papers_manual_entry_pair_check
+    check ((manual_entry_at is null) = (manual_entry_source is null))
 );
 
 create index papers_confirmation_token_hash_idx on papers (confirmation_token_hash);
@@ -405,6 +416,11 @@ begin
     'publication_scope', v_paper.publication_scope,
     'extraction_status', v_paper.extraction_status,
     'metadata_confirmed_at', v_paper.metadata_confirmed_at,
+    -- Phase 3 M1 (migration 0011): whether this submission's details
+    -- are being entered by hand, and why ('mode' or 'researcher'), so
+    -- the choice survives a refresh or a reopened link.
+    'manual_entry_source', v_paper.manual_entry_source,
+    'manual_entry_at', v_paper.manual_entry_at,
     'researchers', v_researchers,
     'extraction_detail', v_extraction
   );
