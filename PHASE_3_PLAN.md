@@ -58,20 +58,22 @@ A planning document is never evidence that something is built.
 | # | Letter | Milestone | Depends on | Blocks |
 |---|---|---|---|---|
 | M0 | — | Documentation reconciliation and this plan | — | — (this milestone) |
-| M1 | A | Processing configuration and manual metadata path | — | Agreement activation (if Gemini arrangement stays unverified) |
-| M2 | B | Server-enforced acceptance, controlled uploads, two publication settings, legacy permissions | M1 recommended first | Agreement activation; M4 |
+| M1 | A | Processing configuration and manual metadata path | — | Provides the fallback for §6. It does not settle provider suitability. |
+| M2 | B | Server-enforced acceptance, controlled uploads, two publication settings, legacy permissions | M1 recommended first | Supports §3/§4; M4 |
 | M3 | C | Facebook removal and independent LinkedIn visibility | Must land **no later than** M2 (see M3) | Agreement activation |
 | M4 | D | Administrative review, checks, institution eligibility, publication permissions | M2, M3 | M5 |
 | M5 | E | Public research pages, approved downloads, withdrawal, browse/search | M4 | M6 |
 | M6 | F | Citation export and truthful aggregate activity metrics | M5 | — |
 
-The agreement can be activated once M1, M2 and M3 are live. That is enough for new submissions to be accepted under it, because nothing is public until M4/M5 add review and publication. Public full-text release has its own additional conditions in `docs/legal/README.md`.
+**Activation is not a milestone count.** The agreement may be activated only when every commitment it makes is actually supported by the running system, verified in production. The conditions are listed in `docs/legal/README.md`. M1, M2 and M3 are expected to provide the technical support for the conditions that apply before publication exists. Marking those milestones complete does not by itself satisfy the conditions. In particular, §6 also needs a verified provider arrangement, or production running in manual mode for every new submission. Public full-text release has further conditions of its own.
 
 ---
 
 ### M1 (A): Processing configuration and manual metadata path
 
 **Why.** Section 6 of the agreement promises that submitted content is not used for general-purpose AI model training. The Gemini API project's billing/data-use arrangement is **unverified**. Google's unpaid API terms permit product improvement and human review, so the promise must not be activated while possibly incompatible processing runs. The project also must not depend on buying an AI plan. So external extraction needs an off switch, and the confirmation flow needs to work without it.
+
+**What the switch does not do.** It provides a fallback. It does not make the provider arrangement suitable, and it does not establish that it is. While production runs automatic extraction under an unverified arrangement, the §6 commitment is not supported, whatever the state of this milestone.
 
 **Scope.**
 - A server-side processing mode, for example `EXTRACTION_MODE=external|disabled`, read in `lib/env.js` next to the existing preview guard. When `disabled`, `/api/extract` performs no external provider call and sends no document content anywhere.
