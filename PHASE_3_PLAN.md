@@ -118,6 +118,20 @@ A planning document is never evidence that something is built.
 
 ### M2 (B): Server-enforced acceptance, controlled uploads, two publication settings, legacy permissions
 
+**Status (2026-09-26): split into M2A (backend foundation) and M2B (interface and cutover).**
+- **M2A is built and tested in isolation, on branch `claude/phase3-m2a-acceptance-upload`, in a PR stacked on M1.** It is not deployed, and it is inactive by default. It covers:
+  - the agreement registry;
+  - acceptance records with server timestamps and a processing-decision snapshot;
+  - upload authorization for one server-chosen path;
+  - finalization that creates the paper exactly once, bound to the document's SHA-256;
+  - request limits and bounded cleanup.
+- **One authority for processing.** `papers.submission_extraction_policy` holds the decision, and `submission_decision_source` records its origin. The server records `automatic` only when both `EXTRACTION_MODE` and the policy row are automatic.
+- **The old anonymous path is still open.** Production is not secured until M2B cuts over and a later migration closes it.
+- The contract, assumptions and cutover are in `docs/submission-flow.md`.
+- Corrected 2026-09-27: cleanup follows the upload authorization's lifecycle, depositors are not made authors, and acceptance is bound to a signed processing offer (the M2B contract in `docs/submission-flow.md` includes reacceptance on `offer_stale`).
+- Verified against a real **local** Supabase stack (PostgREST + Storage API): path binding, `upsert: false` refusing a second upload (before and after finalization), expiry refusal, privilege boundaries. Still to confirm on a preview project: the hosted authorization lifetime, Kong and the S3 backend.
+
+
 **Why.** Today the acceptance and scope checks run only in the page. Storage has an anonymous INSERT policy on the `papers` bucket whose only condition is the bucket name (`supabase/schema.sql`), and `submit_paper` is granted to `anon`. A direct request can upload a file or create a submission without accepting anything.
 
 **Scope.**
@@ -167,7 +181,7 @@ The bypass stays open between the two steps; keep that window short.
 
 **Rollback.** Keep a written rollback script. Note that restoring the anonymous INSERT policy also restores the bypass, so rollback is an emergency measure, not a resting state.
 
-**Unverified.** Whether Supabase signed upload URLs reject a second upload to the same path in this project's configuration. Test it before describing the behaviour.
+**Partly verified (2026-09-27).** On a local Storage API 1.28.0, a signed upload URL with `upsert: false` rejects a second upload once an object exists; it is not single-use in any other sense. Confirm on this project's hosted Storage before describing the behaviour to researchers.
 
 ---
 

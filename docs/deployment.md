@@ -15,6 +15,8 @@
 | `MOCK_SCENARIO` | No, defaults to `thesis` | `article`, `not_research` — only used when `AI_PROVIDER=mock` |
 
 | `EXTRACTION_MODE` | **Yes, in production** (a product decision; see Rollout). Missing or invalid means `manual` | `automatic`: the existing two-pass extraction. `manual`: no document content or text taken from it is sent to any AI provider; the researcher enters the details on the confirmation screen. Case and surrounding spaces are ignored; any other value is treated as `manual` and logged as `extraction_mode_defaulted`. Read at request time (the pages are dynamic), but a Vercel env change still needs a redeploy to take effect. Added in Phase 3 M1. |
+| `SUBMISSION_ACCEPTANCE_FLOW` | No. Leave unset in production until M2B | `enabled` serves `/api/submissions/*` (Phase 3 M2A). Anything else: 404. See `docs/submission-flow.md`. |
+| `SUBMISSION_TOKEN_SECRET` | Only with the flow enabled | Server-only, at least 32 characters, **Production scope only**. Derives confirmation tokens and hashes request-limit keys. |
 | `ALLOW_PREVIEW_EXTRACTION` | No | `true` lets a preview run automatic extraction. Only matters in `automatic` mode; manual mode never calls a provider anywhere. |
 
 A non-secret template of all of these is in `.env.local.example`.

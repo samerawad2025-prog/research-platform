@@ -75,3 +75,6 @@ jobs:
 
       - name: Confirmation screen states (Phase 3 M1)
         run: node scripts/test-confirmation-view.js
+
+      - name: Submission acceptance (Phase 3 M2A)
+        run: node scripts/test-submission-acceptance.js
