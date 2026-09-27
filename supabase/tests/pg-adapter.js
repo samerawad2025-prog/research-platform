@@ -43,7 +43,7 @@ function lit(v) {
   return `'${String(v).replace(/'/g, "''")}'`
 }
 
-const VOID_FUNCTIONS = ['mark_submission_object_removed']
+const VOID_FUNCTIONS = ['mark_submission_object_removed', 'record_upload_authorization']
 
 function pgClient({ psql }, { storage = null } = {}) {
   function builder(table) {
@@ -100,15 +100,25 @@ function fakeStorage() {
   const grants = new Map() // token -> { path, upsert }
   const s = {
     objects,
+    // Like Supabase: a JWT-shaped token whose exp is two hours out, and
+    // which intent expiry does NOT revoke.
     async createSignedUploadUrl(path, { upsert = false } = {}) {
-      const token = crypto.randomBytes(16).toString('hex')
-      grants.set(token, { path, upsert })
+      const exp = Math.floor(Date.now() / 1000) + 2 * 3600
+      const b64 = (o) => Buffer.from(JSON.stringify(o)).toString('base64url')
+      const token = `${b64({ alg: 'HS256', typ: 'JWT' })}.${b64({ url: `papers/${path}`, upsert, exp })}.${crypto.randomBytes(16).toString('base64url')}`
+      grants.set(token, { path, upsert, exp })
       return { data: { path, token, signedUrl: `https://storage.invalid/object/upload/sign/papers/${path}?token=${token}` }, error: null }
+    },
+    // Test control: make an authorization's own expiry pass.
+    expireGrant(token) {
+      const g = grants.get(token)
+      if (g) g.exp = Math.floor(Date.now() / 1000) - 1
     },
     // What the browser does with the authorization.
     uploadWithToken(path, token, bytes) {
       const g = grants.get(token)
       if (!g || g.path !== path) return { error: { message: 'invalid signature' } }
+      if (g.exp <= Math.floor(Date.now() / 1000)) return { error: { message: 'jwt expired' } }
       if (objects.has(path) && !g.upsert) return { error: { message: 'The resource already exists' } }
       objects.set(path, Buffer.from(bytes))
       return { error: null }

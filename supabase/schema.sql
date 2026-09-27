@@ -735,8 +735,12 @@ create table if not exists submission_acceptances (
   identity_verified boolean not null default false,     -- an anonymous declaration, not verification
   publication_setting text not null check (publication_setting in ('record_abstract', 'record_abstract_fulltext')),
 
-  -- Permission snapshot at acceptance.
+  -- Permission snapshot at acceptance. processing_decision is never
+  -- broader than processing_offer_decision: what the researcher was shown
+  -- (the server-signed offer from /terms) caps what may be recorded.
   processing_decision text not null check (processing_decision in ('automatic', 'manual')),
+  processing_offer_decision text not null check (processing_offer_decision in ('automatic', 'manual')),
+  offer_issued_at timestamptz not null,
   processing_mode_at_acceptance text not null check (processing_mode_at_acceptance in ('automatic', 'manual')),
   processing_policy_at_acceptance text not null check (processing_policy_at_acceptance in ('automatic', 'manual')),
 
@@ -749,13 +753,19 @@ create table if not exists submission_acceptances (
   file_extension text not null check (file_extension in ('pdf', 'docx')),
   declared_size bigint not null check (declared_size > 0 and declared_size <= 20971520),
 
+  -- When the Storage upload authorization for object_path stops working,
+  -- read from the authorization itself. Intent expiry does NOT revoke it,
+  -- so cleanup waits for this, not for expires_at.
+  upload_authorization_expires_at timestamptz,
+
   finalized_at timestamptz,
   paper_id uuid unique,
   object_sha256 text,
   object_size bigint,
   object_removed_at timestamptz,
 
-  check (status <> 'finalized' or (paper_id is not null and object_sha256 is not null))
+  check (status <> 'finalized' or (paper_id is not null and object_sha256 is not null)),
+  check (processing_decision = 'manual' or processing_offer_decision = 'automatic')
 );
 alter table submission_acceptances enable row level security;
 revoke all on table submission_acceptances from anon, authenticated;
@@ -871,7 +881,9 @@ create or replace function create_submission_intent(
   p_whatsapp_number text,
   p_file_extension text,
   p_declared_size bigint,
-  p_ttl_seconds int
+  p_ttl_seconds int,
+  p_offer_decision text,
+  p_offer_issued_at timestamptz
 )
 returns jsonb
 language plpgsql
@@ -898,7 +910,12 @@ begin
   -- Automatic only when both the running application and the policy row say
   -- so. Anything else - including a value this function does not know -
   -- is manual.
-  v_decision := case when v_mode = 'automatic' and v_policy = 'automatic' then 'automatic' else 'manual' end;
+  -- ...and only when the offer the researcher accepted said so. The
+  -- application refuses a stale offer that would become broader before
+  -- calling this; this cap makes that hold even if something changed in
+  -- between. It can only narrow.
+  v_decision := case when v_mode = 'automatic' and v_policy = 'automatic' and p_offer_decision = 'automatic'
+                     then 'automatic' else 'manual' end;
   v_path := 'intents/' || v_id::text || '/' || encode(gen_random_bytes(12), 'hex') || '.' || p_file_extension;
 
   insert into submission_acceptances (
@@ -906,6 +923,7 @@ begin
     agreement_version_id, agreement_language, agreement_sha256,
     claimed_role, publication_setting,
     processing_decision, processing_mode_at_acceptance, processing_policy_at_acceptance,
+    processing_offer_decision, offer_issued_at,
     full_name, email, whatsapp_number,
     object_path, file_extension, declared_size
   ) values (
@@ -913,6 +931,7 @@ begin
     v_agreement.id, v_agreement.language, v_agreement.content_sha256,
     p_claimed_role, p_publication_setting,
     v_decision, v_mode, v_policy,
+    case when p_offer_decision = 'automatic' then 'automatic' else 'manual' end, p_offer_issued_at,
     trim(p_full_name), trim(p_email), nullif(trim(p_whatsapp_number), ''),
     v_path, p_file_extension, p_declared_size
   )
@@ -1029,8 +1048,17 @@ begin
   )
   returning id, submission_extraction_policy into v_paper_id, v_policy;
 
-  insert into paper_researchers (paper_id, researcher_id, author_order)
-  values (v_paper_id, v_researcher_id, 1);
+  -- The submitter is always recorded (papers.submitted_by, and the
+  -- acceptance itself). They are linked as a researcher on the paper only
+  -- when they declared authorship, and that declaration is unverified: the
+  -- confirmation step, where the real author list is entered and ordered,
+  -- can change it. An authorized depositor (a librarian, a volunteer) is
+  -- never made an author here. A co-author's position is unknown, so it is
+  -- left unset for the confirmation step to fill in.
+  if v_row.claimed_role in ('author', 'coauthor') then
+    insert into paper_researchers (paper_id, researcher_id, author_order)
+    values (v_paper_id, v_researcher_id, case when v_row.claimed_role = 'author' then 1 else null end);
+  end if;
 
   update submission_acceptances
   set status = 'finalized', finalized_at = now(), paper_id = v_paper_id,
@@ -1042,30 +1070,72 @@ end;
 $fn$;
 
 -- ------------------------------------------------------------
+-- The upload authorization's own expiry, read by the server from the
+-- authorization Storage issued. Can only move later, never earlier.
+-- ------------------------------------------------------------
+create or replace function record_upload_authorization(p_intent_id uuid, p_expires_at timestamptz)
+returns void
+language sql
+security definer
+set search_path = public
+as $fn$
+  update submission_acceptances
+  set upload_authorization_expires_at = greatest(coalesce(upload_authorization_expires_at, p_expires_at), p_expires_at)
+  where id = p_intent_id;
+$fn$;
+
+-- ------------------------------------------------------------
 -- Abandoned acceptances: mark expired, and hand back ONLY their own
 -- server-chosen object paths for removal. A finalized acceptance, or any
 -- object outside intents/<id>/, is never returned.
 -- ------------------------------------------------------------
-create or replace function expire_submission_intents(p_limit int, p_grace_seconds int)
+-- Two separate, bounded steps.
+--  1. Mark at most p_limit open acceptances whose own expiry has passed as
+--     expired (nothing else changes; the evidence row stays).
+--  2. Return at most p_limit cleanup candidates: never finalized, and past
+--     the point where no upload can still land at their path - the upload
+--     authorization's own expiry plus p_margin_seconds for an upload that
+--     started just before it. Intent expiry alone never makes an object
+--     eligible, because it does not revoke the Storage authorization. An
+--     unknown authorization expiry is treated as a full day.
+--     A row whose object was already removed comes back only if a check
+--     after removal is still due (object_removed_at earlier than that
+--     point), so an object that landed late is found and removed again.
+create or replace function expire_submission_intents(p_limit int, p_margin_seconds int)
 returns jsonb
 language plpgsql
 security definer
 set search_path = public
 as $fn$
 declare
+  v_limit int := greatest(0, least(p_limit, 100));
   v_out jsonb;
 begin
   update submission_acceptances set status = 'expired'
-  where status = 'open' and expires_at < now() - make_interval(secs => p_grace_seconds);
+  where id in (
+    select id from submission_acceptances
+    where status = 'open' and expires_at < now()
+    order by expires_at
+    limit v_limit
+    for update skip locked
+  );
 
-  select coalesce(jsonb_agg(jsonb_build_object('id', id, 'object_path', object_path)), '[]'::jsonb)
+  select coalesce(jsonb_agg(jsonb_build_object('id', c.id, 'object_path', c.object_path)), '[]'::jsonb)
   into v_out
   from (
-    select id, object_path from submission_acceptances
-    where status = 'expired' and paper_id is null and object_removed_at is null
-    order by expires_at
-    limit greatest(0, least(p_limit, 100))
-  ) s;
+    select id, object_path
+    from (
+      select id, object_path, expires_at, object_removed_at,
+             coalesce(upload_authorization_expires_at, created_at + interval '1 day')
+               + make_interval(secs => greatest(p_margin_seconds, 0)) as safe_after
+      from submission_acceptances
+      where status = 'expired' and paper_id is null
+    ) e
+    where e.safe_after < now()
+      and (e.object_removed_at is null or e.object_removed_at < e.safe_after)
+    order by e.expires_at
+    limit v_limit
+  ) c;
   return v_out;
 end;
 $fn$;
@@ -1082,14 +1152,16 @@ $fn$;
 
 -- Service role only. Nothing here is callable by anon or authenticated.
 revoke all on function consume_submission_rate_limit(text, int, int) from public, anon, authenticated;
-revoke all on function create_submission_intent(text, text, text, text, text, text, text, text, text, text, text, bigint, int) from public, anon, authenticated;
+revoke all on function create_submission_intent(text, text, text, text, text, text, text, text, text, text, text, bigint, int, text, timestamptz) from public, anon, authenticated;
 revoke all on function get_submission_intent(uuid, text) from public, anon, authenticated;
 revoke all on function finalize_submission_intent(uuid, text, bigint, text, text) from public, anon, authenticated;
 revoke all on function expire_submission_intents(int, int) from public, anon, authenticated;
 revoke all on function mark_submission_object_removed(uuid) from public, anon, authenticated;
+revoke all on function record_upload_authorization(uuid, timestamptz) from public, anon, authenticated;
 grant execute on function consume_submission_rate_limit(text, int, int) to service_role;
-grant execute on function create_submission_intent(text, text, text, text, text, text, text, text, text, text, text, bigint, int) to service_role;
+grant execute on function create_submission_intent(text, text, text, text, text, text, text, text, text, text, text, bigint, int, text, timestamptz) to service_role;
 grant execute on function get_submission_intent(uuid, text) to service_role;
 grant execute on function finalize_submission_intent(uuid, text, bigint, text, text) to service_role;
 grant execute on function expire_submission_intents(int, int) to service_role;
 grant execute on function mark_submission_object_removed(uuid) to service_role;
+grant execute on function record_upload_authorization(uuid, timestamptz) to service_role;

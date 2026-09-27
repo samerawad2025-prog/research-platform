@@ -13,7 +13,7 @@ const fs = require('node:fs')
 const path = require('node:path')
 
 const { AGREEMENTS } = require('../lib/submission/agreements')
-const { validateIntentBody, handleCreateIntent, handleFinalize, handleTerms, confirmationTokenFor } = require('../lib/submission/acceptanceHandlers')
+const { validateIntentBody, handleCreateIntent, handleFinalize, handleTerms, confirmationTokenFor, signOffer, verifyOffer, authorizationExpiry } = require('../lib/submission/acceptanceHandlers')
 const { clientKeyOf } = require('../lib/submission/routeHelpers')
 
 let failed = 0
@@ -36,6 +36,7 @@ const SECRET = 'x'.repeat(40)
 const ENV = { SUBMISSION_ACCEPTANCE_FLOW: 'enabled', SUBMISSION_TOKEN_SECRET: SECRET, EXTRACTION_MODE: 'automatic' }
 
 const good = () => ({
+  offerToken: 'checked-by-the-handler',
   agreementId: 'submission-terms-2026-09-25-ar',
   accepted: true,
   publicationSetting: 'record_abstract_fulltext',
@@ -135,6 +136,26 @@ async function main() {
     assert.notStrictEqual(confirmationTokenFor('y'.repeat(40), 'intent-a'), a)
   })
 
+  await check('offer: signed, bound to its secret, tamper-evident and time-limited', () => {
+    const agreements = [{ id: 'a', sha256: 'b'.repeat(64) }]
+    const { token } = signOffer(SECRET, { decision: 'manual', agreements })
+    assert.strictEqual(verifyOffer(SECRET, token).offer.d, 'manual')
+    const [body, mac] = token.split('.')
+    const p = JSON.parse(Buffer.from(body, 'base64url').toString())
+    const widened = `${Buffer.from(JSON.stringify({ ...p, d: 'automatic' })).toString('base64url')}.${mac}`
+    assert.strictEqual(verifyOffer(SECRET, widened).error, 'offer_invalid')
+    assert.strictEqual(verifyOffer('y'.repeat(40), token).error, 'offer_invalid')
+    for (const t of [undefined, '', 'x', 'a.b.c', `${body}.`]) assert.strictEqual(verifyOffer(SECRET, t).error, 'offer_invalid', String(t))
+    const old = signOffer(SECRET, { decision: 'automatic', agreements, now: Date.now() - 31 * 60_000 }).token
+    assert.deepStrictEqual(verifyOffer(SECRET, old), { error: 'offer_stale', staleBecause: 'offer_expired' })
+  })
+
+  await check('upload authorization: its own expiry is read from the token; unreadable means unknown', () => {
+    const b64 = (o) => Buffer.from(JSON.stringify(o)).toString('base64url')
+    assert.strictEqual(authorizationExpiry(`${b64({ alg: 'HS256' })}.${b64({ exp: 2000000000 })}.sig`), new Date(2000000000 * 1000).toISOString())
+    for (const t of [undefined, '', 'x', `a.${b64({})}.c`, `a.${b64({ exp: 'soon' })}.c`]) assert.strictEqual(authorizationExpiry(t), null)
+  })
+
   await check('routes: the request-limit key is the first forwarded address', () => {
     const req = (h) => ({ headers: { get: (k) => h[k] ?? null } })
     assert.strictEqual(clientKeyOf(req({ 'x-forwarded-for': '203.0.113.1, 10.0.0.1' })), '203.0.113.1')
@@ -150,6 +171,18 @@ async function main() {
     assert.strictEqual(fns.length, bodies.length)
     for (const b of bodies) assert.ok(/security definer\s+set search_path = /.test(b), b.slice(0, 60))
     assert.ok(!/drop policy|revoke[^;]*submit_paper/i.test(migration), 'the old path is closed later, not here')
+    // Every function is revoked from public/anon/authenticated and granted
+    // to service_role with its exact current signature.
+    const sigs = [...code.matchAll(/create or replace function (\w+)\(([^)]*)\)/g)].map(([, name, params]) => {
+      const types = params.split(',').map((x) => x.trim().split(/\s+/)[1]).filter(Boolean).join(', ')
+      return `${name}(${types})`
+    }).filter((sig) => !sig.startsWith('stamp_submission_extraction_policy'))
+    assert.ok(sigs.length >= 7, sigs.join(' '))
+    for (const sig of sigs) {
+      const esc = sig.replace(/[()]/g, '\\$&')
+      assert.ok(new RegExp(`revoke all on function ${esc} from public, anon, authenticated;`).test(code), `revoke ${sig}`)
+      assert.ok(new RegExp(`grant execute on function ${esc} to service_role;`).test(code), `grant ${sig}`)
+    }
   })
 
   if (failed) {

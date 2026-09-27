@@ -15,7 +15,7 @@ const JSZip = require('jszip')
 
 const ROOT = path.join(__dirname, '../..')
 const { makePsql, lit, pgClient, fakeStorage } = require('./pg-adapter')
-const { handleTerms, handleCreateIntent, handleFinalize, cleanupAbandonedIntents } = require(path.join(ROOT, 'lib/submission/acceptanceHandlers'))
+const { handleTerms, handleCreateIntent, handleFinalize, cleanupAbandonedIntents, signOffer } = require(path.join(ROOT, 'lib/submission/acceptanceHandlers'))
 const { handleExtract } = require(path.join(ROOT, 'lib/extraction/extractHandler'))
 const { runExtraction } = require(path.join(ROOT, 'lib/extraction/orchestrator'))
 
@@ -78,6 +78,7 @@ async function docxBytes() {
 
 function body(over = {}) {
   return {
+    offerToken: 'placeholder',
     agreementId: 'submission-terms-2026-09-25-en',
     accepted: true,
     publicationSetting: 'record_abstract',
@@ -104,7 +105,10 @@ async function main() {
     const mode = 'mode' in opts ? opts.mode : 'automatic'
     const { bytes, name = 'thesis.pdf', type = 'application/pdf', over = {}, clientKey = nextIp(), log } = opts
     const b = bytes || (await pdfBytes())
-    const r = await handleCreateIntent({ body: body({ file: { name, size: b.length, type }, ...over }), env: ENV(mode), supabase, storage, clientKey, log })
+    // The offer the researcher was shown: from /terms, under the same
+    // environment unless the test supplies its own.
+    const offerToken = opts.offerToken || (await handleTerms({ env: ENV('termsMode' in opts ? opts.termsMode : mode), supabase, clientKey })).body.offer.token
+    const r = await handleCreateIntent({ body: body({ offerToken, file: { name, size: b.length, type }, ...over }), env: ENV(mode), supabase, storage, clientKey, log })
     return { r, bytes: b }
   }
   async function upload(r, bytes) {
@@ -131,7 +135,8 @@ async function main() {
     assert.strictEqual(terms.body.available, false, 'seeded agreements are inactive')
     const { r } = await submit()
     assert.strictEqual(r.status, 409)
-    assert.strictEqual(r.body.reason, 'agreement_not_active')
+    assert.strictEqual(r.body.reason, 'offer_stale')
+    assert.strictEqual(r.body.staleBecause, 'agreement_changed')
     assert.strictEqual(count('select count(*) from submission_acceptances'), 0)
   })
 
@@ -158,6 +163,9 @@ async function main() {
       [{ claimedRole: 'owner' }, 'claimed_role_invalid'],
       [{ email: 'not-an-email' }, 'email_invalid'],
       [{ whatsapp: '12' }, 'whatsapp_invalid'],
+      [{ offerToken: undefined }, 'offer_invalid'],
+      [{ offerToken: 'not.an.offer' }, 'offer_invalid'],
+      [{ offerToken: 'placeholder' }, 'offer_invalid'],
     ]
     for (const [over, reason] of cases) {
       const r = await handleCreateIntent({ body: body({ ...over, file: { name: 'a.pdf', size: 100, type: 'application/pdf' } }), env: ENV('automatic'), supabase, storage, clientKey: nextIp() })
@@ -171,7 +179,7 @@ async function main() {
     sqlOk(`update agreement_versions set content_sha256 = '${'1'.repeat(64)}' where id = 'submission-terms-2026-09-25-ar'`)
     const { r } = await submit({ over: { agreementId: 'submission-terms-2026-09-25-ar' } })
     assert.strictEqual(r.status, 409)
-    assert.strictEqual(r.body.reason, 'agreement_mismatch')
+    assert.strictEqual(r.body.reason, 'offer_stale', 'the tampered row was never offered')
     const terms = await handleTerms({ env: ENV('automatic'), supabase, clientKey: nextIp() })
     assert.deepStrictEqual(terms.body.agreements.map((a) => a.language), ['en'], 'the tampered row is not offered')
     sqlOk(`update agreement_versions set content_sha256 = '54a78f8441426b5c2dd190235fb57cfaa0ae9e1a956d6aefb64ff0a13208795b' where id = 'submission-terms-2026-09-25-ar'`)
@@ -393,7 +401,83 @@ async function main() {
     assert.ok(mockProvider.sent.length >= 1)
   })
 
-  // ------------------------------------------------------------ cleanup
+  // ------------------------------------------------------------ cleanup (upload-authorization lifecycle)
+  const eligible = (limit = 100, margin = 3600) => json(`select expire_submission_intents(${limit}, ${margin})`).map((x) => x.id)
+  const authPast = (id, minutes) => sqlOk(`update submission_acceptances set upload_authorization_expires_at = now() - interval '${minutes} minutes' where id = ${lit(id)}`)
+
+  await check('cleanup: the upload authorization\'s own expiry is recorded at acceptance', async () => {
+    const { r } = await submit()
+    const a = acceptanceOf(r.body.intentId)
+    const authExp = Date.parse(a.upload_authorization_expires_at)
+    const intentExp = Date.parse(a.expires_at)
+    assert.ok(authExp - Date.now() > 110 * 60_000, 'about two hours, read from the authorization')
+    assert.ok(authExp > intentExp, 'outlives the 30-minute intent')
+  })
+
+  await check('cleanup: ordinary expiry - an expired intent\'s authorization still uploads, so nothing is removed until it has expired too', async () => {
+    const { r, bytes } = await submit()
+    sqlOk(`update submission_acceptances set expires_at = now() - interval '3 hours' where id = ${lit(r.body.intentId)}`)
+    await cleanupAbandonedIntents({ supabase, storage, limit: 100, log: logCapture() })
+    assert.strictEqual(acceptanceOf(r.body.intentId).status, 'expired')
+    // The reproduced finding: intent expiry does not revoke the authorization.
+    assert.strictEqual((await upload(r, bytes)).error, null, 'the authorization still works')
+    await cleanupAbandonedIntents({ supabase, storage, limit: 100, log: logCapture() })
+    assert.ok(storage.objects.has(r.body.upload.path), 'not removed while an upload can still land')
+    assert.ok(!eligible().includes(r.body.intentId))
+    // Authorization expired, but inside the in-progress margin: still kept.
+    storage.expireGrant(r.body.upload.token)
+    authPast(r.body.intentId, 10)
+    await cleanupAbandonedIntents({ supabase, storage, limit: 100, log: logCapture() })
+    assert.ok(storage.objects.has(r.body.upload.path), 'an upload started just before expiry may still be arriving')
+    // Past authorization expiry + margin: removed, and nothing can recreate it.
+    authPast(r.body.intentId, 61)
+    await cleanupAbandonedIntents({ supabase, storage, limit: 100, log: logCapture() })
+    assert.ok(!storage.objects.has(r.body.upload.path), 'removed')
+    assert.ok(acceptanceOf(r.body.intentId).object_removed_at, 'recorded; the acceptance row is kept')
+    assert.match((await upload(r, bytes)).error?.message || '', /expired/, 'the authorization no longer uploads')
+    assert.ok(!eligible().includes(r.body.intentId), 'done: not returned again')
+  })
+
+  await check('cleanup: expiry recorded during finalization gets no shortcut', async () => {
+    const { r, bytes } = await submit()
+    await upload(r, bytes)
+    sqlOk(`update submission_acceptances set expires_at = now() - interval '1 second' where id = ${lit(r.body.intentId)}`)
+    assert.strictEqual((await finalize(r)).status, 410)
+    assert.strictEqual(acceptanceOf(r.body.intentId).status, 'expired')
+    await cleanupAbandonedIntents({ supabase, storage, limit: 100, log: logCapture() })
+    assert.ok(storage.objects.has(r.body.upload.path), 'kept while the authorization is live')
+    storage.expireGrant(r.body.upload.token)
+    authPast(r.body.intentId, 61)
+    await cleanupAbandonedIntents({ supabase, storage, limit: 100, log: logCapture() })
+    assert.ok(!storage.objects.has(r.body.upload.path))
+  })
+
+  await check('cleanup: an unknown authorization expiry is treated as a full day', async () => {
+    const { r, bytes } = await submit()
+    await upload(r, bytes)
+    sqlOk(`update submission_acceptances set expires_at = now() - interval '3 hours', upload_authorization_expires_at = null where id = ${lit(r.body.intentId)}`)
+    eligible()
+    assert.ok(!eligible().includes(r.body.intentId))
+    sqlOk(`update submission_acceptances set created_at = now() - interval '26 hours' where id = ${lit(r.body.intentId)}`)
+    assert.ok(eligible().includes(r.body.intentId))
+    storage.objects.delete(r.body.upload.path)
+    sqlOk(`select mark_submission_object_removed(${lit(r.body.intentId)})`)
+  })
+
+  await check('cleanup: an object that landed after an early removal is found and removed again', async () => {
+    const { r, bytes } = await submit()
+    // State left by a removal made before the safe point (e.g. by the
+    // pre-correction cleanup): removed 3h ago, authorization expired 90 min
+    // ago, so an upload after the removal was possible.
+    sqlOk(`update submission_acceptances set status = 'expired', expires_at = now() - interval '4 hours',
+             upload_authorization_expires_at = now() - interval '90 minutes', object_removed_at = now() - interval '3 hours'
+           where id = ${lit(r.body.intentId)}`)
+    storage.objects.set(r.body.upload.path, bytes) // the recreated orphan
+    await cleanupAbandonedIntents({ supabase, storage, limit: 100, log: logCapture() })
+    assert.ok(!storage.objects.has(r.body.upload.path), 'recreated orphan removed')
+    assert.ok(!eligible().includes(r.body.intentId), 'removed after the safe point: final')
+  })
+
   await check('cleanup: removes only abandoned acceptances\' own objects; never a finalized or unrelated one', async () => {
     const { r: abandoned, bytes } = await submit()
     await upload(abandoned, bytes)
@@ -401,16 +485,160 @@ async function main() {
     await upload(kept, kb)
     await finalize(kept)
     storage.objects.set('legacy-uuid-thesis.pdf', bytes) // an old-path upload
-    sqlOk(`update submission_acceptances set expires_at = now() - interval '3 hours' where id in (${lit(abandoned.body.intentId)}, ${lit(kept.body.intentId)})`)
+    sqlOk(`update submission_acceptances set expires_at = now() - interval '5 hours', upload_authorization_expires_at = now() - interval '3 hours'
+           where id in (${lit(abandoned.body.intentId)}, ${lit(kept.body.intentId)})`)
     const res = await cleanupAbandonedIntents({ supabase, storage, limit: 100, log: logCapture() })
     assert.ok(res.removed >= 1)
     assert.ok(!storage.objects.has(abandoned.body.upload.path))
     assert.ok(storage.objects.has(kept.body.upload.path), 'the finalized document stays')
     assert.ok(storage.objects.has('legacy-uuid-thesis.pdf'), 'an unrelated object stays')
     assert.strictEqual(acceptanceOf(kept.body.intentId).status, 'finalized')
+    assert.ok(!eligible().includes(kept.body.intentId))
     assert.ok(acceptanceOf(abandoned.body.intentId).object_removed_at, 'the acceptance record itself is kept')
     const second = await cleanupAbandonedIntents({ supabase, storage, limit: 100, log: logCapture() })
     assert.strictEqual(second.removed, 0, 'idempotent')
+  })
+
+  await check('cleanup: the database work is bounded - p_limit caps rows expired as well as rows returned', async () => {
+    const ids = []
+    for (let i = 0; i < 7; i++) ids.push((await submit()).r.body.intentId)
+    sqlOk(`update submission_acceptances set expires_at = now() - interval '5 hours', upload_authorization_expires_at = now() - interval '3 hours' where id in (${ids.map(lit).join(',')})`)
+    const openExpired = () => count(`select count(*) from submission_acceptances where status = 'open' and expires_at < now()`)
+    const before = openExpired()
+    assert.ok(before >= 7)
+    const out = eligible(2)
+    assert.strictEqual(before - openExpired(), 2, 'exactly two rows updated')
+    assert.ok(out.length <= 2)
+    for (let i = 0; i < 10; i++) eligible(100)
+    assert.strictEqual(openExpired(), 0)
+    for (const id of ids) sqlOk(`select mark_submission_object_removed(${lit(id)})`)
+  })
+
+  // ------------------------------------------------------------ depositor versus authorship
+  const researchersOf = (intentId) =>
+    json(`select coalesce(jsonb_agg(jsonb_build_object('email', r.email, 'name', r.full_name, 'order', pr.author_order) order by pr.author_order nulls last), '[]')
+          from paper_researchers pr join researchers r on r.id = pr.researcher_id
+          where pr.paper_id = (select id from papers where submission_acceptance_id = ${lit(intentId)})`)
+
+  await check('depositor: a librarian or volunteer depositor is recorded but never made an author; the real authors are confirmed', async () => {
+    const { r, bytes } = await submit({ over: { claimedRole: 'authorized_depositor', fullName: 'Library Volunteer', email: 'library@example.invalid' } })
+    await upload(r, bytes)
+    const f = await finalize(r)
+    assert.strictEqual(f.status, 200)
+    const p = paperOf(r.body.intentId)
+    assert.strictEqual(json(`select to_jsonb(x) from researchers x where id = ${lit(p.submitted_by)}`).email, 'library@example.invalid', 'depositor kept as submitter')
+    assert.strictEqual(acceptanceOf(r.body.intentId).claimed_role, 'authorized_depositor', 'acceptance evidence kept')
+    assert.deepStrictEqual(researchersOf(r.body.intentId), [], 'no authorship assigned')
+    const view = json(`select get_paper_for_confirmation(${lit(f.body.confirmationToken)})`)
+    assert.ok(!(view.researchers || []).some((x) => x.full_name === 'Library Volunteer'))
+    // The confirmation step collects the actual authors, in order.
+    json(`select confirm_researcher_metadata(${lit(f.body.confirmationToken)}, ${lit([{ full_name: 'Real Author A' }, { full_name: 'Real Author B' }])}, null)`)
+    assert.deepStrictEqual(researchersOf(r.body.intentId).map((x) => [x.name, x.order]), [['Real Author A', 1], ['Real Author B', 2]])
+    assert.ok(!researchersOf(r.body.intentId).some((x) => x.email === 'library@example.invalid'), 'depositor not reinserted')
+    assert.strictEqual(paperOf(r.body.intentId).submitted_by, p.submitted_by)
+  })
+
+  await check('depositor: an author is linked first (unverified); a coauthor is linked with no position until confirmed', async () => {
+    const { r: a, bytes } = await submit({ over: { claimedRole: 'author', fullName: 'Sole Author', email: 'author@example.invalid' } })
+    await upload(a, bytes)
+    await finalize(a)
+    assert.deepStrictEqual(researchersOf(a.body.intentId).map((x) => [x.email, x.order]), [['author@example.invalid', 1]])
+    assert.strictEqual(acceptanceOf(a.body.intentId).identity_verified, false)
+
+    const { r: c, bytes: cb } = await submit({ over: { claimedRole: 'coauthor', fullName: 'Second Author', email: 'coauthor@example.invalid' } })
+    await upload(c, cb)
+    const fc = await finalize(c)
+    const linked = researchersOf(c.body.intentId)
+    assert.deepStrictEqual(linked.map((x) => [x.email, x.order]), [['coauthor@example.invalid', null]])
+    // Accurate ordering at confirmation: the coauthor is second.
+    const view = json(`select get_paper_for_confirmation(${lit(fc.body.confirmationToken)})`)
+    const self = view.researchers.find((x) => x.full_name === 'Second Author')
+    json(`select confirm_researcher_metadata(${lit(fc.body.confirmationToken)}, ${lit([{ full_name: 'First Author' }, { researcher_id: self.researcher_id, full_name: 'Second Author' }])}, null)`)
+    assert.deepStrictEqual(researchersOf(c.body.intentId).map((x) => [x.name, x.order, x.email]), [['First Author', 1, null], ['Second Author', 2, 'coauthor@example.invalid']])
+  })
+
+  // ------------------------------------------------------------ processing offer
+  await check('offer: a policy change to automatic after /terms showed manual is refused before any record or authorization', async () => {
+    setPolicy('manual')
+    const shown = await handleTerms({ env: ENV('automatic'), supabase, clientKey: nextIp() })
+    assert.strictEqual(shown.body.offer.decision, 'manual')
+    setPolicy('automatic')
+    const before = count('select count(*) from submission_acceptances')
+    const { r } = await submit({ offerToken: shown.body.offer.token })
+    assert.strictEqual(r.status, 409)
+    assert.strictEqual(r.body.reason, 'offer_stale')
+    assert.strictEqual(r.body.staleBecause, 'processing_broadened')
+    assert.ok(!r.body.upload, 'no upload authorization')
+    assert.strictEqual(count('select count(*) from submission_acceptances'), before, 'nothing recorded')
+    // Refreshing and accepting the new offer works, and records automatic.
+    const { r: again } = await submit()
+    assert.strictEqual(again.status, 201)
+    assert.strictEqual(again.body.processing.decision, 'automatic')
+    assert.strictEqual(again.body.processing.changedFromOffer, false)
+  })
+
+  await check('offer: an application-mode change to automatic after /terms showed manual is refused', async () => {
+    setPolicy('automatic')
+    const { r } = await submit({ termsMode: 'manual', mode: 'automatic' })
+    assert.strictEqual(r.status, 409)
+    assert.strictEqual(r.body.staleBecause, 'processing_broadened')
+  })
+
+  await check('offer: a narrower decision is allowed and explained', async () => {
+    setPolicy('automatic')
+    const shown = await handleTerms({ env: ENV('automatic'), supabase, clientKey: nextIp() })
+    assert.strictEqual(shown.body.offer.decision, 'automatic')
+    setPolicy('manual')
+    const { r } = await submit({ offerToken: shown.body.offer.token })
+    assert.strictEqual(r.status, 201)
+    assert.deepStrictEqual(r.body.processing, { decision: 'manual', offered: 'automatic', changedFromOffer: true })
+    const a = acceptanceOf(r.body.intentId)
+    assert.strictEqual(a.processing_decision, 'manual')
+    assert.strictEqual(a.processing_offer_decision, 'automatic')
+    const { r: r2 } = await submit({ termsMode: 'automatic', mode: 'manual', offerToken: shown.body.offer.token })
+    assert.strictEqual(r2.body.processing.decision, 'manual', 'app mode narrowed')
+    setPolicy('automatic')
+  })
+
+  await check('offer: an agreement deactivated or added after /terms needs reacceptance', async () => {
+    const shown = await handleTerms({ env: ENV('automatic'), supabase, clientKey: nextIp() })
+    sqlOk(`update agreement_versions set active = false where id = 'submission-terms-2026-09-25-en'`)
+    const { r } = await submit({ offerToken: shown.body.offer.token })
+    assert.strictEqual(r.status, 409)
+    assert.strictEqual(r.body.staleBecause, 'agreement_changed')
+    const onlyAr = await handleTerms({ env: ENV('automatic'), supabase, clientKey: nextIp() })
+    sqlOk(`update agreement_versions set active = true`)
+    // An offer that never showed the English text cannot accept it.
+    const { r: r2 } = await submit({ offerToken: onlyAr.body.offer.token })
+    assert.strictEqual(r2.body.staleBecause, 'agreement_changed')
+  })
+
+  await check('offer: tampered, foreign-secret and expired offers are refused', async () => {
+    setPolicy('manual')
+    const shown = await handleTerms({ env: ENV('automatic'), supabase, clientKey: nextIp() })
+    setPolicy('automatic')
+    const [b64, mac] = shown.body.offer.token.split('.')
+    const payload = JSON.parse(Buffer.from(b64, 'base64url').toString())
+    const widened = `${Buffer.from(JSON.stringify({ ...payload, d: 'automatic' })).toString('base64url')}.${mac}`
+    const agreements = [{ id: 'submission-terms-2026-09-25-en', sha256: '77376e5ef87f47395475525dea70a4716b7e9d2a9c4b30003612f2d172e676da' }]
+    const foreign = signOffer('z'.repeat(40), { decision: 'automatic', agreements }).token
+    const expired = signOffer(SECRET, { decision: 'automatic', agreements, now: Date.now() - 31 * 60_000 }).token
+    const before = count('select count(*) from submission_acceptances')
+    for (const [tok, status, reason] of [[widened, 400, 'offer_invalid'], [foreign, 400, 'offer_invalid'], [expired, 409, 'offer_stale']]) {
+      const { r } = await submit({ offerToken: tok })
+      assert.strictEqual(r.status, status, reason)
+      assert.strictEqual(r.body.reason, reason)
+    }
+    assert.strictEqual(count('select count(*) from submission_acceptances'), before)
+  })
+
+  await check('offer: the database never records processing broader than the offer', async () => {
+    setPolicy('automatic')
+    const res = json(`select create_submission_intent('${'a'.repeat(64)}','submission-terms-2026-09-25-en','en','77376e5ef87f47395475525dea70a4716b7e9d2a9c4b30003612f2d172e676da',
+      'author','record_abstract','automatic','Direct','d@example.invalid',null,'pdf',10,60,'manual',now())`)
+    assert.strictEqual(res.processing_decision, 'manual')
+    assert.ok(psql(`update submission_acceptances set processing_decision = 'automatic' where id = ${lit(res.id)}`).error, 'check constraint')
+    sqlOk(`update submission_acceptances set status = 'expired', object_removed_at = now(), upload_authorization_expires_at = now() - interval '1 day' where id = ${lit(res.id)}`)
   })
 
   // ------------------------------------------------------------ limits, privacy, access
@@ -434,11 +662,14 @@ async function main() {
       'select * from submission_rate_limits',
       'select * from extraction_policy',
       `select get_submission_intent('${happy.r.body.intentId}', 'x')`,
-      `select create_submission_intent('h','submission-terms-2026-09-25-en','en','x','author','record_abstract','automatic','n','e',null,'pdf',10,60)`,
+      `select create_submission_intent('h','submission-terms-2026-09-25-en','en','x','author','record_abstract','automatic','n','e',null,'pdf',10,60,'automatic',now())`,
+      `select record_upload_authorization('${happy.r.body.intentId}', now() - interval '1 day')`,
+      `select mark_submission_object_removed('${happy.r.body.intentId}')`,
       `select finalize_submission_intent('${happy.r.body.intentId}', 'x', 1, 'x', 'x')`,
       'select expire_submission_intents(10, 0)',
     ]) {
       assert.ok(psql(`set role anon; ${sql}`).error, `anon could run: ${sql}`)
+      assert.ok(psql(`set role authenticated; ${sql}`).error, `authenticated could run: ${sql}`)
     }
   })
 

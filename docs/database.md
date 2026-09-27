@@ -5,7 +5,7 @@
 Project: Supabase, Postgres 17, region eu-central-1 (project ref `mzpkiuovjppmavqkppem`; rebuilt from `supabase/schema.sql` on 2026-09-18 after the original project `jyqvhaqyrsfqkkcxiwth` was deleted). Six tables, all with RLS enabled.
 
 ## `researchers`
-Anyone credited on a paper, including the person who submitted it.
+Anyone credited on a paper, and the person who submitted it (`papers.submitted_by`). On the new submission path an authorized depositor is a submitter without being credited (`docs/submission-flow.md`).
 
 | Column | Notes |
 |---|---|
@@ -64,4 +64,4 @@ Individual function bodies are mirrored in `supabase/functions/` for easier revi
 
 ## Acceptance tables (migration 0012, Phase 3 M2A, not applied)
 
-`agreement_versions` (the acceptable agreement texts, by hash; seeded inactive), `submission_acceptances` (one row per acceptance: agreement version, server timestamp, claimed role, publication setting, processing-decision snapshot, contact details, server-chosen object path; after finalization, the paper and document hash; never deleted), and `submission_rate_limits` (hashed keys, fixed windows). All RLS-locked; reachable only through service-role functions. Details: `docs/submission-flow.md`.
+`agreement_versions` (the acceptable agreement texts, by hash; seeded inactive), `submission_acceptances` (one row per acceptance: agreement version, server timestamp, claimed role, publication setting, processing-decision snapshot and the offered decision it may not exceed, contact details, server-chosen object path, the upload authorization's own expiry; after finalization, the paper and document hash; never deleted), and `submission_rate_limits` (hashed keys, fixed windows). All RLS-locked; reachable only through service-role functions. Details: `docs/submission-flow.md`.

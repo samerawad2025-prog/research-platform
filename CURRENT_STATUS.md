@@ -22,7 +22,8 @@ Four labels are used here and in `PHASE_3_PLAN.md`. Product intent comes from th
 **Phase 3 M2A:** the server-controlled acceptance and upload foundation (`docs/submission-flow.md`, migration `0012`). It is on branch `claude/phase3-m2a-acceptance-upload`, in a PR stacked on M1.
 - It is **not merged, not deployed and inactive**: the endpoints need `SUBMISSION_ACCEPTANCE_FLOW=enabled`, and every agreement row is seeded inactive.
 - The old anonymous upload and `submit_paper` path is unchanged and still open, so **M2A does not secure production**.
-- Verified with mocked checks in CI, and against a real local Postgres with a storage substitute. The Supabase Storage semantics are unverified.
+- Corrected on 2026-09-27 after review: cleanup now waits for the upload authorization's own expiry plus a margin (intent expiry does not revoke it); an authorized depositor is no longer made an author; acceptance is bound to a server-signed processing offer, so processing broader than what was shown is never recorded.
+- Verified at three tiers: mocked checks in CI; a real local Postgres with a storage substitute (`run-0012.sh`); and a real **local** Supabase stack (PostgREST + Storage API, `supabase/tests/local-stack/`). Not verified on a hosted project: the authorization lifetime there (documented as 2 hours; the Storage default is 60 s), Kong and the S3 backend. See `docs/submission-flow.md`.
 
 
 **Phase 3 M1:** configurable extraction (`EXTRACTION_MODE=automatic|manual`) and a complete manual metadata path. It is on branch `claude/phase3-m1-extraction-mode`, in a PR stacked on the M0 documentation PR. It is **not merged and not in production**, and migration `0011` is **not applied**.
