@@ -55,13 +55,16 @@ function setup() {
   fs.writeFileSync(tmp, execFileSync('git', ['show', `${BASE_REF}:supabase/schema.sql`], { cwd: ROOT, encoding: 'utf8' }))
   run(tmp)
   // A pre-existing, confirmed, old-path paper: must survive untouched.
-  sqlOk(`insert into researchers (id, full_name, email) values ('00000000-0000-0000-0000-000000000001', 'Legacy Submitter', 'legacy@example.invalid');
+  sqlOk(`insert into researchers (id, full_name, email, linkedin_url, facebook_url) values ('00000000-0000-0000-0000-000000000001', 'Legacy Submitter', 'legacy@example.invalid', 'https://www.linkedin.com/in/legacy', 'https://facebook.com/legacy');
+         insert into paper_researchers (paper_id, researcher_id, author_order) select '00000000-0000-0000-0000-0000000000aa', '00000000-0000-0000-0000-000000000001', 1 where false;
          insert into papers (id, file_path, permission_to_process, publication_scope, submitted_by, extraction_status, metadata_confirmed_at, title, confirmation_token_hash)
          values ('00000000-0000-0000-0000-0000000000aa', 'legacy.pdf', true, '{full_paper}', '00000000-0000-0000-0000-000000000001', 'completed', now(), 'Legacy thesis',
                  encode(sha256('legacy-token'::bytea), 'hex'));`)
   run(path.join(ROOT, 'supabase/migrations/0011_manual_entry.sql'))
   run(path.join(ROOT, 'supabase/migrations/0012_submission_acceptance.sql'))
   run(path.join(ROOT, 'supabase/migrations/0012_submission_acceptance.sql')) // idempotent
+  run(path.join(ROOT, 'supabase/migrations/0013_linkedin_visibility_declared_authors.sql'))
+  run(path.join(ROOT, 'supabase/migrations/0013_linkedin_visibility_declared_authors.sql')) // idempotent
 }
 
 async function pdfBytes(text = 'Synthetic thesis') {
@@ -520,22 +523,37 @@ async function main() {
           from paper_researchers pr join researchers r on r.id = pr.researcher_id
           where pr.paper_id = (select id from papers where submission_acceptance_id = ${lit(intentId)})`)
 
-  await check('depositor: a librarian or volunteer depositor is recorded but never made an author; the real authors are confirmed', async () => {
-    const { r, bytes } = await submit({ over: { claimedRole: 'authorized_depositor', fullName: 'Library Volunteer', email: 'library@example.invalid' } })
+  await check('depositor: a librarian or volunteer depositor is recorded but never made an author; the declared authors are linked in order', async () => {
+    const before = count('select count(*) from submission_acceptances')
+    for (const authors of [undefined, [], [''], ['x'.repeat(201)], [42]]) {
+      const { r } = await submit({ over: { claimedRole: 'authorized_depositor', ...(authors === undefined ? {} : { authors }) } })
+      assert.strictEqual(r.status, 400, JSON.stringify(authors))
+      assert.strictEqual(r.body.reason, 'authors_required')
+    }
+    const { r: notDepositor } = await submit({ over: { claimedRole: 'author', authors: ['Someone'] } })
+    assert.strictEqual(notDepositor.body.reason, 'unexpected_field')
+    assert.strictEqual(count('select count(*) from submission_acceptances'), before, 'nothing recorded')
+
+    const { r, bytes } = await submit({ over: { claimedRole: 'authorized_depositor', fullName: 'Library Volunteer', email: 'library@example.invalid', authors: [' Real Author A ', 'Real Author B'] } })
+    assert.strictEqual(r.status, 201, JSON.stringify(r.body))
+    assert.deepStrictEqual(acceptanceOf(r.body.intentId).declared_authors, ['Real Author A', 'Real Author B'])
+    // Immutable once recorded.
+    assert.ok(psql(`select record_declared_authors(${lit(r.body.intentId)}, '["Changed"]'::jsonb)`).error)
     await upload(r, bytes)
     const f = await finalize(r)
     assert.strictEqual(f.status, 200)
     const p = paperOf(r.body.intentId)
     assert.strictEqual(json(`select to_jsonb(x) from researchers x where id = ${lit(p.submitted_by)}`).email, 'library@example.invalid', 'depositor kept as submitter')
     assert.strictEqual(acceptanceOf(r.body.intentId).claimed_role, 'authorized_depositor', 'acceptance evidence kept')
-    assert.deepStrictEqual(researchersOf(r.body.intentId), [], 'no authorship assigned')
+    assert.deepStrictEqual(researchersOf(r.body.intentId).map((x) => [x.name, x.order, x.email]), [['Real Author A', 1, null], ['Real Author B', 2, null]])
     const view = json(`select get_paper_for_confirmation(${lit(f.body.confirmationToken)})`)
-    assert.ok(!(view.researchers || []).some((x) => x.full_name === 'Library Volunteer'))
-    // The confirmation step collects the actual authors, in order.
-    json(`select confirm_researcher_metadata(${lit(f.body.confirmationToken)}, ${lit([{ full_name: 'Real Author A' }, { full_name: 'Real Author B' }])}, null)`)
-    assert.deepStrictEqual(researchersOf(r.body.intentId).map((x) => [x.name, x.order]), [['Real Author A', 1], ['Real Author B', 2]])
+    assert.strictEqual(view.submitter_role, 'authorized_depositor')
+    assert.ok(view.researchers.every((x) => x.is_submitter === false && x.linkedin_public === false))
+    // Confirmation can reorder and correct; the depositor is never reinserted.
+    const [a, b] = view.researchers
+    json(`select confirm_researcher_metadata(${lit(f.body.confirmationToken)}, ${lit([{ researcher_id: b.researcher_id, full_name: 'Real Author B' }, { researcher_id: a.researcher_id, full_name: 'Real Author A' }])}, null)`)
+    assert.deepStrictEqual(researchersOf(r.body.intentId).map((x) => [x.name, x.order]), [['Real Author B', 1], ['Real Author A', 2]])
     assert.ok(!researchersOf(r.body.intentId).some((x) => x.email === 'library@example.invalid'), 'depositor not reinserted')
-    assert.strictEqual(paperOf(r.body.intentId).submitted_by, p.submitted_by)
   })
 
   await check('depositor: an author is linked first (unverified); a coauthor is linked with no position until confirmed', async () => {
@@ -641,6 +659,80 @@ async function main() {
     sqlOk(`update submission_acceptances set status = 'expired', object_removed_at = now(), upload_authorization_expires_at = now() - interval '1 day' where id = ${lit(res.id)}`)
   })
 
+  // ------------------------------------------------------------ M3: Facebook and LinkedIn
+  const researcherRow = (id) => json(`select to_jsonb(r) from researchers r where id = ${lit(id)}`)
+
+  await check('M3: legacy contact values are kept unchanged and private; Facebook is no longer returned', async () => {
+    const legacy = researcherRow('00000000-0000-0000-0000-000000000001')
+    assert.strictEqual(legacy.linkedin_url, 'https://www.linkedin.com/in/legacy')
+    assert.strictEqual(legacy.facebook_url, 'https://facebook.com/legacy')
+    assert.strictEqual(legacy.linkedin_public, false, 'no display permission inferred')
+    assert.strictEqual(count('select count(*) from researchers where linkedin_public'), 0)
+    const view = json(`select get_paper_for_confirmation('legacy-token')`)
+    assert.ok(view && !JSON.stringify(view).includes('facebook'), 'no facebook key or value')
+  })
+
+  await check('M3: LinkedIn saves whatever the publication permission; Facebook sent by a crafted request is ignored', async () => {
+    setPolicy('manual')
+    const old = json(`set role anon; select submit_paper('Old Scope', 'oldscope@example.invalid', 'uuid-scope.pdf', true, array['abstract_and_citation'], null)`)
+    const oldView = json(`select get_paper_for_confirmation(${lit(old.confirmation_token)})`)
+    const me = oldView.researchers[0]
+    assert.strictEqual(me.is_submitter, true)
+    json(`set role anon; select confirm_researcher_metadata(${lit(old.confirmation_token)}, ${lit([{ researcher_id: me.researcher_id, full_name: 'Old Scope', linkedin_url: 'https://www.linkedin.com/in/old-scope', facebook_url: 'https://facebook.com/x' }, { full_name: 'New Coauthor', linkedin_url: 'https://linkedin.com/in/co', facebook_url: 'https://facebook.com/y', linkedin_public: true }])}, null)`)
+    const mine = researcherRow(me.researcher_id)
+    assert.strictEqual(mine.linkedin_url, 'https://www.linkedin.com/in/old-scope', 'stored without metadata_and_article')
+    assert.strictEqual(mine.facebook_url, null)
+    assert.strictEqual(mine.linkedin_public, false, 'private unless chosen')
+    const co = json(`select to_jsonb(r) from researchers r join paper_researchers pr on pr.researcher_id = r.id where pr.paper_id = ${lit(old.paper_id)} and r.full_name = 'New Coauthor'`)
+    assert.strictEqual(co.facebook_url, null)
+    assert.strictEqual(co.linkedin_url, 'https://linkedin.com/in/co')
+    assert.strictEqual(co.linkedin_public, false, 'nobody can make another person public')
+    setPolicy('automatic')
+  })
+
+  await check('M3: only the submitter can make their own LinkedIn public; clearing it clears the choice; invalid links refused', async () => {
+    const { r, bytes } = await submit({ over: { claimedRole: 'author', fullName: 'Public Author', email: 'pa@example.invalid', publicationSetting: 'record_abstract' } })
+    await upload(r, bytes)
+    const f = await finalize(r)
+    const tok = f.body.confirmationToken
+    const me = json(`select get_paper_for_confirmation(${lit(tok)})`).researchers[0]
+    json(`select confirm_researcher_metadata(${lit(tok)}, ${lit([{ researcher_id: me.researcher_id, full_name: 'Public Author', linkedin_url: 'https://www.linkedin.com/in/public-author/', linkedin_public: true }])}, null)`)
+    assert.strictEqual(researcherRow(me.researcher_id).linkedin_public, true, 'independent of record_abstract')
+    const view = json(`select get_paper_for_confirmation(${lit(tok)})`)
+    assert.strictEqual(view.researchers[0].linkedin_public, true)
+    assert.strictEqual(view.publication_setting, 'record_abstract')
+    json(`select confirm_researcher_metadata(${lit(tok)}, ${lit([{ researcher_id: me.researcher_id, full_name: 'Public Author', linkedin_url: '', linkedin_public: true }])}, null)`)
+    const cleared = researcherRow(me.researcher_id)
+    assert.strictEqual(cleared.linkedin_url, null)
+    assert.strictEqual(cleared.linkedin_public, false)
+    for (const bad of ['linkedin.com/in/x', 'http://www.linkedin.com/in/x', 'https://evil.example/in/x', 'https://www.linkedin.com/company/x', 'https://www.linkedin.com/pub/name/1/2', 'https://www.linkedin.com.evil.example/in/x', 'javascript:alert(1)', 'https://www.linkedin.com/in/x?y=1']) {
+      const res = psql(`select confirm_researcher_metadata(${lit(tok)}, ${lit([{ researcher_id: me.researcher_id, full_name: 'Public Author', linkedin_url: bad }])}, null)`)
+      assert.ok(res.error && /LinkedIn profile address/.test(res.error.message), bad)
+    }
+    for (const good of ['https://linkedin.com/in/a-b', 'https://uk.linkedin.com/in/%D8%B3%D8%A7%D8%B1%D8%A9']) {
+      const res = psql(`select confirm_researcher_metadata(${lit(tok)}, ${lit([{ researcher_id: me.researcher_id, full_name: 'Public Author', linkedin_url: good }])}, null)`)
+      assert.ok(!res.error, good)
+    }
+  })
+
+  await check('M3: a researcher row shared with another paper keeps its own LinkedIn and visibility', async () => {
+    const { r, bytes } = await submit({ over: { claimedRole: 'author', fullName: 'Shared Person', email: 'shared@example.invalid' } })
+    await upload(r, bytes)
+    const f = await finalize(r)
+    const me = json(`select get_paper_for_confirmation(${lit(f.body.confirmationToken)})`).researchers[0]
+    json(`select confirm_researcher_metadata(${lit(f.body.confirmationToken)}, ${lit([{ researcher_id: me.researcher_id, full_name: 'Shared Person', linkedin_url: 'https://www.linkedin.com/in/shared', linkedin_public: true }])}, null)`)
+    // The same person is later linked on a depositor's paper (as a future
+    // merge would do); that paper's confirmation cannot change the shared profile.
+    const { r: d, bytes: db } = await submit({ over: { claimedRole: 'authorized_depositor', fullName: 'Depositor', email: 'dep@example.invalid', authors: ['Placeholder'] } })
+    await upload(d, db)
+    const fd = await finalize(d)
+    sqlOk(`insert into paper_researchers (paper_id, researcher_id, author_order) values (${lit(paperOf(d.body.intentId).id)}, ${lit(me.researcher_id)}, 2)`)
+    json(`select confirm_researcher_metadata(${lit(fd.body.confirmationToken)}, ${lit([{ full_name: 'Placeholder' }, { researcher_id: me.researcher_id, full_name: 'Shared Person', linkedin_url: 'https://www.linkedin.com/in/someone-else', linkedin_public: false }])}, null)`)
+    const row = researcherRow(me.researcher_id)
+    assert.strictEqual(row.linkedin_url, 'https://www.linkedin.com/in/shared')
+    assert.strictEqual(row.linkedin_public, true)
+  })
+
   // ------------------------------------------------------------ limits, privacy, access
   await check('limits: the intent endpoint is limited per client address', async () => {
     const key = '203.0.113.7'
@@ -666,6 +758,7 @@ async function main() {
       `select record_upload_authorization('${happy.r.body.intentId}', now() - interval '1 day')`,
       `select mark_submission_object_removed('${happy.r.body.intentId}')`,
       `select finalize_submission_intent('${happy.r.body.intentId}', 'x', 1, 'x', 'x')`,
+      `select record_declared_authors('${happy.r.body.intentId}', '["x"]'::jsonb)`,
       'select expire_submission_intents(10, 0)',
     ]) {
       assert.ok(psql(`set role anon; ${sql}`).error, `anon could run: ${sql}`)

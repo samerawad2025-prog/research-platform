@@ -1,5 +1,10 @@
 'use client'
 
+// The LEGACY public submission form (anonymous upload + submit_paper).
+// Served only while SUBMISSION_ACCEPTANCE_FLOW is not enabled; it stops
+// working once migration 0014 closes the anonymous path. The new form is
+// AcceptanceSubmissionForm.jsx. Kept unchanged for the staged cutover.
+//
 // Public research submission form — extraction-first.
 // Collects only what cannot be extracted from the document:
 // who's submitting, the file itself, and consent. Everything
@@ -111,7 +116,7 @@ function isEmailish(value) {
 
 // manualMode comes from the server page (EXTRACTION_MODE). It only picks
 // the wording of the brief hand-off message; /api/extract enforces the mode.
-export default function SubmissionForm({ manualMode = false }) {
+export default function LegacySubmissionForm({ manualMode = false }) {
   const router = useRouter()
   const { locale } = useLocale()
   const t = messagesFor(locale).submission

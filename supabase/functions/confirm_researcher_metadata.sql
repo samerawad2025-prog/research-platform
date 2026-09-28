@@ -1,3 +1,4 @@
+-- Mirror of the current definition (migration 0013). Source of truth: supabase/schema.sql.
 create or replace function confirm_researcher_metadata(
   p_token text,
   p_researchers jsonb,
@@ -12,9 +13,11 @@ declare
   v_paper record;
   v_item jsonb;
   v_researcher_id uuid;
-  v_allow_social boolean;
   v_order int := 0;
   v_kept_ids uuid[] := '{}';
+  v_linkedin text;
+  v_public boolean;
+  v_exclusive boolean;
 begin
   select * into v_paper
   from papers
@@ -29,14 +32,18 @@ begin
     raise exception 'At least one researcher is required.';
   end if;
 
-  v_allow_social := ('metadata_and_article' = any(v_paper.publication_scope));
-
   for v_item in select * from jsonb_array_elements(p_researchers)
   loop
     v_order := v_order + 1;
 
     if v_item->>'full_name' is null or length(trim(v_item->>'full_name')) = 0 then
       raise exception 'Each researcher needs a name.';
+    end if;
+
+    v_linkedin := nullif(trim(coalesce(v_item->>'linkedin_url', '')), '');
+    if v_linkedin is not null
+       and v_linkedin !~* '^https://([a-z]{2,3}\.)?(www\.)?linkedin\.com/in/[^/?#[:space:]]{1,100}/?$' then
+      raise exception 'Please enter a LinkedIn profile address, for example https://www.linkedin.com/in/your-name';
     end if;
 
     if (v_item->>'researcher_id') is not null
@@ -46,18 +53,20 @@ begin
        )
     then
       v_researcher_id := (v_item->>'researcher_id')::uuid;
+      v_exclusive := not exists (
+        select 1 from paper_researchers where researcher_id = v_researcher_id and paper_id <> v_paper.id
+      );
+      v_public := v_linkedin is not null
+                  and v_researcher_id = v_paper.submitted_by
+                  and coalesce((v_item->>'linkedin_public')::boolean, false);
       update researchers set
         full_name = trim(v_item->>'full_name'),
-        linkedin_url = case when v_allow_social then nullif(v_item->>'linkedin_url', '') else linkedin_url end,
-        facebook_url = case when v_allow_social then nullif(v_item->>'facebook_url', '') else facebook_url end
+        linkedin_url = case when v_exclusive then v_linkedin else linkedin_url end,
+        linkedin_public = case when v_exclusive then v_public else linkedin_public end
       where id = v_researcher_id;
     else
-      insert into researchers (full_name, linkedin_url, facebook_url)
-      values (
-        trim(v_item->>'full_name'),
-        case when v_allow_social then nullif(v_item->>'linkedin_url', '') else null end,
-        case when v_allow_social then nullif(v_item->>'facebook_url', '') else null end
-      )
+      insert into researchers (full_name, linkedin_url, linkedin_public)
+      values (trim(v_item->>'full_name'), v_linkedin, false)
       returning id into v_researcher_id;
     end if;
 
@@ -74,10 +83,6 @@ begin
     and researcher_id <> all(v_kept_ids);
 
   if p_corrections is not null then
-    -- A key present but empty means the submitter cleared the field
-    -- deliberately (the extraction was wrong and there is no correct
-    -- value). A key absent entirely means they didn't touch it, so
-    -- the existing value stands.
     update papers set
       title = case when p_corrections ? 'title' then nullif(trim(p_corrections->>'title'), '') else title end,
       title_ar = case when p_corrections ? 'title_ar' then nullif(trim(p_corrections->>'title_ar'), '') else title_ar end,
@@ -87,11 +92,12 @@ begin
       university = case when p_corrections ? 'university' then nullif(trim(p_corrections->>'university'), '') else university end,
       faculty = case when p_corrections ? 'faculty' then nullif(trim(p_corrections->>'faculty'), '') else faculty end,
       degree_type = case when p_corrections ? 'degree_type' then nullif(trim(p_corrections->>'degree_type'), '') else degree_type end,
+      -- An unparseable year KEEPS the existing value (BUG_HISTORY.md #34).
       year = case
                when p_corrections ? 'year' then
-                 case when nullif(trim(p_corrections->>'year'), '') ~ '^[0-9]{4}$'
-                      then (p_corrections->>'year')::int
-                      else null end
+                 case when nullif(trim(p_corrections->>'year'), '') is null
+                      then null
+                      else coalesce(normalize_year_text(p_corrections->>'year'), year) end
                else year
              end
     where id = v_paper.id;

@@ -43,7 +43,7 @@ function lit(v) {
   return `'${String(v).replace(/'/g, "''")}'`
 }
 
-const VOID_FUNCTIONS = ['mark_submission_object_removed', 'record_upload_authorization']
+const VOID_FUNCTIONS = ['mark_submission_object_removed', 'record_upload_authorization', 'record_declared_authors']
 
 function pgClient({ psql }, { storage = null } = {}) {
   function builder(table) {

@@ -55,5 +55,6 @@ until curl -sf http://127.0.0.1:54321/storage/v1/status >/dev/null; do sleep 1; 
 git show "${BASE_REF:-origin/research-platform}:supabase/schema.sql" | $PSQL
 $PSQL < supabase/migrations/0011_manual_entry.sql
 $PSQL < supabase/migrations/0012_submission_acceptance.sql
+$PSQL < supabase/migrations/0013_linkedin_visibility_declared_authors.sql
 $PSQL -c "notify pgrst, 'reload schema'"
 echo "local Supabase stack ready at http://127.0.0.1:54321 (keys in $SB_DIR)"

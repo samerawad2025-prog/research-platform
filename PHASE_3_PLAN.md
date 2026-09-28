@@ -118,7 +118,16 @@ A planning document is never evidence that something is built.
 
 ### M2 (B): Server-enforced acceptance, controlled uploads, two publication settings, legacy permissions
 
-**Status (2026-09-26): split into M2A (backend foundation) and M2B (interface and cutover).**
+**Status (2026-09-27): M2A and M2B built and tested locally, together with M3; none of it deployed; the bypass is still open in production.**
+- **M2B** is on branch `claude/phase3-m2b-m3-submission`, in a PR stacked on M2A (#18). It covers:
+  - the acceptance form on the new endpoints: agreement text served from `docs/legal/` by hash, a signed processing offer, one unchecked checkbox, two publication settings, three roles with depositor-declared authors;
+  - stale-offer reacceptance, narrowing notice, language handling, upload/submission-expiry recovery, idempotent finalization recovery;
+  - the private receipt;
+  - no fallback to the legacy path.
+- **Cutover** is prepared as migration **0014** (drops the anonymous storage policy, revokes every `submit_paper` overload from `PUBLIC`/`anon`/`authenticated`, and verifies effective privileges). It is tested on the local stack, including a browser submission after it.
+- The release order, dependencies, failure recovery and rollback are in `docs/submission-flow.md`, "Cutover". Hosted Storage lifetime, the hosted gateway (CORS) and the S3 backend remain release checks on a preview project.
+
+**Earlier status (2026-09-26): split into M2A (backend foundation) and M2B (interface and cutover).**
 - **M2A is built and tested in isolation, on branch `claude/phase3-m2a-acceptance-upload`, in a PR stacked on M1.** It is not deployed, and it is inactive by default. It covers:
   - the agreement registry;
   - acceptance records with server timestamps and a processing-decision snapshot;
@@ -186,6 +195,11 @@ The bypass stays open between the two steps; keep that window short.
 ---
 
 ### M3 (C): Facebook removal and independent LinkedIn visibility
+
+**Status (2026-09-27): built and tested locally with M2B (migration 0013); not deployed.**
+- The display choice is `researchers.linkedin_public`, not a per-paper flag. Only the submitter can turn it on, for their own row. A row shared with another paper cannot be changed from this paper.
+- LinkedIn is validated as an `https://…linkedin.com/in/<name>` address.
+- Details: `docs/submission-flow.md`, "LinkedIn and Facebook".
 
 **Scope.**
 - Stop collecting Facebook links in the confirmation UI, and have the confirm RPC ignore any `facebook_url` it receives. Existing Facebook values are retained, not displayed, and handled later under the agreement's retention review; the column is not dropped in this milestone.

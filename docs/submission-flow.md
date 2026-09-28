@@ -1,19 +1,35 @@
-# Submission flow (Phase 3 M2A): acceptance, upload, finalization
+# Submission flow (Phase 3 M2A + M2B): acceptance, upload, finalization
 
-**Status: backend foundation, built and tested in isolation; not deployed; inactive by default.** The live form still uses the old path: an anonymous storage upload, then `submit_paper`. **M2A alone does not secure production.** Direct requests can still bypass acceptance until the old path is closed at M2B cutover (see "Cutover" below).
+**Status (2026-09-27): built and tested locally; not deployed; inactive by default.**
+- **M2A** (PR #18) is the server side: terms, intent, signed upload, finalization.
+- **M2B/M3** (the PR stacked on it) adds:
+  - the submission form on that flow;
+  - depositor-declared authors;
+  - Facebook removal and an independent LinkedIn display choice (migration 0013);
+  - the prepared cutover migration 0014, which closes the legacy anonymous path.
 
-Code: `lib/submission/acceptanceHandlers.js`, `app/api/submissions/*`, and `lib/extraction/extractHandler.js` (the document-hash check). Database: `supabase/migrations/0012_submission_acceptance.sql`. Tests, by tier:
+**Acceptance is not enforced in production until 0014 is applied.** Until then, a direct request can still upload anonymously and call `submit_paper` without accepting anything, whatever the form does. See "Cutover" below.
+
+Code:
+- Server: `lib/submission/acceptanceHandlers.js`, `app/api/submissions/*`, `lib/submission/agreementText.js`, and `lib/extraction/extractHandler.js` (the document-hash check).
+- Browser: `components/AcceptanceSubmissionForm.jsx`, `lib/submission/clientFlow.js`, `components/AgreementText.jsx` with `lib/submission/agreementMarkdown.js`, and `components/ConfirmationScreen.jsx`.
+- Database: `supabase/migrations/0012_submission_acceptance.sql`, `0013_linkedin_visibility_declared_authors.sql` and `0014_close_legacy_submission_path.sql` (the last applied only at cutover).
+
+Tests, by tier:
 
 | Tier | File | What is real |
 |---|---|---|
-| Mocked (CI) | `scripts/test-submission-acceptance.js` | Nothing external: validation, offers, token parsing, migration text |
-| Real Postgres | `supabase/tests/run-0012.sh` → `submission-postgres.test.js` | Postgres 16 and every SQL function; supabase-js calls translated to SQL; **a storage substitute** |
-| Real local Supabase | `supabase/tests/local-stack/start.sh`, then `supabase-local.test.js` | Supabase's Postgres image, **PostgREST, the Storage API** and supabase-js itself, on localhost. Not a hosted project |
+| Mocked (CI) | `scripts/test-submission-acceptance.js`, `scripts/test-submission-client.js`, `scripts/test-researcher-seed.js` | Nothing external: validation, offers, the browser flow's decisions, the agreement parser, LinkedIn rules, migration text |
+| Real Postgres | `supabase/tests/run-0012.sh` → `submission-postgres.test.js` | Postgres 16 and every SQL function (0011–0013); supabase-js calls translated to SQL; **a storage substitute** |
+| Real local Supabase | `supabase/tests/local-stack/start.sh`, then `supabase-local.test.js` and `supabase-cutover.test.js` | Supabase's Postgres image, **PostgREST, the Storage API** and supabase-js itself, on localhost. Not a hosted project |
+| Browser to database | `supabase/tests/run-browser-e2e.sh` → `browser-e2e.test.js` | Chromium driving the built app against the local stack, with the in-repository mock AI provider. Not a hosted project, and no request to Gemini |
+
+The local stack's gateway is a small stand-in for Supabase's hosted gateway (Kong), including its CORS answers to the browser. Hosted gateway and Storage behaviour are release checks (see "Cutover"), not something these tests establish.
 
 ## Flow
 
 1. **`GET /api/submissions/terms`.** Returns:
-   - the active agreement versions: id, language, version label and date, SHA-256;
+   - the active agreement versions: id, language, version label and date, SHA-256, and the **exact text**. The text is read from `docs/legal/` on the server, and served only if its hash still matches the registry; otherwise that agreement is not offered. The response also includes the acceptance sentence taken from that text;
    - the two publication settings and the default `record_abstract`;
    - the claimed roles;
    - file limits;
@@ -21,7 +37,9 @@ Code: `lib/submission/acceptanceHandlers.js`, `app/api/submissions/*`, and `lib/
    - **`offer: { token, decision, expiresAt }`**: a server-signed record of what was shown (see "The processing offer").
 2. **`POST /api/submissions/intent`.** Acceptance and choice. The body may contain only these fields:
 
-   `{ offerToken, agreementId, accepted: true, publicationSetting, claimedRole, fullName, email, whatsapp?, whatsappCountry?, file: { name, size, type } }`
+   `{ offerToken, agreementId, accepted: true, publicationSetting, claimedRole, fullName, email, whatsapp?, whatsappCountry?, authors?, file: { name, size, type } }`
+
+   `authors` (1–50 names, each at most 200 characters) is required for `authorized_depositor` and refused for anyone else.
 
    Any other field is refused (`400 unexpected_field`). That includes any attempt to name a processing mode, path, hash, legal text or timestamp.
 
@@ -32,7 +50,7 @@ Code: `lib/submission/acceptanceHandlers.js`, `app/api/submissions/*`, and `lib/
    - the agreement id is in the application registry (`lib/submission/agreements.js`) **and** is an active row in `agreement_versions` with the same language and hash;
    - the setting, role, contact details, file extension, declared MIME type and size (at most 20 MB).
 
-   It then records a **`submission_acceptances`** row containing:
+   It then records a **`submission_acceptances`** row containing the fields below. For a depositor, it then records the declared authors on that row (`record_declared_authors`, once, immutable) **before** any upload link exists; if that fails, no link is issued.
    - the agreement version, language and hash;
    - `accepted_at` in server time;
    - the claimed role, with `identity_verified = false`, because an anonymous declaration is not identity verification;
@@ -101,11 +119,27 @@ The person submitting is always recorded: in `papers.submitted_by` and in the ac
 
 | Claimed role | Linked on the paper at finalization |
 |---|---|
-| `author` | as a researcher, position 1 |
-| `coauthor` | as a researcher, position unset (the confirmation step places them) |
-| `authorized_depositor` (a librarian, a volunteer) | **not linked.** The confirmation step collects the actual authors. |
+| `author` | the submitter, position 1 |
+| `coauthor` | the submitter, with no position (the confirmation step places them) |
+| `authorized_depositor` (a librarian, a volunteer) | **not the submitter.** The authors they declared are linked in their declared order, as names only, with no contact details. |
 
-All of these are unverified declarations (`identity_verified = false`). The confirmation step (`confirm_researcher_metadata`) sets the final list and order. It adds only the people it is given, so a depositor who is not listed is never reinserted. `seedResearchers` starts an empty paper from one blank row, not from the depositor.
+All of these are unverified declarations (`identity_verified = false`).
+
+The confirmation step (`confirm_researcher_metadata`) sets the final list and order:
+- It adds only the people it is given, so a depositor is never reinserted.
+- For a depositor's paper, the confirmation screen starts from the declared authors rather than from what automatic extraction found, because those names were typed by a person. The depositor can still correct them there.
+
+## LinkedIn and Facebook (M3, migration 0013)
+
+- **Facebook is no longer collected.** It is gone from the confirmation screen. `confirm_researcher_metadata` ignores any `facebook_url` it is sent, and `get_paper_for_confirmation` no longer returns it. The column and its historical values are unchanged.
+- **LinkedIn is optional, and stored whatever the publication permission.** Only an `https://…linkedin.com/in/<name>` address is accepted. The browser tidies `linkedin.com/in/x` into that form; the database enforces the same rule.
+- **Display is a separate choice, `researchers.linkedin_public`, default false.**
+  - Existing values are private: nothing is inferred from a legacy `publication_scope`.
+  - Only the submitter can turn it on, and only for their own row as a listed author.
+  - A LinkedIn link that anyone else adds (for example a depositor adding an author) stays private until that person chooses otherwise, which M4/M5 will provide.
+  - Clearing the link clears the choice.
+- **Shared rows are protected.** A researcher row linked to more than one paper keeps its own LinkedIn and display choice; one paper's confirmation cannot change them. Naming someone never reaches another paper's row: rows are matched only among this paper's own links.
+- **Public display is not built yet.** `publicLinkedIn()` in `lib/validation/linkedin.js` is the rule a public page will use: a link only when its owner chose to show it and it is still valid. Email and WhatsApp are never public fields.
 
 ## The processing decision: one authority
 
@@ -143,34 +177,48 @@ What the researcher accepts includes how their document will be processed, so th
   Every `409 offer_stale` carries `refresh: '/api/submissions/terms'`.
 - The browser cannot supply a decision: the offer is signed and the body is strict. The database also caps the decision by the offer (`create_submission_intent`) and a check constraint forbids a recorded `automatic` under a `manual` offer, so a change between the handler's check and the insert can only narrow.
 
-## Interface contract for M2B
+## The submission form (M2B)
 
-- **Before acceptance:**
-  - Show the agreement text rendered from `docs/legal/` for the `agreementId` returned by `/terms`, in the active language.
-  - Show one unchecked acceptance checkbox.
-  - Show the publication setting as a separate choice, defaulting to "Record and abstract only".
-  - Show the processing behaviour from `offer.decision`.
-  - Keep `offer.token` and send it with `/intent`.
-- **On `409 offer_stale`:** fetch `/terms` again, show the new agreement and processing information, and ask for acceptance again. Never resubmit silently with a new offer.
-- **After `201` from `/intent`:** show `processing.decision`. If `changedFromOffer` is true, say before uploading that the document will not be read automatically and details will be entered by hand. That can only be a narrowing.
-- **Roles:** offer author / co-author / authorized depositor. For a depositor, the confirmation page must ask for the actual authors, since none is pre-filled.
-- **Upload with the returned authorization, then call `/finalize`:**
-  - Upload promptly. The authorization's lifetime is Storage's (confirm on the preview project); the intent's is 30 minutes.
-  - Retry `/finalize` on network failure; it is safe to repeat.
-  - On `410 intent_expired`, start again from `/terms`.
-  - On `409 upload_missing`, re-upload with the same authorization, then finalize.
-- **Navigate** to `/confirm/<confirmationToken>`. Call `/api/extract` only if `extraction.mayStart`.
-- **Errors** are typed (`reason`) and need EN/AR wording in M2B:
-  - `acceptance_required`
-  - `offer_invalid` and `offer_stale` (with `staleBecause`)
-  - `agreement_unknown`
-  - `publication_setting_invalid` and `claimed_role_invalid`
-  - `name_required`, `email_invalid` and `whatsapp_invalid`
-  - `file_type_invalid` and `file_size_invalid`
-  - `object_size_mismatch` and `object_type_invalid`
-  - `upload_missing` and `intent_expired`
-  - `rate_limited`
-  - `database_not_ready` and `upload_authorization_failed`
+`/submit` serves `AcceptanceSubmissionForm` when `SUBMISSION_ACCEPTANCE_FLOW=enabled`, and the unchanged legacy form otherwise. When the new flow is selected but unavailable (no active agreement, database not ready, the endpoints off), the form says submissions are temporarily unavailable and submits nothing. **There is no fallback to the legacy anonymous path.**
+
+**What the researcher sees and does:**
+1. **About you:** name, email, and optional WhatsApp.
+2. **Your role:** author, one of the authors, or submitting on behalf of the authors. A depositor must enter the authors' names in order; the form says they will not be listed as an author.
+3. **The file** (PDF or DOCX, at most 20 MB).
+4. **Publication permission,** two ordinary choices:
+   - **Record and abstract only** (the default);
+   - **Record, abstract and full text**, which readers may read online and download after approval.
+
+   The form says nothing is published before review, and that no open (Creative Commons) licence is applied.
+5. **How the document will be processed:** the server's offered decision (automatic, naming Google Gemini, or manual entry). The browser never infers it.
+6. **Agreement:**
+   - The short summary.
+   - An in-page disclosure with the full agreement text as served, in the interface language when that version is offered. Opening it keeps every input and the chosen file, and there is no forced scrolling.
+   - One unchecked checkbox, labelled with the agreement's own acceptance sentence.
+   - Submit stays disabled until every required field is valid and the box is ticked; a "Still needed" line says what is missing. The server enforces acceptance on its own.
+
+**Offer changes and recovery:**
+
+| Situation | What happens |
+|---|---|
+| The offer is about to expire, or `/intent` answers `offer_stale` / `offer_invalid` | The terms are reloaded, acceptance is cleared, inputs and file are kept, and a notice (focused, announced) explains that acceptance is needed again. Nothing is resubmitted by itself. |
+| Processing became narrower (`changedFromOffer`) | Before any upload, the form explains that the document will not be read automatically. It uploads only after "Continue with upload". |
+| The interface language changes | Acceptance counts only for the agreement it was given to. Switching language shows the other text and withdraws acceptance, with a notice. The recorded agreement is the one shown when the box was ticked. |
+| Anything accepted changes: offer, agreement, setting, role, contact details, authors, or a new file selection | A new intent (a new acceptance record). An unchanged retry reuses the open intent. |
+| Upload fails | The error is explained; pressing Submit again reuses the same intent. |
+| **Upload link expired** (Storage's own lifetime, read from the link, never assumed) | A distinct message. The next Submit takes a new intent and link. |
+| **Submission expired** (the 30-minute intent) | A distinct message; inputs are kept, and Submit starts again. |
+| Finalization response lost or failing | Retried automatically (it is idempotent). If still unanswered, the intent id and token, never the file or confirmation token, stay in this tab's `sessionStorage`, and on reload the form offers "Complete submission". |
+| Double clicks, Enter presses | One request at a time; the button is disabled while working. |
+
+Messages exist in English and Arabic for each of these, and for rate limiting, unavailable service and success.
+
+**After success:** the browser goes to the private confirmation page, `/confirm/<token>`, which shows a receipt:
+- the research was received, and is private and unpublished;
+- the next step is checking and confirming the details, then review;
+- anything public later follows the chosen permission, and only after approval.
+
+The page also says its address is a private link and not a public page for the research. The page carries `noindex` and `no-referrer`. No analytics exist on the site. The timing log records only an 8-character token prefix. The manual-entry flow and its safeguards are unchanged. The browser asks `/api/extract` to start only when `extraction.mayStart`, and the route enforces the same rule.
 
 ## Limits
 
@@ -182,43 +230,52 @@ What the researcher accepts includes how their document will be processed, so th
 
 | Variable | Meaning |
 |---|---|
-| `SUBMISSION_ACCEPTANCE_FLOW` | `enabled` serves the new endpoints; anything else returns 404. Leave it unset in production until M2B. |
+| `SUBMISSION_ACCEPTANCE_FLOW` | `enabled` serves the new endpoints **and** the new form at `/submit`; anything else returns 404 from the endpoints and serves the legacy form. Enabled only at cutover step 4, after an agreement is activated. |
 | `SUBMISSION_TOKEN_SECRET` | At least 32 characters, server-only, **Production scope only**. It signs offers and derives confirmation tokens. Rotating it invalidates outstanding offers (researchers see `offer_invalid` and reload the terms) and changes the token a retried finalization would return; papers already created keep working. |
 
 The agreement rows are seeded `active = false`. Activating one is the founder's decision after the conditions in `docs/legal/README.md` are met, not a deployment step.
 
-## Verified against real Supabase services, and what is not
+## Verified locally, and what is not
 
-**Verified on a local Supabase stack** (Supabase Postgres 17.6.1.011, PostgREST 12.2.12, Storage API 1.28.0 with the file backend, supabase-js from this repository; `supabase-local.test.js`):
-1. The handlers reach every new function with the service role through PostgREST.
-2. `anon` and `authenticated` cannot call any of the seven functions, and read nothing from the acceptance, agreement, limit, policy, paper or researcher tables.
-3. A signed upload authorization uploads only to its own path; another path, a sibling path, or a token edited without the secret is refused.
-4. With `upsert: false`, an existing object, before or after finalization, cannot be replaced through the authorization, even when the client asks for upsert. The finalized bytes are unchanged.
-5. An expired authorization is refused. Intent expiry does not revoke an authorization.
-6. The authorization's expiry is readable from its token and is what the server records.
-7. Concurrent upload and finalization, then a retry, create exactly one paper. Concurrent finalizations with the object in place return one token.
-8. Cleanup removes an abandoned object from real Storage only after authorization expiry plus margin, and leaves finalized and unrelated objects.
-9. The bucket is private to `anon`. The old anonymous upload path is still open (expected until cutover).
+**On the local Supabase stack** (Supabase Postgres 17.6.1.011, PostgREST 12.2.12, Storage API 1.28.0 with the file backend, supabase-js from this repository):
+- **Service role:** the new functions are reachable only with the service role. `anon`/`authenticated` cannot call any of them, including `record_declared_authors`, and cannot read the acceptance, agreement, limit, policy, paper or researcher tables.
+- **Signed uploads:** path binding; `upsert: false` refusing a second upload before and after finalization; expired links refused; intent expiry not revoking a link; the link's expiry recorded.
+- **Concurrency:** concurrent uploads and finalizations create one paper.
+- **Cleanup:** removes only abandoned objects, after link expiry plus margin.
+- **Cutover (`supabase-cutover.test.js`):**
+  - before 0014, anonymous upload and `submit_paper` work (today's production state);
+  - 0014 aborts, changing nothing, while a stray browser-write storage policy remains;
+  - it revokes every `submit_paper` overload, including one reachable only through `PUBLIC`;
+  - after it, anonymous and authenticated direct upload and `submit_paper` are refused through the real APIs;
+  - after it, the signed flow still completes for an author and a depositor, and confirmation still works with the token.
+- **In Chromium, browser to database (`browser-e2e.test.js`, before and after 0014):**
+  - English and Arabic, keyboard-only submission, and 360/390/768/1280/1440 px without horizontal scrolling;
+  - both publication settings; author, co-author and depositor, with the depositor's authors linked and the depositor not;
+  - manual processing, and simulated automatic processing (mock provider);
+  - stale offers (processing broadened, agreement deactivated), narrowed processing, and a language switch;
+  - upload failure, upload-link expiry, submission expiry, a lost finalization response, recovery after reload, and duplicate clicks;
+  - server-side enforcement of acceptance and the offer;
+  - no Facebook field, LinkedIn validation, private by default, and only the submitter able to show their own;
+  - no unexpected console errors.
 
-**Still unverified, to check on a preview project before cutover:**
-- The authorization lifetime on this project's hosted Storage. Hosted Supabase documents 2 hours; the Storage API's own default is 60 seconds. The code reads it from the token either way; the interface wording depends on it.
-- The hosted API gateway (Kong) and the S3-backed Storage backend. Locally, a small gateway and the file backend stand in for them.
+**Not verified; release requirements:**
+- The signed-upload lifetime on the hosted project. Hosted Supabase documents 2 hours; the Storage API default is 60 seconds. The code reads it from the link either way, and no lifetime is shown to researchers.
+- The hosted gateway (Kong), including CORS for the production origin, and the S3-backed Storage backend.
 - Vercel's forwarding of client addresses to the request limits.
+- The `docs/legal/*.md` files being present in the deployed terms function. `next.config.mjs` includes them; if they were missing, the terms would offer no agreement and the form would say submissions are unavailable, never fall back.
 
 ## Cutover (staged)
 
-1. **M2A, this change.** Apply 0011 and 0012. Deploy with `SUBMISSION_ACCEPTANCE_FLOW` unset. Nothing visible changes, and the old path stays open. **Production is not secured by this step.**
-2. **M3, required before M2B's release.**
-   - Remove Facebook collection.
-   - Make LinkedIn visibility independent of `publication_scope`. New-path papers have an empty `publication_scope`, so under today's `confirm_researcher_metadata` their LinkedIn links would silently not be saved.
-3. **M2B.**
-   - Build the new form on the contract above, including the stale-offer reacceptance and the depositor's author entry.
-   - On a preview project: confirm the upload authorization lifetime, and re-run the local Supabase checks' scenarios (path binding, overwrite, expiry, cleanup) against hosted Storage.
-   - Enable the flow on a preview, then in production.
-   - Activate the agreement only when its conditions are met.
-4. **Close the old path**, in a separate migration after M2B is verified in production:
-   - drop the storage policy "anon can upload research files";
-   - revoke `execute` on `submit_paper` from `anon`.
+Order matters. The legacy form uploads with the anonymous role, so closing that path before the new form is live would break every submission.
 
-   Then verify that a direct anonymous upload and a direct `submit_paper` call are both refused.
-5. After that, `database_policy` stamps stop being created, and every new paper's decision is server-made.
+| Step | What | Depends on | If it fails |
+|---|---|---|---|
+| 1 | Apply 0011, 0012 and 0013 to production, in order. All additive. The currently deployed app keeps working: it reads `facebook_url` defensively, and a LinkedIn value it sends now has to be a valid profile address. | — | Roll back per each file; nothing is lost while no new-path paper exists. |
+| 2 | Deploy this release with `SUBMISSION_ACCEPTANCE_FLOW` **unset** and `SUBMISSION_TOKEN_SECRET` set (Production scope). The legacy form is served; nothing visible changes except the confirmation screen (LinkedIn only, with its choice, and the private-link note). | 1 | Redeploy the previous build. |
+| 3 | On a preview project, not production: run the local checks' scenarios against hosted Supabase: link lifetime, path binding, overwrite refusal, expiry, CORS from the site origin. | 2 | Fix before step 4. |
+| 4 | **Founder decision:** activate an agreement version (`docs/legal/README.md` conditions), then set `SUBMISSION_ACCEPTANCE_FLOW=enabled` and redeploy. The new form is served. Make one real signed submission end to end. | 3 | Unset the flag and redeploy: the legacy form returns (the old path is still open). |
+| 5 | Apply **0014**. It aborts, changing nothing, unless 0012 and 0013 are present and no browser-write storage policy or `submit_paper` execute privilege remains afterwards. | 4, verified | Emergency rollback at the bottom of 0014 reopens the bypass, and is only paired with serving the legacy form again. |
+| 6 | Verify from outside: an anonymous upload to `papers` and an anonymous `submit_paper` call are refused, and a signed submission still completes. | 5 | Investigate; do not reopen the bypass as a resting state. |
+
+**Acceptance is enforced only from step 5.** Between steps 4 and 5 the bypass is still open; keep that window short. After step 5, `database_policy` stamps stop being created and every new paper's decision is server-made. Legacy rows keep their legacy consent columns unchanged.
+

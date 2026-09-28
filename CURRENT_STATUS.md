@@ -19,6 +19,12 @@ Four labels are used here and in `PHASE_3_PLAN.md`. Product intent comes from th
 
 ### Built and verified, not deployed (2026-09-26)
 
+**Phase 3 M2B + M3 (2026-09-27):** the submission form on the acceptance flow, depositor-declared authors, Facebook removal and the LinkedIn display choice (migration `0013`), plus the prepared cutover migration `0014`. It is on branch `claude/phase3-m2b-m3-submission`, in a PR stacked on M2A (#18).
+- It is **not merged, not deployed and inactive**: `SUBMISSION_ACCEPTANCE_FLOW` unset serves the legacy form.
+- **Acceptance is not enforced in production** until 0014 is applied at cutover (`docs/submission-flow.md`, "Cutover").
+- Verified with mocked checks (CI), real local Postgres, the local Supabase stack (PostgREST + Storage API, before and after 0014), and Chromium browser-to-database runs in EN/AR at 360–1440 px with the mock AI provider.
+- Not verified: hosted Storage link lifetime, the hosted gateway/CORS, and the S3 backend.
+
 **Phase 3 M2A:** the server-controlled acceptance and upload foundation (`docs/submission-flow.md`, migration `0012`). It is on branch `claude/phase3-m2a-acceptance-upload`, in a PR stacked on M1.
 - It is **not merged, not deployed and inactive**: the endpoints need `SUBMISSION_ACCEPTANCE_FLOW=enabled`, and every agreement row is seeded inactive.
 - The old anonymous upload and `submit_paper` path is unchanged and still open, so **M2A does not secure production**.
