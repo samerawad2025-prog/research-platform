@@ -250,6 +250,8 @@ The bypass stays open between the two steps; keep that window short.
 
 ### M5 (E): Public research pages, approved downloads, withdrawal, browse/search
 
+> **Status: built, not deployed** (stacked PR on #20). Migration `0016_public_research.sql`, `/research`, `/research/[publicId]`, the approved-file route, `/api/research`, `sitemap.xml` and `robots.txt`, behind `PUBLIC_RESEARCH=enabled` (off). Every surface uses `publication_eligibility()` through four database functions returning an allowlist of fields. Files: the approved dissemination version only, private bucket, 60-second signed links; the full-text legal restriction stays active. Permanent links come only from `PUBLIC_SITE_ORIGIN` (unset until a domain is chosen: no canonical URL, no indexing). Reconciliations against the scope below: "institution" is not offered as a filter while one institution is public; `/confirm/*` is excluded by `robots.txt` (no analytics exist); citation export stays in M6. Details: `docs/public-research.md`.
+
 **Scope.**
 - **Public identifiers.** A separate public identifier per published record: random, stable, never the UUID or the confirmation token. The route is something like `/research/[publicId]`, with the site origin configurable so a later domain choice does not break links.
 - **One publication rule for every public path.** A record is public only when all of the following hold: publication approved, institution eligible, not withdrawn, embargo passed, and the accepted setting permits the content. The rule is enforced in the database or server layer and applies to:

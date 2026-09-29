@@ -84,3 +84,6 @@ jobs:
 
       - name: Admin review handlers (Phase 3 M4)
         run: node scripts/test-admin-handlers.js
+
+      - name: Public research pages and files (Phase 3 M5)
+        run: node scripts/test-public.js

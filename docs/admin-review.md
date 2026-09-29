@@ -323,6 +323,8 @@ dissemination version id and hash.
 
 ### The shared rule for M5/M6
 
+M5 uses it for every public surface (`docs/public-research.md`). The review screen shows *Open the public page* only when the record is public right now and the public site is switched on.
+
 `publication_eligibility(paper)` returns:
 `review_approved`, `record_public`, `abstract_public`, `fulltext_public`,
 `reasons`, `fulltext_reasons`, `restrictions`. Every future public page,
