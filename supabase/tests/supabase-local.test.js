@@ -135,6 +135,7 @@ async function main() {
       ['expire_submission_intents', { p_limit: 100, p_margin_seconds: 0 }],
       ['mark_submission_object_removed', { p_intent_id: r.body.intentId }],
       ['record_upload_authorization', { p_intent_id: r.body.intentId, p_expires_at: new Date(0).toISOString() }],
+      ['record_declared_authors', { p_intent_id: r.body.intentId, p_authors: ['x'] }],
     ]
     for (const [who, client] of [['anon', anon], ['authenticated', authed]]) {
       for (const [fn, args] of calls) {

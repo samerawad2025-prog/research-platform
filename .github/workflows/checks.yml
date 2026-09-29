@@ -78,3 +78,6 @@ jobs:
 
       - name: Submission acceptance (Phase 3 M2A)
         run: node scripts/test-submission-acceptance.js
+
+      - name: Submission form flow, agreement text and LinkedIn (Phase 3 M2B/M3)
+        run: node scripts/test-submission-client.js

@@ -71,6 +71,11 @@ const AR_CONFIRM_ERRORS = {
   'Invalid or expired confirmation link.': 'رابط التأكيد غير صالح أو منتهي الصلاحية.',
   'At least one researcher is required.': 'يلزم وجود باحث واحد على الأقل.',
   'Each researcher needs a name.': 'يجب إدخال اسم لكل باحث.',
+  // Added by migration 0013.
+  "This person is also listed on another submission, so their name and profile can't be changed here. Please contact us to correct them.":
+    'هذا الشخص مُدرج أيضاً في طلب تقديم آخر، لذلك لا يمكن تغيير اسمه أو ملفه الشخصي من هنا. يرجى التواصل معنا لتصحيحهما.',
+  'Please enter a LinkedIn profile address, for example https://www.linkedin.com/in/your-name':
+    'يرجى إدخال عنوان ملف شخصي على LinkedIn، مثل \u2066https://www.linkedin.com/in/your-name\u2069',
 }
 
 export const MESSAGES = {
@@ -170,6 +175,105 @@ export const MESSAGES = {
       rpcError: (message) => message,
       phoneError: (message) => message,
     },
+    // Phase 3 M2B: the acceptance-based submission form
+    // (components/AcceptanceSubmissionForm.jsx).
+    acceptance: {
+      loading: 'Loading the submission terms…',
+      unavailableHeading: 'Submissions are temporarily unavailable',
+      unavailableBody:
+        'New submissions can’t be accepted right now, and nothing has been sent. Please try again later, or contact us using the details below.',
+      retry: 'Try again',
+      roleLegend: 'Your role',
+      roles: {
+        author: { label: 'I am the author', hint: 'You wrote this work, or are its only or first author.' },
+        coauthor: { label: 'I am one of the authors', hint: 'You are one of several authors of this work.' },
+        authorized_depositor: {
+          label: 'I am submitting on behalf of the authors',
+          hint: 'For example, a librarian or volunteer with the authors’ permission. You will not be listed as an author.',
+        },
+      },
+      authorsLegend: 'Authors of this work',
+      authorsHint: 'Enter each author’s name as it appears on the work, in order. The list can be corrected later.',
+      authorName: (n) => `Author ${n} name`,
+      addAuthor: '+ Add an author',
+      removeAuthor: (n) => `Remove author ${n}`,
+      settingLegend: 'Publication permission',
+      settingIntro:
+        'Choose what may be made public if the platform approves your submission. Nothing is published before review, and no open (Creative Commons) licence is applied.',
+      settings: {
+        record_abstract: {
+          label: 'Record and abstract only',
+          hint: 'The approved title, authors, bibliographic details, abstract and citation may be public. The full document stays private.',
+        },
+        record_abstract_fulltext: {
+          label: 'Record, abstract and full text',
+          hint: 'The same, plus the approved document, which readers may read online and download for personal study and research.',
+        },
+      },
+      processingLegend: 'How your document will be processed',
+      processing: {
+        automatic:
+          'After upload, an automated service, including Google Gemini, reads your document to suggest details such as its title and authors. You check and correct them before confirming.',
+        manual: 'Your document will not be read automatically. After upload, you will enter its details yourself.',
+      },
+      termsLegend: 'Agreement',
+      summary:
+        'Your submission remains private until reviewed. Publication follows your selected setting. Approved public full text can be read and downloaded.',
+      readTerms: 'Read the full agreement',
+      version: (label, date) => `${label}, ${date}`,
+      termsRegion: 'Full text of the agreement',
+      otherLanguage: 'The agreement is not available in your language, so it is shown in the language below.',
+      submit: 'Accept and submit',
+      working: {
+        intent: 'Recording your acceptance…',
+        upload: 'Uploading your file…',
+        finalize: 'Completing your submission…',
+      },
+      narrowedHeading: 'Processing has changed',
+      narrowedBody:
+        'Since this form was opened, automatic reading was switched off. Your document will not be read automatically; after upload, you will enter its details yourself.',
+      narrowedContinue: 'Continue with upload',
+      narrowedCancel: 'Cancel and edit details',
+      lockedNote:
+        'Your details, file and choices are locked to what you just accepted. To change anything, choose “Cancel and edit details”; you will then accept again.',
+      pinnedLanguage: 'This is the agreement you accepted, so it stays shown in its own language until the submission is completed or cancelled.',
+      notices: {
+        offer_expired:
+          'The terms you were shown have expired, so we’ve loaded the current terms. Please read them and tick the box again to accept. Your details and file are kept.',
+        agreement_changed:
+          'The agreement has changed since you opened this form. Please read the current version and tick the box again to accept. Your details and file are kept.',
+        processing_broadened:
+          'How submissions are processed has changed since you opened this form. Please read the updated explanation and tick the box again to accept. Your details and file are kept.',
+        offer_invalid:
+          'We couldn’t verify the terms you were shown, so we’ve loaded them again. Please tick the box again to accept. Your details and file are kept.',
+        language: 'The agreement is now shown in the language you chose. Please read it and tick the box again to accept.',
+        locked: 'That change wasn’t applied: the form is locked to what you accepted. Choose “Cancel and edit details” first.',
+      },
+      errors: {
+        uploadLinkExpired:
+          'The upload link expired before your file finished uploading. Your details are kept. Press “Accept and submit” to try again with a new link.',
+        uploadFailed: 'Your file didn’t upload. Please check your connection and press “Accept and submit” to try again. Your details are kept.',
+        submissionExpired:
+          'This submission expired before it was completed. Your details are kept. Press “Accept and submit” to start it again.',
+        unavailable: 'Submissions are temporarily unavailable. Nothing was submitted. Please try again later.',
+        rateLimited: 'There have been too many attempts from your connection. Please wait a while and try again.',
+        network: 'We couldn’t reach the server. Please check your connection and try again. Your details are kept.',
+        objectMismatch: 'The uploaded file didn’t match the file you chose. Please choose the file again and submit.',
+        objectType: 'The uploaded file isn’t a readable PDF or DOCX document. Please choose another file.',
+        invalid: 'Some details weren’t accepted. Please check the form and try again.',
+        internal: 'Something went wrong on our side. Please try again in a moment.',
+        recoveryIncomplete: 'The file from your earlier attempt never reached us, so that submission can’t be completed. Please submit again.',
+      },
+      recoveryHeading: 'Finish your earlier submission',
+      recoveryBody: 'Your file was uploaded, but the submission wasn’t completed. You can complete it now.',
+      recoveryAction: 'Complete submission',
+      recoveryDiscard: 'Start a new one instead',
+      outstanding: {
+        role: 'your role',
+        authors: 'the authors’ names',
+        accept: 'your acceptance of the agreement',
+      },
+    },
     country: {
       name: (country) => country.name_en,
       trigger: (name) => `Country: ${name}. Change`,
@@ -249,11 +353,19 @@ export const MESSAGES = {
       conflicting: 'Your paper gives two different answers here. Which is right?',
       ambiguous: 'We weren’t certain about this one. Please check it.',
       sourcePrefix: 'Found on ',
-      socialAdd: 'Add a LinkedIn or Facebook link',
-      socialWhy:
-        'Adding a profile lets us credit and tag this researcher when the work is featured, so it reaches their own network too. Both are optional.',
-      linkedin: 'LinkedIn URL (optional)',
-      facebook: 'Facebook URL (optional)',
+      linkedinAdd: 'Add a LinkedIn profile (optional)',
+      linkedinWhy: 'Optional. It stays private unless its owner chooses to show it.',
+      linkedin: 'LinkedIn profile address (optional)',
+      linkedinInvalid: 'Please enter a LinkedIn profile address, for example https://www.linkedin.com/in/your-name',
+      linkedinPublic: 'Show my LinkedIn profile on this research’s public record, if it is published',
+      linkedinOthers: 'Only you can choose to show your own profile. Other people’s links stay private.',
+      receipt: {
+        heading: 'Your research has been received',
+        body:
+          'It is private and has not been published. Next, check its details below and confirm them. It will then be reviewed; anything made public later follows the publication permission you chose, and only after approval.',
+      },
+      privateLink:
+        'This page’s address is your private link to these details. Keep it to yourself: it is not a public page for your research.',
       confirm: 'Confirm these details',
       confirmExtracting: 'Reading your research…',
       confirmSaving: 'Saving…',
@@ -278,6 +390,7 @@ export const MESSAGES = {
       errors: {
         emptyResearcher: 'Please fill in every researcher’s name, or remove the empty row.',
         missingTitle: 'Please add the title of your research, in English or Arabic, before confirming.',
+        linkedin: 'Please correct the LinkedIn address, or clear it, before confirming.',
         invalidYear: 'Please enter the year as four digits, for example 2023.',
         save: (code) =>
           `We couldn’t save your confirmation. Please try again in a moment.${code ? ` (reference: ${code})` : ''}`,
@@ -392,6 +505,108 @@ export const MESSAGES = {
       rpcError: (message) => AR_SUBMIT_PAPER_ERRORS[message] || 'حدث خطأ من جانبنا. يرجى المحاولة مرة أخرى بعد قليل.',
       phoneError: (message) => AR_PHONE_ERRORS[message] || AR_PHONE_ERRORS.notANumber,
     },
+    acceptance: {
+      loading: 'جارٍ تحميل شروط التقديم…',
+      unavailableHeading: 'التقديم غير متاح مؤقتاً',
+      unavailableBody:
+        'لا يمكن قبول طلبات تقديم جديدة الآن، ولم يُرسل أي شيء. يرجى المحاولة لاحقاً، أو التواصل معنا عبر البيانات أدناه.',
+      retry: 'حاول مرة أخرى',
+      roleLegend: 'صفتك',
+      roles: {
+        author: { label: 'أنا مؤلف البحث', hint: 'كتبت هذا العمل، أو أنت مؤلفه الوحيد أو الأول.' },
+        coauthor: { label: 'أنا أحد مؤلفي البحث', hint: 'أنت واحد من عدة مؤلفين لهذا العمل.' },
+        authorized_depositor: {
+          label: 'أقدّم البحث نيابةً عن مؤلفيه',
+          hint: 'مثل أمين مكتبة أو متطوع بإذن من المؤلفين. لن تُدرج مؤلفاً للبحث.',
+        },
+      },
+      authorsLegend: 'مؤلفو هذا العمل',
+      authorsHint: 'أدخل اسم كل مؤلف كما يظهر في العمل، وبالترتيب نفسه. يمكن تصحيح القائمة لاحقاً.',
+      authorName: (n) => `اسم المؤلف ${n}`,
+      addAuthor: '+ إضافة مؤلف',
+      removeAuthor: (n) => `إزالة المؤلف ${n}`,
+      settingLegend: 'إذن النشر',
+      settingIntro:
+        'اختر ما يجوز نشره للعامة إذا وافقت المنصة على طلبك. لا يُنشر شيء قبل المراجعة، ولا تُطبَّق أي رخصة مفتوحة (المشاع الإبداعي).',
+      settings: {
+        record_abstract: {
+          label: 'بيانات البحث والملخص فقط',
+          hint: 'يجوز نشر العنوان المعتمد وأسماء المؤلفين والبيانات الببليوغرافية والملخص والاستشهاد. يبقى المستند الكامل خاصاً.',
+        },
+        record_abstract_fulltext: {
+          label: 'بيانات البحث والملخص والنص الكامل',
+          hint: 'ما سبق، إضافةً إلى المستند المعتمد الذي يمكن للقراء قراءته عبر الإنترنت وتنزيله للدراسة والبحث الشخصي.',
+        },
+      },
+      processingLegend: 'كيف ستتم معالجة مستندك',
+      processing: {
+        automatic: (
+          <>
+            بعد الرفع، تقرأ خدمة آلية، منها <Ltr>Google Gemini</Ltr>، مستندك لاقتراح تفاصيل مثل العنوان والمؤلفين. تراجعها
+            وتصححها قبل التأكيد.
+          </>
+        ),
+        manual: 'لن تتم قراءة مستندك آلياً. بعد الرفع، ستُدخل تفاصيله بنفسك.',
+      },
+      termsLegend: 'الاتفاقية',
+      summary:
+        'يبقى طلبك خاصاً حتى تتم مراجعته. يتبع النشر الخيار الذي تحدده. ويمكن قراءة النص الكامل المعتمد للعامة وتنزيله.',
+      readTerms: 'اقرأ نص الاتفاقية كاملاً',
+      // The registry's labels are English; the date is isolated LTR.
+      version: (label, date) => `${label === 'Initial Version' ? 'الإصدار الأول' : label}، \u2066${date}\u2069`,
+      termsRegion: 'النص الكامل للاتفاقية',
+      otherLanguage: 'الاتفاقية غير متاحة بلغتك، لذلك تُعرض باللغة أدناه.',
+      submit: 'أوافق وأقدّم البحث',
+      working: {
+        intent: 'جارٍ تسجيل موافقتك…',
+        upload: 'جارٍ رفع ملفك…',
+        finalize: 'جارٍ إكمال التقديم…',
+      },
+      narrowedHeading: 'تغيّرت طريقة المعالجة',
+      narrowedBody:
+        'منذ فتح هذا النموذج، أُوقفت القراءة الآلية. لن تتم قراءة مستندك آلياً، وبعد الرفع ستُدخل تفاصيله بنفسك.',
+      narrowedContinue: 'متابعة الرفع',
+      narrowedCancel: 'إلغاء وتعديل البيانات',
+      lockedNote:
+        'بياناتك وملفك وخياراتك مثبتة على ما وافقت عليه للتو. لتغيير أي شيء، اختر «إلغاء وتعديل البيانات»، ثم وافق مرة أخرى.',
+      pinnedLanguage: 'هذه هي الاتفاقية التي وافقت عليها، لذلك تبقى معروضة بلغتها حتى يكتمل الطلب أو يُلغى.',
+      notices: {
+        offer_expired:
+          'انتهت صلاحية الشروط التي عُرضت عليك، لذا حمّلنا الشروط الحالية. يرجى قراءتها ثم تحديد المربع مرة أخرى للموافقة. تم الاحتفاظ ببياناتك وملفك.',
+        agreement_changed:
+          'تغيّرت الاتفاقية منذ فتح هذا النموذج. يرجى قراءة النسخة الحالية ثم تحديد المربع مرة أخرى للموافقة. تم الاحتفاظ ببياناتك وملفك.',
+        processing_broadened:
+          'تغيّرت طريقة معالجة الطلبات منذ فتح هذا النموذج. يرجى قراءة الشرح المحدّث ثم تحديد المربع مرة أخرى للموافقة. تم الاحتفاظ ببياناتك وملفك.',
+        offer_invalid:
+          'تعذر التحقق من الشروط التي عُرضت عليك، لذا حمّلناها مرة أخرى. يرجى تحديد المربع مرة أخرى للموافقة. تم الاحتفاظ ببياناتك وملفك.',
+        language: 'تُعرض الاتفاقية الآن باللغة التي اخترتها. يرجى قراءتها ثم تحديد المربع مرة أخرى للموافقة.',
+        locked: 'لم يُطبَّق هذا التغيير: النموذج مثبت على ما وافقت عليه. اختر «إلغاء وتعديل البيانات» أولاً.',
+      },
+      errors: {
+        uploadLinkExpired:
+          'انتهت صلاحية رابط الرفع قبل اكتمال رفع ملفك. تم الاحتفاظ ببياناتك. اضغط «أوافق وأقدّم البحث» للمحاولة مرة أخرى برابط جديد.',
+        uploadFailed: 'لم يُرفع ملفك. يرجى التحقق من اتصالك ثم الضغط على «أوافق وأقدّم البحث» للمحاولة مرة أخرى. تم الاحتفاظ ببياناتك.',
+        submissionExpired:
+          'انتهت صلاحية هذا الطلب قبل إكماله. تم الاحتفاظ ببياناتك. اضغط «أوافق وأقدّم البحث» لبدئه من جديد.',
+        unavailable: 'التقديم غير متاح مؤقتاً. لم يُرسل أي شيء. يرجى المحاولة لاحقاً.',
+        rateLimited: 'تجاوزت المحاولات من اتصالك الحد المسموح. يرجى الانتظار قليلاً ثم المحاولة مرة أخرى.',
+        network: 'تعذر الوصول إلى الخادم. يرجى التحقق من اتصالك والمحاولة مرة أخرى. تم الاحتفاظ ببياناتك.',
+        objectMismatch: 'الملف المرفوع لا يطابق الملف الذي اخترته. يرجى اختيار الملف مرة أخرى ثم التقديم.',
+        objectType: 'الملف المرفوع ليس مستند PDF أو DOCX قابلاً للقراءة. يرجى اختيار ملف آخر.',
+        invalid: 'لم تُقبل بعض البيانات. يرجى مراجعة النموذج والمحاولة مرة أخرى.',
+        internal: 'حدث خطأ من جانبنا. يرجى المحاولة مرة أخرى بعد قليل.',
+        recoveryIncomplete: 'لم يصلنا ملف محاولتك السابقة، لذلك لا يمكن إكمال ذلك الطلب. يرجى التقديم مرة أخرى.',
+      },
+      recoveryHeading: 'أكمل طلبك السابق',
+      recoveryBody: 'تم رفع ملفك، لكن الطلب لم يكتمل. يمكنك إكماله الآن.',
+      recoveryAction: 'إكمال التقديم',
+      recoveryDiscard: 'بدء طلب جديد بدلاً من ذلك',
+      outstanding: {
+        role: 'صفتك',
+        authors: 'أسماء المؤلفين',
+        accept: 'موافقتك على الاتفاقية',
+      },
+    },
     country: {
       name: (country) => country.name_ar,
       trigger: (name) => `الدولة: ${name}. تغيير`,
@@ -476,15 +691,22 @@ export const MESSAGES = {
       conflicting: 'يعرض بحثك إجابتين مختلفتين هنا. أيهما الصحيحة؟',
       ambiguous: 'لم نكن متأكدين من هذه المعلومة. يرجى التحقق منها.',
       sourcePrefix: 'المصدر: ',
-      socialAdd: (
+      linkedinAdd: (
         <>
-          إضافة رابط <Ltr>LinkedIn</Ltr> أو <Ltr>Facebook</Ltr>
+          إضافة ملف شخصي على <Ltr>LinkedIn</Ltr> (اختياري)
         </>
       ),
-      socialWhy:
-        'تتيح إضافة ملف شخصي لنا نسب العمل إلى هذا الباحث والإشارة إليه عند إبراز البحث، مما يساعد على وصوله إلى شبكته أيضاً. كلا الرابطين اختياري.',
-      linkedin: 'رابط LinkedIn (اختياري)',
-      facebook: 'رابط Facebook (اختياري)',
+      linkedinWhy: 'اختياري. يبقى خاصاً ما لم يختر صاحبه إظهاره.',
+      linkedin: 'عنوان الملف الشخصي على LinkedIn (اختياري)',
+      linkedinInvalid: 'يرجى إدخال عنوان ملف شخصي على LinkedIn، مثل \u2066https://www.linkedin.com/in/your-name\u2069',
+      linkedinPublic: 'أظهر ملفي الشخصي على LinkedIn في السجل العام لهذا البحث، إذا نُشر',
+      linkedinOthers: 'يمكنك اختيار إظهار ملفك الشخصي فقط. تبقى روابط الآخرين خاصة.',
+      receipt: {
+        heading: 'تم استلام بحثك',
+        body:
+          'بحثك خاص ولم يُنشر. الخطوة التالية: راجع تفاصيله أدناه ثم أكّدها. بعد ذلك تتم مراجعته، ولا يُنشر لاحقاً إلا ما يسمح به إذن النشر الذي اخترته، وبعد الموافقة فقط.',
+      },
+      privateLink: 'عنوان هذه الصفحة هو رابطك الخاص لهذه التفاصيل. احتفظ به لنفسك، فهو ليس صفحة عامة لبحثك.',
       confirm: 'تأكيد هذه التفاصيل',
       confirmExtracting: 'جارٍ قراءة بحثك…',
       confirmSaving: 'جارٍ الحفظ…',
@@ -505,6 +727,7 @@ export const MESSAGES = {
       errors: {
         emptyResearcher: 'يرجى إدخال اسم لكل باحث أو إزالة الصف الفارغ.',
         missingTitle: 'يرجى إضافة عنوان بحثك بالإنجليزية أو العربية قبل التأكيد.',
+        linkedin: 'يرجى تصحيح عنوان LinkedIn أو حذفه قبل التأكيد.',
         invalidYear: 'يرجى إدخال السنة بأربعة أرقام، مثلاً 2023.',
         // The reference code is isolated LTR (LRI…PDI) so a code such as
         // PGRST301 is never reordered inside the Arabic sentence.
