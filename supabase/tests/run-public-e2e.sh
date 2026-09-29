@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Admin review (Phase 3 M4) against the LOCAL Supabase
+# Public research pages (Phase 3 M5) against the LOCAL Supabase
 # stack (start it first: supabase/tests/local-stack/start.sh). Builds the
 # app with local keys only, starts it on 127.0.0.1:3100 with the mock AI
-# provider (nothing is sent to Gemini), and runs admin-e2e.test.js.
+# provider (nothing is sent to Gemini), and runs public-e2e.test.js.
 # Needs Playwright with Chromium (NODE_PATH pointing at a global install is fine).
 set -euo pipefail
 cd "$(dirname "$0")/../.."
@@ -13,6 +13,8 @@ export NEXT_PUBLIC_SUPABASE_ANON_KEY="$(key anon)"
 export SUPABASE_SERVICE_ROLE_KEY="$(key service)"
 export SUBMISSION_ACCEPTANCE_FLOW=enabled
 export ADMIN_REVIEW=enabled
+export PUBLIC_RESEARCH=enabled
+export PUBLIC_SITE_ORIGIN=http://127.0.0.1:3100
 export SUBMISSION_TOKEN_SECRET="$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")"
 export EXTRACTION_MODE=automatic
 export AI_PROVIDER=mock
@@ -24,4 +26,4 @@ setsid node node_modules/next/dist/bin/next start -H 127.0.0.1 -p 3100 > /var/tm
 SERVER=$!
 trap 'kill -- -$SERVER 2>/dev/null || kill $SERVER 2>/dev/null || true' EXIT
 until curl -sf -o /dev/null http://127.0.0.1:3100/; do sleep 1; done
-node supabase/tests/admin-e2e.test.js
+node supabase/tests/public-e2e.test.js

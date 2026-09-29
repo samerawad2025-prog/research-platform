@@ -19,6 +19,10 @@ Four labels are used here and in `PHASE_3_PLAN.md`. Product intent comes from th
 
 ### Built and verified, not deployed (2026-09-26)
 
+**Phase 3 M5 (2026-09-30):** public research pages, browse/search and approved file access (`docs/public-research.md`, migration `0016`). It is on branch `claude/phase3-m5-public-pages`, in a PR stacked on M4 (#20).
+- It is **not merged, not deployed and off**: `PUBLIC_RESEARCH` unset 404s every public route; migration 0016 is **not applied**; no real record is approved; the full-text legal restriction stays active.
+- Verified with mocked checks (CI), real local Postgres 16 in every review state, and the local Supabase stack with real Storage and Chromium (EN/AR, 320–1440 px). Not verified: hosted Storage signed-link behaviour and any CDN in front of the site.
+
 **Phase 3 M4 (2026-09-29):** the protected admin review workflow (`docs/admin-review.md`, migration `0015`, `/admin`, `/api/admin/*`). It is on branch `claude/phase3-m4-admin-review`, in a PR stacked on M2B/M3 (#19).
 - It is **not merged, not deployed and inactive**: `ADMIN_REVIEW` unset 404s every route; migration 0015 is **not applied**; no account exists; the volunteer confidentiality version is seeded inactive.
 - Administrators review, decide (needs changes, reviewed, approve, decline, withdraw, reopen) and manage staff, institutions and documents. Volunteers see only assigned submissions, after acknowledging the confidentiality text, and prepare recommendations only. **Nothing is published; there are no public pages (M5/M6).**
