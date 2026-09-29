@@ -19,6 +19,12 @@ Four labels are used here and in `PHASE_3_PLAN.md`. Product intent comes from th
 
 ### Built and verified, not deployed (2026-09-26)
 
+**Phase 3 M4 (2026-09-29):** the protected admin review workflow (`docs/admin-review.md`, migration `0015`, `/admin`, `/api/admin/*`). It is on branch `claude/phase3-m4-admin-review`, in a PR stacked on M2B/M3 (#19).
+- It is **not merged, not deployed and inactive**: `ADMIN_REVIEW` unset 404s every route; migration 0015 is **not applied**; no account exists; the volunteer confidentiality version is seeded inactive.
+- Administrators review, decide (needs changes, reviewed, approve, decline, withdraw, reopen) and manage staff, institutions and documents. Volunteers see only assigned submissions, after acknowledging the confidentiality text, and prepare recommendations only. **Nothing is published; there are no public pages (M5/M6).**
+- Not done: UofK units are not entered (the official directory was not reachable; none invented); no submitter notification; the full-text legal condition stays an active release restriction that Approve cannot lift.
+- Verified with mocked checks (CI), real local Postgres 16, and the local Supabase stack with real GoTrue tokens plus Chromium in EN/AR at 360–1440 px. Not verified: hosted Auth settings, hosted Storage signed-URL behaviour and CORS.
+
 **Phase 3 M2B + M3 (2026-09-27):** the submission form on the acceptance flow, depositor-declared authors, Facebook removal and the LinkedIn display choice (migration `0013`), plus the prepared cutover migration `0014`. It is on branch `claude/phase3-m2b-m3-submission`, in a PR stacked on M2A (#18).
 - It is **not merged, not deployed and inactive**: `SUBMISSION_ACCEPTANCE_FLOW` unset serves the legacy form.
 - **Acceptance is not enforced in production** until 0014 is applied at cutover (`docs/submission-flow.md`, "Cutover").

@@ -81,3 +81,6 @@ jobs:
 
       - name: Submission form flow, agreement text and LinkedIn (Phase 3 M2B/M3)
         run: node scripts/test-submission-client.js
+
+      - name: Admin review handlers (Phase 3 M4)
+        run: node scripts/test-admin-handlers.js

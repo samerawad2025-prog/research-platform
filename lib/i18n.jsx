@@ -6,6 +6,8 @@
 // (LocaleProvider and its consumers), so nothing here may use hooks or
 // browser APIs.
 
+import { ADMIN_MESSAGES } from './i18nAdmin'
+
 export const LOCALES = ['en', 'ar']
 export const DEFAULT_LOCALE = 'en'
 
@@ -80,6 +82,7 @@ const AR_CONFIRM_ERRORS = {
 
 export const MESSAGES = {
   en: {
+    admin: ADMIN_MESSAGES.en,
     meta: {
       title: OFFICIAL_NAME.en,
       description: 'Submit Sudanese academic research for review and future publication.',
@@ -403,6 +406,7 @@ export const MESSAGES = {
     },
   },
   ar: {
+    admin: ADMIN_MESSAGES.ar,
     meta: {
       title: OFFICIAL_NAME.ar,
       description: 'تقديم البحوث الأكاديمية السودانية للمراجعة والنشر مستقبلاً.',

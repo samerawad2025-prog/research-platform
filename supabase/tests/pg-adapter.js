@@ -123,6 +123,16 @@ function fakeStorage() {
       objects.set(path, Buffer.from(bytes))
       return { error: null }
     },
+    // Server-side upload with the service role (upsert:false refuses to overwrite).
+    async upload(path, bytes, opts = {}) {
+      if (objects.has(path) && !opts.upsert) return { data: null, error: { message: 'The resource already exists' } }
+      objects.set(path, Buffer.from(bytes))
+      return { data: { path }, error: null }
+    },
+    async createSignedUrl(path, seconds) {
+      if (!objects.has(path)) return { data: null, error: { message: 'Object not found' } }
+      return { data: { signedUrl: `https://storage.invalid/object/sign/papers/${path}?token=t${seconds}` }, error: null }
+    },
     async download(path) {
       if (!objects.has(path)) return { data: null, error: { message: 'Object not found' } }
       return { data: new Blob([objects.get(path)]), error: null }
