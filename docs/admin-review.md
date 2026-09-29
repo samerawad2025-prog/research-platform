@@ -44,6 +44,11 @@ and notifies nobody.
   labelled `administrator` in its own metadata is refused.
 - The role lives in `staff_members`, written only by administrators (or the
   one-time bootstrap below).
+- Adding staff by email needs a lookup in the Supabase Auth directory. The
+  server does that lookup **only after** confirming the caller is an active
+  administrator; anyone else gets the same `forbidden` whatever email or id
+  they sent, so the endpoint cannot be used to learn whether an account
+  exists. The database checks the role again on the change itself.
 - Every review function is `SECURITY DEFINER`, takes the acting user id, and
   **re-checks role, assignment and confidentiality acknowledgement itself**.
   Only `service_role` can execute them; `anon`, `authenticated` and `PUBLIC`
@@ -124,29 +129,39 @@ source URL and retrieval date), so provenance is visible.
   institution, otherwise "unresolved". A reviewer's choice is never
   overwritten by the automatic match. Units are matched automatically only
   once **verified**.
-- **Units are not seeded.** The official University of Khartoum directory
-  could not be fetched from the environment this was built in (outbound
-  access blocked), and no unit was invented to reach any particular count.
-  Nothing in the code assumes a number of faculties, and no official Arabic
-  translation is invented.
+- **UofK units are seeded from the official directory.** Migration 0015
+  seeds the **21** units listed at <https://uofk.edu/index.php/faculties>
+  (20 faculties and the School of Management Studies), as that page was
+  retrieved **during the founder's review of this milestone on
+  2026-09-30**. The build environment could not open the page itself; the
+  roster is copied exactly from that review, not fetched by the code or
+  inferred from a headline count. Each row records the page address, the
+  date, `source_kind = official_directory`, and is `verified`.
+  English names only: the review recorded no Arabic headings, and no
+  official Arabic translation is invented. An Arabic name can be added
+  later from the official Arabic page.
+- **The seed is repeatable.** A unit is inserted only if University of
+  Khartoum has no unit with the same normalized English name. Rerunning the
+  migration adds nothing and changes no existing row, including units
+  entered by hand. Every seeded unit belongs to University of Khartoum.
+- **Mapping stays conservative.** A submitted faculty is mapped to a unit
+  only on an exact normalized match with one verified unit (or its alias).
+  "Science", "Faculty of Medicine and Pharmacy", and other partial or
+  combined text stay unresolved for a reviewer. The submitted text is never
+  changed, and a reviewer's mapping is never overwritten. A naming variant
+  backed by a source is added as an **alias** of the existing unit, never
+  as another unit.
 
-### Entering UofK faculties (operator, from the official directory)
+### Adding or correcting a unit later (operator)
 
-1. Open the university's own official faculty/school directory page in a
-   browser and note its address and today's date.
+1. Open the university's official directory page and note its address and
+   today's date.
 2. `/admin/settings` → University of Khartoum → *Add a faculty or unit*:
-   the name **exactly as the directory writes it**, in English and/or
-   Arabic (only if the page gives the Arabic), the page address, and the
-   date read.
-3. Verify each against the page (*Verify against the page*). A unit needs a
-   source URL and a retrieval date to be verified, and only verified units
-   are matched automatically.
-4. Add real alternative spellings as aliases. Ambiguous matches stay for a
-   reviewer to resolve.
-
-Search-summary names I saw while researching (unconfirmed, do not copy
-without checking the official page) include "Management Studies" and similar;
-treat them as leads, not data.
+   the name **exactly as the page writes it**, the page address and the
+   date read. Arabic only if the page gives it.
+3. Verify it against the page. Only verified units are matched
+   automatically.
+4. Record alternative spellings as aliases, not as new units.
 
 ---
 
@@ -162,6 +177,30 @@ The screen shows four facts separately so they are never conflated:
 3. **Reviewed**: a reviewer has recorded a decision other than "pending".
 4. **Approved for publication**: an approval exists *and still covers the
    current content* (computed, see §6).
+
+### Blocking issues suspend an approval
+
+Anyone who can open a submission (an administrator, or the volunteer
+assigned to it) can raise an issue, blocking or not. Only an administrator
+resolves one.
+
+- A **blocking** issue refuses every public use **at once**, through the
+  shared rule (`publication_eligibility`): record, abstract and full text.
+- If it is raised while an approval is in force, it records that approval
+  (`review_issues.suspends_approval_id`). That approval is then
+  **permanently suspended**: resolving the issue does **not** restore it.
+  An administrator must approve again, against the then-current content,
+  evidence and document version.
+- The earlier approval stays in `review_approvals` as evidence (that table
+  is append-only). The review status stays `approved` as history; the
+  screen shows separately that an approval is on record and whether it is
+  **in effect now**, and lists every approval with any suspension.
+- A **non-blocking** issue changes nothing about eligibility.
+- **Concurrency.** Raising an issue and recording a decision take the same
+  row lock on the paper. An issue raised during an approval either waits
+  and then suspends the approval it follows, or is seen by the approval,
+  which is then refused. Neither can overlook the other (tested with two
+  real concurrent transactions, in both orders).
 
 Decisions (administrators only): needs changes, reviewed (keep private),
 approve, decline, withdraw, reopen. Needs-changes, decline and withdraw
@@ -330,6 +369,6 @@ message in the interface's language; database messages are never shown.
 - Before real use: founder approval of the confidentiality text (and
   activation); disable public sign-up and consider MFA; verify the hosted
   Auth and Storage behaviour (signed-URL lifetime, CORS for the browser
-  upload) on the preview project; enter and verify UofK units from the
-  official page; the legal advice for full text (the restriction stays until
-  then); hosted gateway/CORS for `/api/admin`.
+  upload) on the preview project; Arabic unit names from the official
+  Arabic page, if wanted; the legal advice for full text (the restriction
+  stays until then); hosted gateway/CORS for `/api/admin`.

@@ -80,7 +80,8 @@ export default function AdminReview({ paperId }) {
           <li><strong>{t.states.submitted}</strong><br />{fmt(p.submitted_at)}</li>
           <li><strong>{t.states.confirmed}</strong><br />{d.states.confirmed ? fmt(d.states.confirmed_at) : t.no}</li>
           <li><strong>{t.states.reviewed}</strong><br />{t.status[d.review.status]}</li>
-          <li><strong>{t.states.publication_approved}</strong><br />{d.states.publication_approved ? t.yes : t.no}</li>
+          <li><strong>{t.states.approval_recorded}</strong><br />{d.states.approval_recorded ? t.yes : t.no}</li>
+          <li><strong>{t.states.publication_approved}</strong><br />{d.states.publication_approved ? t.states.approval_in_effect : d.states.approval_recorded ? t.states.approval_not_in_effect : t.no}</li>
         </ul>
         <p className={s.muted}>{r.notPublic}</p>
       </Section>
@@ -141,7 +142,7 @@ export default function AdminReview({ paperId }) {
           <Section id="is-h" title={r.issuesHeading}>
             {d.issues.length === 0 && <p>{r.issuesNone}</p>}
             <ul className={s.list}>{d.issues.map((i) => <IssueItem key={i.id} i={i} t={t} r={r} act={act} paperId={paperId} busy={busy} />)}</ul>
-            <IssueForm t={t} r={r} act={act} paperId={paperId} busy={busy} msg={msg.issue} />
+            <IssueForm t={t} r={r} act={act} paperId={paperId} busy={busy} msg={msg.issue} approved={d.states.approval_recorded} />
           </Section>
 
           <Section id="nt-h" title={r.notesHeading}>
@@ -180,6 +181,19 @@ export default function AdminReview({ paperId }) {
           {isAdmin && <AuthorityBox {...{ d, t, r, act, busy, paperId, msg, day }} />}
           {isAdmin && <EmbargoBox {...{ d, t, r, act, busy, paperId, msg }} />}
           {isAdmin && <Eligibility {...{ d, t, r }} />}
+          {d.approvals?.length > 0 && (
+            <Section id="ap-h" title={r.approvalsHeading}>
+              <p className={s.muted}>{r.approvalsIntro}</p>
+              <ul className={s.list}>{d.approvals.map((a, i) => (
+                <li key={a.id} className={s.item}>
+                  {fmt(a.approved_at)} · {t.setting[a.publication_setting] || a.publication_setting}
+                  <div className={s.chips}>
+                    {i === 0 && <span className={s.chip}>{r.approvalLatest}</span>}
+                    {a.suspended_by_issue && <span className={`${s.chip} ${s.chipBad}`}>{r.approvalSuspended}</span>}
+                  </div>
+                </li>))}</ul>
+            </Section>
+          )}
           {isAdmin && <Assignments {...{ d, t, r, staff, act, busy, paperId, msg }} />}
 
           <Section id="hi-h" title={r.historyHeading}>
@@ -209,6 +223,7 @@ function IssueItem({ i, t, r, act, paperId, busy }) {
         <span className={`${s.chip} ${i.blocking ? s.chipWarn : ''}`}>{i.blocking ? r.issueBlocking : r.issueNonBlocking}</span>
         <span className={`${s.chip} ${i.state === 'open' ? '' : s.chipOk}`}>{i.state === 'open' ? r.issueOpen : r.issueResolved}</span>
       </div>
+      {i.suspends_approval_id && <p className={s.muted}>{r.issueSuspends}</p>}
       {i.resolution && <p className={s.bidi}>{i.resolution}</p>}
       {i.state === 'open' && (
         <form className={s.row} onSubmit={(e) => { e.preventDefault(); act('issue', () => api('POST', `reviews/${paperId}/issues/${i.id}/resolve`, { resolution: res })) }}>
@@ -220,7 +235,7 @@ function IssueItem({ i, t, r, act, paperId, busy }) {
   )
 }
 
-function IssueForm({ t, r, act, paperId, busy, msg }) {
+function IssueForm({ t, r, act, paperId, busy, msg, approved }) {
   const [f, setF] = useState({ kind: 'metadata', description: '', blocking: true })
   return (
     <form className={s.form} onSubmit={async (e) => { e.preventDefault(); const x = await act('issue', () => api('POST', `reviews/${paperId}/issues`, f)); if (x.ok) setF({ ...f, description: '' }) }}>
@@ -228,6 +243,7 @@ function IssueForm({ t, r, act, paperId, busy, msg }) {
       <label className={s.field}><span>{r.issueKind}</span>
         <select value={f.kind} onChange={(e) => setF({ ...f, kind: e.target.value })}>{Object.entries(r.issueKinds).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label>
       <label className={s.field}><span>{r.issueDescription}</span><textarea value={f.description} maxLength={2000} onChange={(e) => setF({ ...f, description: e.target.value })} /></label>
+      {f.blocking && approved && <p className={s.banner}>{r.blockingIssueWarning}</p>}
       <label className={s.check}><input type="checkbox" checked={f.blocking} onChange={(e) => setF({ ...f, blocking: e.target.checked })} /><span>{r.issueBlockingCheck}</span></label>
       <div><button className={s.secondary} disabled={!f.description.trim() || busy === 'issue'}>{r.raiseIssue}</button></div>
       <Msg m={msg} />

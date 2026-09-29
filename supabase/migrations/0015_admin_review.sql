@@ -14,8 +14,9 @@
 --      confidentiality text (recorded with version, hash and date) and be
 --      assigned a submission before they can see anything of it.
 --   2. Institutions and academic units, with aliases and provenance. Only
---      University of Khartoum is seeded, and it is the only eligible one.
---      NO faculty is seeded (see the note at the seed).
+--      University of Khartoum is seeded, and it is the only eligible one,
+--      with the 21 faculties and schools of its official directory (see the
+--      note at the seed for the source and how it was obtained).
 --   3. Review: one paper_reviews row per paper (status, institution
 --      mapping, legacy permission determination, authority verification,
 --      withdrawal and embargo restrictions), private notes, review issues,
@@ -323,12 +324,7 @@ create trigger institutions_eligibility_audit
 -- founder's own agreement (docs/legal/submission-terms.*.md); eligibility
 -- is the founder's decision of 2026-09-26 (PHASE_3_PLAN.md section 1).
 --
--- No faculty or other unit is seeded. The official directory
--- (uofk.edu/index.php/faculties, staffpages.uofk.edu/faculties-schools/)
--- could not be opened when this milestone was built (the build
--- environment's network policy blocked it), and a search summary gave only
--- name stems, not the exact headings. Units are entered from that page by a
--- person, with its URL and the date it was read (docs/institutions.md).
+-- Its faculties and schools are seeded below, after the aliases.
 insert into institutions (slug, name_en, name_ar, kind, public_collection_eligible, eligibility_note,
                           source_kind, source_url, source_note)
 values ('university-of-khartoum', 'University of Khartoum', 'جامعة الخرطوم', 'university', true,
@@ -348,6 +344,51 @@ cross join (values
 ) as a(alias, language, note)
 where i.slug = 'university-of-khartoum'
 on conflict (institution_id, alias_normalized) do nothing;
+
+-- University of Khartoum academic units: the 21 units listed on the
+-- university's official directory, https://uofk.edu/index.php/faculties,
+-- as retrieved during the founder's review of this milestone on 2026-09-30.
+-- The environment that built this could NOT open that page; the roster is
+-- the one recorded in that review, copied exactly (English names only: the
+-- review recorded no Arabic headings, and none is invented). Nothing was
+-- added to reach any headline count.
+-- Repeatable: a unit is inserted only if UofK has no unit with the same
+-- normalized English name, so a rerun adds nothing and an existing row
+-- (including one entered or mapped by hand) is never changed. Seeded as
+-- verified, so an exact normalized match of a submitted faculty name maps
+-- automatically; anything else stays for a reviewer. Papers already
+-- mapped by a reviewer are untouched (admin_ensure_review never overwrites
+-- a reviewer's choice).
+insert into academic_units (institution_id, kind, name_en, verification, source_kind, source_url, source_retrieved_on, source_note)
+select i.id, u.kind, u.name_en, 'verified', 'official_directory', 'https://uofk.edu/index.php/faculties', date '2026-09-30',
+       'Retrieved during the founder''s review on 2026-09-30 (not fetched by the build environment). English heading as listed; no Arabic name recorded.'
+from institutions i
+cross join (values
+  ('faculty', 'Faculty of Arts'),
+  ('faculty', 'Faculty of Law'),
+  ('faculty', 'Faculty of Science'),
+  ('faculty', 'Faculty of Nursing Sciences'),
+  ('faculty', 'Faculty of Medicine'),
+  ('faculty', 'Faculty of Medical Laboratory Sciences'),
+  ('faculty', 'Faculty of Pharmacy'),
+  ('faculty', 'Faculty of Dentistry'),
+  ('faculty', 'Faculty of Engineering'),
+  ('faculty', 'Faculty of Architecture'),
+  ('faculty', 'Faculty of Mathematical Sciences'),
+  ('school',  'School of Management Studies'),
+  ('faculty', 'Faculty of Economic and Social Studies'),
+  ('faculty', 'Faculty of Education'),
+  ('faculty', 'Faculty of Agriculture'),
+  ('faculty', 'Faculty of Forestry'),
+  ('faculty', 'Faculty of Animal Production'),
+  ('faculty', 'Faculty of Veterinary Medicine'),
+  ('faculty', 'Faculty of Geographical and Environmental Sciences'),
+  ('faculty', 'Faculty of Technological and Developmental Studies'),
+  ('faculty', 'Faculty of Public and Environmental Health')
+) as u(kind, name_en)
+where i.slug = 'university-of-khartoum'
+  and not exists (select 1 from academic_units x
+                  where x.institution_id = i.id and normalize_name_text(x.name_en) = normalize_name_text(u.name_en));
 
 -- ------------------------------------------------------------
 -- Global release restrictions. Separate from any review decision.
@@ -522,6 +563,12 @@ create table if not exists review_approvals (
   dissemination_sha256 text,
   snapshot jsonb not null
 );
+-- A blocking issue raised while an approval is in force records that
+-- approval here. The approval is then permanently superseded: resolving the
+-- issue does not revive it, a fresh administrator approval is required, and
+-- the earlier approval row stays as evidence (review_approvals is
+-- append-only). Set once, at insert, under the paper lock.
+alter table review_issues add column if not exists suspends_approval_id uuid references review_approvals(id);
 create index if not exists review_approvals_paper on review_approvals (paper_id, approved_at);
 alter table review_approvals enable row level security;
 revoke all on table review_approvals from anon, authenticated;
@@ -984,7 +1031,14 @@ begin
       if v_evi->>'claimed_role' = 'authorized_depositor' and r.authority_verified_at is null then
         v_valid := false; v_reasons := array_append(v_reasons, 'authority_unverified');
       end if;
+      if exists (select 1 from review_issues i where i.suspends_approval_id = a.id and i.blocking) then
+        v_valid := false; v_reasons := array_append(v_reasons, 'blocking_issue_since_approval');
+      end if;
     end if;
+  end if;
+  -- Any open blocking issue refuses every public use, whatever the approval.
+  if exists (select 1 from review_issues i where i.paper_id = p_paper and i.state = 'open' and i.blocking) then
+    v_reasons := array_append(v_reasons, 'blocking_issue_open');
   end if;
 
   if a.id is not null then
@@ -1488,17 +1542,29 @@ as $fn$
 declare
   v_role text := admin_require_access(p_actor, p_paper);
   v_id uuid;
+  v_suspends uuid;
 begin
   if p_kind not in ('metadata', 'rights', 'duplicate', 'document', 'privacy', 'other')
      or nullif(btrim(coalesce(p_description, '')), '') is null or length(p_description) > 2000 then
     raise exception 'admin:invalid_input';
   end if;
+  -- The same row lock admin_decide takes, so an issue raised during an
+  -- approval is either seen by it (approval refused) or sees the approval
+  -- it then suspends. Neither can overlook the other.
+  perform 1 from papers where id = p_paper for update;
   perform admin_ensure_review(p_paper);
-  insert into review_issues (paper_id, kind, description, blocking, raised_by)
-  values (p_paper, p_kind, btrim(p_description), coalesce(p_blocking, true), p_actor)
+  if coalesce(p_blocking, true) then
+    select a.id into v_suspends
+    from paper_reviews r join review_approvals a on a.paper_id = r.paper_id
+    where r.paper_id = p_paper and r.status = 'approved'
+    order by a.approved_at desc, a.id desc limit 1;
+  end if;
+  insert into review_issues (paper_id, kind, description, blocking, raised_by, suspends_approval_id)
+  values (p_paper, p_kind, btrim(p_description), coalesce(p_blocking, true), p_actor, v_suspends)
   returning id into v_id;
-  perform admin_log(p_paper, p_actor, v_role, 'issue_raised', jsonb_build_object('issue_id', v_id, 'kind', p_kind, 'blocking', coalesce(p_blocking, true)));
-  return jsonb_build_object('ok', true, 'id', v_id);
+  perform admin_log(p_paper, p_actor, v_role, 'issue_raised', jsonb_build_object('issue_id', v_id, 'kind', p_kind,
+    'blocking', coalesce(p_blocking, true), 'suspends_approval_id', v_suspends));
+  return jsonb_build_object('ok', true, 'id', v_id, 'suspends_approval_id', v_suspends);
 end;
 $fn$;
 
@@ -1513,6 +1579,7 @@ begin
   if nullif(btrim(coalesce(p_resolution, '')), '') is null or length(p_resolution) > 2000 then
     raise exception 'admin:invalid_input';
   end if;
+  perform 1 from papers where id = p_paper for update;
   update review_issues set state = 'resolved', resolved_by = p_actor, resolved_at = now(), resolution = btrim(p_resolution)
   where id = p_issue and paper_id = p_paper and state = 'open';
   if not found then
@@ -2170,7 +2237,16 @@ begin
     'states', jsonb_build_object(
       'submitted', true, 'confirmed', p.metadata_confirmed_at is not null, 'confirmed_at', p.metadata_confirmed_at,
       'reviewed', r.status <> 'pending',
+      'approval_recorded', r.status = 'approved' and exists (select 1 from review_approvals x where x.paper_id = p_paper),
       'publication_approved', coalesce((publication_eligibility(p_paper)->>'review_approved')::boolean, false)),
+    -- Every approval ever recorded (append-only evidence), newest first, and
+    -- whether a blocking issue has since suspended it. Whether the latest
+    -- one is still in force is 'eligibility', not this list.
+    'approvals', coalesce((select jsonb_agg(jsonb_build_object(
+      'id', x.id, 'approved_at', x.approved_at, 'publication_setting', x.publication_setting,
+      'dissemination_version_id', x.dissemination_version_id,
+      'suspended_by_issue', exists (select 1 from review_issues i where i.suspends_approval_id = x.id and i.blocking))
+      order by x.approved_at desc, x.id desc) from review_approvals x where x.paper_id = p_paper), '[]'::jsonb),
     'review', jsonb_build_object(
       'status', r.status, 'status_reason', r.status_reason, 'status_changed_at', r.status_changed_at,
       'withdrawn_at', r.withdrawn_at, 'withdrawn_reason', r.withdrawn_reason,
@@ -2205,7 +2281,7 @@ begin
         from document_versions d where d.paper_id = p_paper and d.kind = 'dissemination'), '[]'::jsonb)),
     'issues', coalesce((select jsonb_agg(jsonb_build_object(
       'id', i.id, 'kind', i.kind, 'description', i.description, 'blocking', i.blocking, 'state', i.state,
-      'raised_at', i.raised_at, 'resolution', i.resolution) order by i.raised_at) from review_issues i where i.paper_id = p_paper), '[]'::jsonb),
+      'raised_at', i.raised_at, 'resolution', i.resolution, 'suspends_approval_id', i.suspends_approval_id) order by i.raised_at) from review_issues i where i.paper_id = p_paper), '[]'::jsonb),
     'notes', coalesce((select jsonb_agg(jsonb_build_object(
       'id', n.id, 'author_role', n.author_role, 'author_id', n.author_id, 'body', n.body, 'created_at', n.created_at)
       order by n.created_at desc) from review_notes n where n.paper_id = p_paper), '[]'::jsonb),

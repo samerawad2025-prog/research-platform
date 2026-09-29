@@ -209,6 +209,34 @@ async function main() {
     assert.ok(blocked)
   })
 
+  await check('api: staff lookup: non-administrators get one identical refusal whatever account they name', async () => {
+    for (const who of ['plain', 'vol']) {
+      const seen = new Set()
+      for (const body of [{ email: people.admin.email, role: 'administrator' }, { email: `absent-${RUN}@example.invalid`, role: 'administrator' }, { userId: people.admin.id, role: 'volunteer' }, { userId: crypto.randomUUID(), role: 'volunteer' }]) {
+        const r = await call(who, 'POST', 'staff', body)
+        seen.add(JSON.stringify([r.status, r.body]))
+      }
+      assert.strictEqual(seen.size, 1, `${who}: ${[...seen]}`)
+      assert.match([...seen][0], /^\[403,/)
+    }
+    assert.strictEqual((await call('admin', 'POST', 'staff', { email: `absent-${RUN}@example.invalid`, role: 'volunteer' })).body.reason, 'user_not_found')
+  })
+  await check('api: a blocking issue from the assigned volunteer suspends an approval; resolving it does not restore it (fresh re-approval: admin-postgres.test.js)', async () => {
+    await seedPaper('d', `Delta issue study ${RUN}`)
+    await call('admin', 'POST', `reviews/${papers.d.id}/legacy-setting`, { setting: 'record_abstract', note: 'old form allowed abstract and citation' })
+    let d = (await call('admin', 'GET', `reviews/${papers.d.id}`)).body
+    assert.strictEqual((await call('admin', 'POST', `reviews/${papers.d.id}/decision`, { decision: 'approved', reason: 'ok', expectedRevision: d.revision })).status, 200)
+    assert.strictEqual((await call('admin', 'POST', `reviews/${papers.d.id}/assignments`, { volunteerId: people.vol.id })).status, 201)
+    assert.strictEqual((await call('vol', 'POST', `reviews/${papers.d.id}/issues`, { kind: 'privacy', description: 'Signature on the last page.', blocking: true })).status, 201)
+    d = (await call('admin', 'GET', `reviews/${papers.d.id}`)).body
+    assert.deepStrictEqual([d.states.approval_recorded, d.states.publication_approved, d.eligibility.record_public], [true, false, false])
+    const issue = d.issues.find((i) => i.blocking)
+    assert.strictEqual((await call('vol', 'POST', `reviews/${papers.d.id}/issues/${issue.id}/resolve`, { resolution: 'x' })).status, 403)
+    assert.strictEqual((await call('admin', 'POST', `reviews/${papers.d.id}/issues/${issue.id}/resolve`, { resolution: 'Page replaced.' })).status, 200)
+    d = (await call('admin', 'GET', `reviews/${papers.d.id}`)).body
+    assert.deepStrictEqual(d.eligibility.reasons, ['blocking_issue_since_approval'])
+  })
+
   // ------------------------------------------------------------- UI tier
   const browser = await chromium.launch()
   const overflow = (page) => page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)
@@ -343,6 +371,21 @@ async function main() {
     await v.page.goto(`${APP}/admin/settings`)
     await v.page.locator('[data-admin-area] [role=alert]').waitFor()
     await v.ctx.close()
+  })
+  await check('ui: the review page tells a suspended approval on record apart from one in effect', async () => {
+    const { ctx, page } = await open({ viewport: { width: 390, height: 844 } }, 'en')
+    await signIn(page, 'admin')
+    await page.locator('[data-admin-area] nav').waitFor()
+    await page.goto(`${APP}/admin/review/${papers.d.id}`)
+    await page.locator('#st-h').waitFor()
+    const states = await page.locator('[data-section=st-h]').innerText()
+    assert.match(states, /An approval is on record\s+Yes/)
+    assert.match(states, /Not in effect/)
+    assert.match(await page.locator('[data-section=ap-h]').innerText(), /suspended by a blocking issue/)
+    assert.match(await page.locator('[data-section=is-h]').innerText(), /must approve again/)
+    assert.ok((await overflow(page)) <= 0)
+    await page.screenshot({ path: path.join(SHOTS, 'review-suspended-390-en.png'), fullPage: true })
+    await ctx.close()
   })
   await browser.close()
 }

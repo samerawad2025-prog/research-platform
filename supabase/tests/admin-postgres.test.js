@@ -159,10 +159,16 @@ async function main() {
   const allPapers = () => json(`select coalesce(json_agg(to_jsonb(p) order by id), '[]') from papers p`)
 
   // ------------------------------------------------------------ bootstrap and roles
-  await check('seed: one eligible institution (University of Khartoum), no faculty invented, full text restricted, nothing active', async () => {
+  await check('seed: one eligible institution (University of Khartoum) with its 21 directory units, no Arabic invented, full text restricted, nothing active', async () => {
     assert.deepStrictEqual(json(`select json_agg(slug) from institutions where public_collection_eligible`), ['university-of-khartoum'])
     assert.strictEqual(Number(sqlOk('select count(*) from institutions')), 1)
-    assert.strictEqual(Number(sqlOk('select count(*) from academic_units')), 0, 'no unit is seeded: the official directory could not be read')
+    // The 21 units of the official directory as recorded in the founder's review.
+    const units = json(`select json_agg(json_build_object('kind', kind, 'name_en', name_en, 'name_ar', name_ar, 'inst', institution_id, 'v', verification, 'src', source_url, 'on', source_retrieved_on) order by name_en) from academic_units`)
+    const uofk = sqlOk(`select id from institutions where slug = 'university-of-khartoum'`)
+    assert.strictEqual(units.length, 21)
+    assert.ok(units.every((u) => u.inst === uofk && u.name_ar === null && u.v === 'verified' && u.src === 'https://uofk.edu/index.php/faculties' && u.on === '2026-09-30'))
+    assert.deepStrictEqual(units.filter((u) => u.kind === 'school').map((u) => u.name_en), ['School of Management Studies'])
+    assert.strictEqual(new Set(units.map((u) => u.name_en.toLowerCase())).size, 21)
     assert.strictEqual(sqlOk(`select active from release_restrictions where key = 'fulltext_legal_advice'`), 't')
     assert.strictEqual(Number(sqlOk('select count(*) from confidentiality_versions where active')), 0)
     assert.strictEqual(Number(sqlOk('select count(*) from staff_members')), 0, 'no privileged account exists until someone creates one')
@@ -458,7 +464,7 @@ async function main() {
   await check('approval: succeeds with confirmed metadata, an eligible institution, supported permission and no blocking issue; records what was reviewed', async () => {
     const paper = (await newPathPaper({ fullName: 'Nadia Omer', email: 'nadia@example.invalid', meta: { title: 'Gamma Study of Trade Networks in Omdurman' } })).paperId
     const d = await detail(A, paper)
-    assert.deepStrictEqual(d.states, { submitted: true, confirmed: true, confirmed_at: d.states.confirmed_at, reviewed: false, publication_approved: false })
+    assert.deepStrictEqual(d.states, { submitted: true, confirmed: true, confirmed_at: d.states.confirmed_at, reviewed: false, approval_recorded: false, publication_approved: false })
     assert.strictEqual(d.preconditions.ok, true, JSON.stringify(d.preconditions))
     assert.strictEqual(d.evidence.basis, 'acceptance'); assert.strictEqual(d.evidence.setting, 'record_abstract')
     assert.strictEqual(d.evidence.claimed_identity_verified_by_acceptance, false, 'acceptance never verifies identity')
@@ -684,6 +690,127 @@ async function main() {
     el = eligibility(ft.paperId)
     assert.strictEqual(el.record_public, true); assert.strictEqual(el.fulltext_public, false); assert.deepStrictEqual(el.fulltext_reasons, ['dissemination_copy_not_approved'])
     sqlOk(`update release_restrictions set active = true, changed_by = 'test restore', note = 'restored' where key = 'fulltext_legal_advice'`)
+  })
+
+  await check('blocking issues: raising one suspends an approval at once (record and full text), a resolution never revives it, a fresh approval is required; the old approval stays as evidence', async () => {
+    const resolveAll = async (paper) => {
+      for (const i of (await detail(A, paper)).issues.filter((x) => x.state === 'open')) await ok('admin_resolve_issue', { p_actor: A, p_paper: paper, p_issue: i.id, p_resolution: 'Checked and fixed.' })
+    }
+    // Metadata-only record, issue raised by an administrator.
+    const ra = (await newPathPaper({ meta: { title: 'Sigma Blocking Issue Record Study' } })).paperId
+    assert.strictEqual((await approve(ra)).ok, true)
+    const first = sqlOk(`select id from review_approvals where paper_id = ${lit(ra)}`)
+    assert.strictEqual(eligibility(ra).record_public, true)
+    // A non-blocking issue changes nothing.
+    const nb = await ok('admin_raise_issue', { p_actor: A, p_paper: ra, p_kind: 'other', p_description: 'Typo in the abstract.', p_blocking: false })
+    assert.strictEqual(nb.suspends_approval_id, null)
+    assert.strictEqual(eligibility(ra).record_public, true, 'a non-blocking issue leaves eligibility alone')
+    const raised = await ok('admin_raise_issue', { p_actor: A, p_paper: ra, p_kind: 'privacy', p_description: 'Participant phone numbers on page 4.', p_blocking: true })
+    assert.strictEqual(raised.suspends_approval_id, first)
+    let el = eligibility(ra)
+    assert.deepStrictEqual([el.review_approved, el.record_public, el.abstract_public, el.fulltext_public], [false, false, false, false])
+    assert.ok(el.reasons.includes('blocking_issue_open') && el.reasons.includes('blocking_issue_since_approval'))
+    let d = await detail(A, ra)
+    assert.strictEqual(d.review.status, 'approved', 'the recorded decision is history, not changed')
+    assert.deepStrictEqual([d.states.approval_recorded, d.states.publication_approved], [true, false], 'history and current eligibility are distinct')
+    assert.strictEqual(d.approvals[0].id, first); assert.strictEqual(d.approvals[0].suspended_by_issue, true)
+    await resolveAll(ra)
+    el = eligibility(ra)
+    assert.strictEqual(el.record_public, false, 'resolution does not revive the suspended approval')
+    assert.deepStrictEqual(el.reasons, ['blocking_issue_since_approval'])
+    assert.strictEqual((await approve(ra)).ok, true, 'a fresh administrator approval')
+    el = eligibility(ra)
+    assert.strictEqual(el.record_public, true)
+    assert.notStrictEqual(el.approval_id, first)
+    assert.strictEqual(Number(sqlOk(`select count(*) from review_approvals where paper_id = ${lit(ra)}`)), 2, 'the earlier approval is kept as evidence')
+    assert.ok(psql(`delete from review_approvals where id = ${lit(first)}`).error, 'and cannot be removed')
+
+    // Full text, issue raised by the assigned volunteer.
+    const ft = await fullTextPaper({ title: 'Tau Blocking Issue Full Text Study' })
+    await originalId(ft.paperId, ft.bytes)
+    const prep = await ok('admin_prepare_document', { p_actor: A, p_paper: ft.paperId, p_origin: 'original_reviewed', p_extension: 'pdf', p_declared_size: null, p_note: null, p_redaction_note: null })
+    await ok('admin_finalize_document', { p_actor: A, p_version: prep.id, p_sha256: crypto.createHash('sha256').update(ft.bytes).digest('hex'), p_size: ft.bytes.length })
+    assert.strictEqual((await approve(ft.paperId, { dissemination: prep.id })).ok, true)
+    sqlOk(`update release_restrictions set active = false, changed_by = 'test', note = 'test' where key = 'fulltext_legal_advice'`)
+    try {
+      assert.strictEqual(eligibility(ft.paperId).fulltext_public, true)
+      assert.strictEqual((await call('admin_raise_issue', { p_actor: V1, p_paper: ft.paperId, p_kind: 'rights', p_description: 'x', p_blocking: true })).error, 'forbidden', 'not assigned')
+      await ok('admin_assign', { p_actor: A, p_paper: ft.paperId, p_volunteer: V1 })
+      const vi = await ok('admin_raise_issue', { p_actor: V1, p_paper: ft.paperId, p_kind: 'rights', p_description: 'Co-author has not agreed.', p_blocking: true })
+      assert.ok(vi.suspends_approval_id)
+      el = eligibility(ft.paperId)
+      assert.deepStrictEqual([el.record_public, el.fulltext_public], [false, false])
+      assert.strictEqual(el.dissemination_version_id, null)
+      assert.strictEqual((await call('admin_resolve_issue', { p_actor: V1, p_paper: ft.paperId, p_issue: vi.id, p_resolution: 'x' })).error, 'forbidden', 'only an administrator resolves')
+      await resolveAll(ft.paperId)
+      assert.strictEqual(eligibility(ft.paperId).fulltext_public, false)
+      assert.strictEqual((await approve(ft.paperId, { dissemination: prep.id })).ok, true)
+      assert.deepStrictEqual([eligibility(ft.paperId).record_public, eligibility(ft.paperId).fulltext_public], [true, true])
+      const ev = json(`select json_agg(e.detail) from admin_audit_events e where paper_id = ${lit(ft.paperId)} and action = 'issue_raised'`)
+      assert.ok(ev.some((x) => x.suspends_approval_id === vi.suspends_approval_id))
+    } finally {
+      sqlOk(`update release_restrictions set active = true, changed_by = 'test restore', note = 'restored' where key = 'fulltext_legal_advice'`)
+    }
+
+    // An open blocking issue raised BEFORE approval still refuses it.
+    const pre = (await newPathPaper({ meta: { title: 'Upsilon Early Issue Study' } })).paperId
+    await ok('admin_raise_issue', { p_actor: A, p_paper: pre, p_kind: 'rights', p_description: 'Check permission.', p_blocking: true })
+    assert.ok((await approve(pre)).failures.some((f) => f.code === 'blocking_issue_open'))
+  })
+
+  await check('concurrency: a blocking issue raised during an approval is never overlooked, in either order', async () => {
+    const run = (sql) => new Promise((resolve) => {
+      const c = spawn('psql', ['-X', '-q', '-At', '-v', 'ON_ERROR_STOP=1', '-d', DB, '-c', sql], { stdio: ['ignore', 'pipe', 'pipe'] })
+      let out = ''; c.stdout.on('data', (b) => (out += b)); c.stderr.on('data', (b) => (out += b)); c.on('close', () => resolve(out))
+    })
+    // Approval holds the lock first; the issue waits, then suspends it.
+    const p = (await newPathPaper({ meta: { title: 'Phi Concurrent Issue Study' } })).paperId
+    let rev = (await detail(A, p)).revision
+    const approveTx = run(`begin; select admin_decide(${lit(A)}, ${lit(p)}, 'approved', 'concurrent', ${lit(rev)}, null); select pg_sleep(1.2); commit;`)
+    await new Promise((r) => setTimeout(r, 400))
+    const issueTx = run(`select admin_raise_issue(${lit(A2)}, ${lit(p)}, 'privacy', 'Raised during the approval.', true)`)
+    const [aOut, iOut] = await Promise.all([approveTx, issueTx])
+    assert.ok(!/ERROR/.test(aOut + iOut), aOut + iOut)
+    assert.strictEqual(sqlOk(`select status from paper_reviews where paper_id = ${lit(p)}`), 'approved')
+    assert.strictEqual(sqlOk(`select suspends_approval_id is not null from review_issues where paper_id = ${lit(p)}`), 't', 'the issue saw the approval it followed')
+    assert.strictEqual(eligibility(p).record_public, false)
+    // The issue holds the lock first; the approval waits, then sees it.
+    const q = (await newPathPaper({ meta: { title: 'Chi Concurrent Issue Study' } })).paperId
+    rev = (await detail(A, q)).revision
+    const issueFirst = run(`begin; select admin_raise_issue(${lit(A2)}, ${lit(q)}, 'rights', 'Raised first.', true); select pg_sleep(1.2); commit;`)
+    await new Promise((r) => setTimeout(r, 400))
+    const approveAfter = run(`select admin_decide(${lit(A)}, ${lit(q)}, 'approved', 'after', ${lit(rev)}, null)`)
+    const [, out] = await Promise.all([issueFirst, approveAfter])
+    assert.match(out, /stale_revision|preconditions_failed/)
+    assert.strictEqual(sqlOk(`select status from paper_reviews where paper_id = ${lit(q)}`), 'pending')
+    assert.strictEqual(eligibility(q).record_public, false)
+  })
+
+  await check('the UofK unit seed is repeatable, owned by UofK only, English only, and never touches existing units or reviewer mappings', async () => {
+    const uofk = sqlOk(`select id from institutions where slug = 'university-of-khartoum'`)
+    const count = () => Number(sqlOk(`select count(*) from academic_units where source_url = 'https://uofk.edu/index.php/faculties'`))
+    assert.strictEqual(count(), 21)
+    // Rerun the whole migration: nothing is duplicated or changed.
+    const before = sqlOk(`select md5(string_agg(to_jsonb(u)::text, '' order by id)) from academic_units u`)
+    execFileSync('psql', ['-X', '-q', '-v', 'ON_ERROR_STOP=1', '-d', DB, '-f', path.join(ROOT, 'supabase/migrations/0015_admin_review.sql')], { stdio: ['ignore', 'ignore', 'pipe'] })
+    assert.strictEqual(sqlOk(`select md5(string_agg(to_jsonb(u)::text, '' order by id)) from academic_units u`), before)
+    assert.strictEqual(count(), 21)
+    // Clear matches map automatically; anything ambiguous or partial stays for a reviewer.
+    const sci = sqlOk(`select id from academic_units where institution_id = ${lit(uofk)} and name_en = 'Faculty of Science'`)
+    const exact = (await newPathPaper({ meta: { faculty: '  faculty of  SCIENCE ' } })).paperId
+    const partial = (await newPathPaper({ meta: { faculty: 'Science' } })).paperId
+    const legacyAmbiguous = legacyPaper(['abstract_and_citation'], { faculty: 'Faculty of Medicine and Pharmacy' })
+    await call('admin_queue', { p_actor: A })
+    assert.strictEqual(json(`select review_institution_state(${lit(exact)})`).unit_id, sci)
+    assert.strictEqual(json(`select review_institution_state(${lit(partial)})`).unit_id, null)
+    assert.strictEqual(json(`select review_institution_state(${lit(legacyAmbiguous)})`).unit_id, null)
+    assert.strictEqual(sqlOk(`select faculty from papers where id = ${lit(legacyAmbiguous)}`), 'Faculty of Medicine and Pharmacy', 'submitted text preserved')
+    // A reviewer's mapping survives a rerun of the seed.
+    const law = sqlOk(`select id from academic_units where institution_id = ${lit(uofk)} and name_en = 'Faculty of Law'`)
+    await ok('admin_set_paper_institution', { p_actor: A, p_paper: exact, p_institution: uofk, p_unit: law })
+    execFileSync('psql', ['-X', '-q', '-v', 'ON_ERROR_STOP=1', '-d', DB, '-f', path.join(ROOT, 'supabase/migrations/0015_admin_review.sql')], { stdio: ['ignore', 'ignore', 'pipe'] })
+    await call('admin_queue', { p_actor: A })
+    assert.strictEqual(json(`select review_institution_state(${lit(exact)})`).unit_id, law)
   })
 
   await check('redacted copies: need a redaction note, keep their provenance and hash, supersede an earlier approved copy; the original is kept', async () => {

@@ -39,13 +39,13 @@ const ENV = { ADMIN_REVIEW: 'enabled' }
 
 // A recording stand-in for the service-role client and private storage.
 function harness({ rpc = () => ({ data: { ok: true } }), user = USER, getUserError = false } = {}) {
-  const calls = { rpc: [], getUser: [], storage: [] }
+  const calls = { rpc: [], getUser: [], storage: [], listUsers: [] }
   const lines = []
   const supabase = {
     rpc: async (name, args) => { calls.rpc.push([name, args]); const r = rpc(name, args); return r.error ? { data: null, error: r.error } : { data: r.data, error: null } },
     auth: {
       getUser: async (t) => { calls.getUser.push(t); return getUserError ? { data: null, error: { message: 'invalid JWT' } } : { data: { user: user ? { id: user } : null }, error: null } },
-      admin: { listUsers: async () => ({ data: { users: [{ id: USER, email: 'v@example.invalid' }] }, error: null }) },
+      admin: { listUsers: async () => { calls.listUsers.push(1); return { data: { users: [{ id: USER, email: 'v@example.invalid' }] }, error: null } } },
     },
   }
   const storage = {
@@ -153,8 +153,7 @@ async function main() {
       ['POST', ['reviews', PAPER, 'documents'], { origin: 'redacted_copy', file: { name: 'a.pdf', size: 20 * 1024 * 1024 + 1, type: 'application/pdf' } }],
       ['POST', ['reviews', PAPER, 'documents'], { origin: 'redacted_copy', file: { name: 'a.pdf', size: 5, type: 'application/pdf', path: '/etc' } }],
       ['POST', ['reviews', PAPER, 'documents', 'zzz', 'finalize'], {}], ['POST', ['reviews', PAPER, 'files', 'access'], { path: 'intents/other.pdf' }],
-      ['POST', ['reviews', PAPER, 'files', 'access'], { versionId: 'x' }], ['POST', ['staff'], { role: 'administrator' }], ['POST', ['staff'], { userId: USER, email: 'a@b.c', role: 'volunteer' }],
-      ['POST', ['staff'], { userId: USER, role: 'owner' }], ['POST', ['institutions'], { slug: 'X', nameEn: 'X' }],
+      ['POST', ['reviews', PAPER, 'files', 'access'], { versionId: 'x' }], ['POST', ['staff'], { userId: USER, role: 'owner' }], ['POST', ['institutions'], { slug: 'X', nameEn: 'X' }],
       ['POST', ['units', PAPER, 'verify'], { sourceUrl: 'https://x.invalid', retrievedOn: '' }], ['POST', ['confidentiality', 'acknowledge'], { versionId: 'v', language: 'fr' }],
       ['GET', ['queue'], null, { limit: '1.5' }],
     ]
@@ -168,6 +167,40 @@ async function main() {
     assert.strictEqual((await h.call('POST', ['reviews', PAPER, 'notes'], { bodyError: true })).status, 400, 'invalid JSON')
     assert.strictEqual(h.calls.rpc.length, 0)
     assert.strictEqual((await h.call('DELETE', ['reviews', PAPER])).status, 404)
+  })
+
+  await check('staff: nobody but an active administrator reaches the account directory, and every refusal is the same', async () => {
+    const bodies = [{ email: 'exists@example.invalid', role: 'administrator' }, { email: 'absent@example.invalid', role: 'volunteer' },
+      { userId: USER, role: 'administrator' }, { userId: USER, email: 'a@b.c', role: 'volunteer' }, { role: 'administrator' }]
+    const callers = {
+      'ordinary user': () => ({ error: { message: 'admin:forbidden' } }),
+      'inactive administrator': () => ({ error: { message: 'admin:forbidden' } }),
+      volunteer: (n) => (n === 'admin_context' ? { data: { role: 'volunteer' } } : { data: { ok: true } }),
+    }
+    for (const [who, rpc] of Object.entries(callers)) {
+      const seen = new Set()
+      for (const body of bodies) {
+        const h = harness({ rpc })
+        const r = await h.call('POST', ['staff'], { body })
+        seen.add(JSON.stringify([r.status, r.body]))
+        assert.strictEqual(h.calls.listUsers.length, 0, `${who}: the directory was searched`)
+        assert.ok(!h.calls.rpc.some(([n]) => n === 'admin_set_staff'), `${who}: reached the mutation`)
+      }
+      assert.deepStrictEqual([...seen], [JSON.stringify([403, { error: 'The request was refused.', reason: 'forbidden' }])], who)
+    }
+    const admin = (n) => (n === 'admin_context' ? { data: { role: 'administrator' } } : { data: { ok: true } })
+    let h = harness({ rpc: admin })
+    let r = await h.call('POST', ['staff'], { body: { email: 'V@example.invalid', role: 'volunteer' } })
+    assert.strictEqual(r.status, 200)
+    assert.strictEqual(h.calls.listUsers.length, 1)
+    assert.deepStrictEqual(h.calls.rpc.map(([n]) => n), ['admin_context', 'admin_set_staff'], 'the mutation is still authorized by the database')
+    assert.strictEqual(h.calls.rpc[1][1].p_user, USER)
+    h = harness({ rpc: admin })
+    r = await h.call('POST', ['staff'], { body: { email: 'nobody@example.invalid', role: 'volunteer' } })
+    assert.deepStrictEqual([r.status, r.body.reason], [404, 'user_not_found'], 'only an administrator can learn an account is absent')
+    h = harness({ rpc: admin })
+    assert.strictEqual((await h.call('POST', ['staff'], { body: { userId: USER, email: 'a@b.c', role: 'volunteer' } })).status, 400)
+    assert.strictEqual(h.calls.listUsers.length, 0)
   })
 
   await check('the queue passes only known filters, with types fixed, and the actor is always the verified user', async () => {
@@ -266,7 +299,18 @@ async function main() {
     // No public-facing object is created, and nothing is seeded active or eligible beyond the founder's decision.
     assert.ok(!/create (or replace )?view|create policy|storage\./i.test(code), 'no view, policy or storage change')
     assert.ok(/'volunteer-confidentiality-2026-09-29',[^)]*false\)/.test(code.replace(/\s+/g, ' ')), 'confidentiality seeded inactive')
-    assert.ok(!/insert into academic_units/.test(code.replace(/\$fn\$[\s\S]*?\$fn\$;/g, '')), 'no unit is seeded outside a function body')
+    // The UofK unit seed: the 21 units of the official directory as recorded
+    // in the founder's review (2026-09-30), English only, repeatable.
+    const seed = /insert into academic_units \(institution_id, kind, name_en,[\s\S]*?\) as u\(kind, name_en\)[\s\S]*?;/.exec(code)
+    assert.ok(seed, 'the unit seed exists')
+    const units = [...seed[0].matchAll(/\('(faculty|school)',\s*'([^']+)'\)/g)].map((m) => [m[1], m[2]])
+    assert.strictEqual(units.length, 21)
+    assert.strictEqual(new Set(units.map((u) => u[1])).size, 21, 'no duplicate unit')
+    assert.deepStrictEqual(units.filter((u) => u[0] === 'school').map((u) => u[1]), ['School of Management Studies'])
+    assert.ok(units.every(([k, n]) => n.startsWith(k === 'school' ? 'School of ' : 'Faculty of ')))
+    assert.ok(/https:\/\/uofk\.edu\/index\.php\/faculties/.test(seed[0]) && /date '2026-09-30'/.test(seed[0]))
+    assert.ok(/not exists \(select 1 from academic_units x\s+where x\.institution_id = i\.id and normalize_name_text\(x\.name_en\) = normalize_name_text\(u\.name_en\)\)/.test(seed[0]), 'repeatable, never duplicates')
+    assert.ok(!/name_ar/.test(seed[0]), 'no Arabic name is invented')
   })
 
   await check('every database function the API calls exists in the migration, and every API function is used or is the shared rule', async () => {
