@@ -715,22 +715,42 @@ async function main() {
     }
   })
 
-  await check('M3: a researcher row shared with another paper keeps its own LinkedIn and visibility', async () => {
+  await check('shared researcher: one paper\'s link cannot rename or re-profile a person shared with another paper; exclusive rows still edit', async () => {
     const { r, bytes } = await submit({ over: { claimedRole: 'author', fullName: 'Shared Person', email: 'shared@example.invalid' } })
     await upload(r, bytes)
     const f = await finalize(r)
     const me = json(`select get_paper_for_confirmation(${lit(f.body.confirmationToken)})`).researchers[0]
+    // Still exclusive: normal editing works, including the name.
     json(`select confirm_researcher_metadata(${lit(f.body.confirmationToken)}, ${lit([{ researcher_id: me.researcher_id, full_name: 'Shared Person', linkedin_url: 'https://www.linkedin.com/in/shared', linkedin_public: true }])}, null)`)
-    // The same person is later linked on a depositor's paper (as a future
-    // merge would do); that paper's confirmation cannot change the shared profile.
+    // The same person is then also linked on a second paper (as a future
+    // merge would do).
     const { r: d, bytes: db } = await submit({ over: { claimedRole: 'authorized_depositor', fullName: 'Depositor', email: 'dep@example.invalid', authors: ['Placeholder'] } })
     await upload(d, db)
     const fd = await finalize(d)
-    sqlOk(`insert into paper_researchers (paper_id, researcher_id, author_order) values (${lit(paperOf(d.body.intentId).id)}, ${lit(me.researcher_id)}, 2)`)
-    json(`select confirm_researcher_metadata(${lit(fd.body.confirmationToken)}, ${lit([{ full_name: 'Placeholder' }, { researcher_id: me.researcher_id, full_name: 'Shared Person', linkedin_url: 'https://www.linkedin.com/in/someone-else', linkedin_public: false }])}, null)`)
-    const row = researcherRow(me.researcher_id)
-    assert.strictEqual(row.linkedin_url, 'https://www.linkedin.com/in/shared')
-    assert.strictEqual(row.linkedin_public, true)
+    const paperB = paperOf(d.body.intentId).id
+    sqlOk(`insert into paper_researchers (paper_id, researcher_id, author_order) values (${lit(paperB)}, ${lit(me.researcher_id)}, 2)`)
+    const before = researcherRow(me.researcher_id)
+    const confirmedB = () => json(`select to_jsonb(p) from papers p where id = ${lit(paperB)}`).metadata_confirmed_at
+    for (const [label, entry] of [
+      ['rename', { researcher_id: me.researcher_id, full_name: 'Renamed Through B' }],
+      ['relink', { researcher_id: me.researcher_id, full_name: 'Shared Person', linkedin_url: 'https://www.linkedin.com/in/someone-else' }],
+      ['unlink', { researcher_id: me.researcher_id, full_name: 'Shared Person', linkedin_url: '' }],
+    ]) {
+      const res = psql(`set role anon; select confirm_researcher_metadata(${lit(fd.body.confirmationToken)}, ${lit([{ full_name: 'Placeholder' }, entry])}, null)`)
+      assert.ok(res.error && /also listed on another submission/.test(res.error.message), `${label}: ${JSON.stringify(res.error)}`)
+      assert.deepStrictEqual(researcherRow(me.researcher_id), before, `${label}: shared row unchanged`)
+      assert.strictEqual(confirmedB(), null, `${label}: nothing on paper B was saved either`)
+    }
+    // Paper A still shows the person as they were.
+    assert.strictEqual(json(`select get_paper_for_confirmation(${lit(f.body.confirmationToken)})`).researchers[0].full_name, 'Shared Person')
+    // Sending the shared row unchanged is fine, and other rows still edit.
+    json(`set role anon; select confirm_researcher_metadata(${lit(fd.body.confirmationToken)}, ${lit([{ full_name: 'Placeholder Corrected' }, { researcher_id: me.researcher_id, full_name: 'Shared Person', linkedin_url: 'https://www.linkedin.com/in/shared' }])}, null)`)
+    assert.deepStrictEqual(researcherRow(me.researcher_id), before)
+    assert.ok(confirmedB())
+    // Through paper A, which it also belongs to, the rule is the same: shared.
+    const viaA = psql(`set role anon; select confirm_researcher_metadata(${lit(f.body.confirmationToken)}, ${lit([{ researcher_id: me.researcher_id, full_name: 'Renamed Through A' }])}, null)`)
+    assert.ok(viaA.error && /also listed on another submission/.test(viaA.error.message))
+    assert.strictEqual(json(`select get_paper_for_confirmation(${lit(fd.body.confirmationToken)})`).researchers.find((x) => x.researcher_id === me.researcher_id).full_name, 'Shared Person', 'paper B identity unchanged')
   })
 
   // ------------------------------------------------------------ limits, privacy, access

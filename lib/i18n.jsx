@@ -72,6 +72,8 @@ const AR_CONFIRM_ERRORS = {
   'At least one researcher is required.': 'يلزم وجود باحث واحد على الأقل.',
   'Each researcher needs a name.': 'يجب إدخال اسم لكل باحث.',
   // Added by migration 0013.
+  "This person is also listed on another submission, so their name and profile can't be changed here. Please contact us to correct them.":
+    'هذا الشخص مُدرج أيضاً في طلب تقديم آخر، لذلك لا يمكن تغيير اسمه أو ملفه الشخصي من هنا. يرجى التواصل معنا لتصحيحهما.',
   'Please enter a LinkedIn profile address, for example https://www.linkedin.com/in/your-name':
     'يرجى إدخال عنوان ملف شخصي على LinkedIn، مثل \u2066https://www.linkedin.com/in/your-name\u2069',
 }
@@ -231,7 +233,10 @@ export const MESSAGES = {
       narrowedBody:
         'Since this form was opened, automatic reading was switched off. Your document will not be read automatically; after upload, you will enter its details yourself.',
       narrowedContinue: 'Continue with upload',
-      narrowedCancel: 'Not now',
+      narrowedCancel: 'Cancel and edit details',
+      lockedNote:
+        'Your details, file and choices are locked to what you just accepted. To change anything, choose “Cancel and edit details”; you will then accept again.',
+      pinnedLanguage: 'This is the agreement you accepted, so it stays shown in its own language until the submission is completed or cancelled.',
       notices: {
         offer_expired:
           'The terms you were shown have expired, so we’ve loaded the current terms. Please read them and tick the box again to accept. Your details and file are kept.',
@@ -242,6 +247,7 @@ export const MESSAGES = {
         offer_invalid:
           'We couldn’t verify the terms you were shown, so we’ve loaded them again. Please tick the box again to accept. Your details and file are kept.',
         language: 'The agreement is now shown in the language you chose. Please read it and tick the box again to accept.',
+        locked: 'That change wasn’t applied: the form is locked to what you accepted. Choose “Cancel and edit details” first.',
       },
       errors: {
         uploadLinkExpired:
@@ -256,12 +262,12 @@ export const MESSAGES = {
         objectType: 'The uploaded file isn’t a readable PDF or DOCX document. Please choose another file.',
         invalid: 'Some details weren’t accepted. Please check the form and try again.',
         internal: 'Something went wrong on our side. Please try again in a moment.',
+        recoveryIncomplete: 'The file from your earlier attempt never reached us, so that submission can’t be completed. Please submit again.',
       },
       recoveryHeading: 'Finish your earlier submission',
       recoveryBody: 'Your file was uploaded, but the submission wasn’t completed. You can complete it now.',
       recoveryAction: 'Complete submission',
       recoveryDiscard: 'Start a new one instead',
-      staleRecovery: 'An earlier attempt in this tab wasn’t completed. Please submit again.',
       outstanding: {
         role: 'your role',
         authors: 'the authors’ names',
@@ -560,7 +566,10 @@ export const MESSAGES = {
       narrowedBody:
         'منذ فتح هذا النموذج، أُوقفت القراءة الآلية. لن تتم قراءة مستندك آلياً، وبعد الرفع ستُدخل تفاصيله بنفسك.',
       narrowedContinue: 'متابعة الرفع',
-      narrowedCancel: 'ليس الآن',
+      narrowedCancel: 'إلغاء وتعديل البيانات',
+      lockedNote:
+        'بياناتك وملفك وخياراتك مثبتة على ما وافقت عليه للتو. لتغيير أي شيء، اختر «إلغاء وتعديل البيانات»، ثم وافق مرة أخرى.',
+      pinnedLanguage: 'هذه هي الاتفاقية التي وافقت عليها، لذلك تبقى معروضة بلغتها حتى يكتمل الطلب أو يُلغى.',
       notices: {
         offer_expired:
           'انتهت صلاحية الشروط التي عُرضت عليك، لذا حمّلنا الشروط الحالية. يرجى قراءتها ثم تحديد المربع مرة أخرى للموافقة. تم الاحتفاظ ببياناتك وملفك.',
@@ -571,6 +580,7 @@ export const MESSAGES = {
         offer_invalid:
           'تعذر التحقق من الشروط التي عُرضت عليك، لذا حمّلناها مرة أخرى. يرجى تحديد المربع مرة أخرى للموافقة. تم الاحتفاظ ببياناتك وملفك.',
         language: 'تُعرض الاتفاقية الآن باللغة التي اخترتها. يرجى قراءتها ثم تحديد المربع مرة أخرى للموافقة.',
+        locked: 'لم يُطبَّق هذا التغيير: النموذج مثبت على ما وافقت عليه. اختر «إلغاء وتعديل البيانات» أولاً.',
       },
       errors: {
         uploadLinkExpired:
@@ -585,12 +595,12 @@ export const MESSAGES = {
         objectType: 'الملف المرفوع ليس مستند PDF أو DOCX قابلاً للقراءة. يرجى اختيار ملف آخر.',
         invalid: 'لم تُقبل بعض البيانات. يرجى مراجعة النموذج والمحاولة مرة أخرى.',
         internal: 'حدث خطأ من جانبنا. يرجى المحاولة مرة أخرى بعد قليل.',
+        recoveryIncomplete: 'لم يصلنا ملف محاولتك السابقة، لذلك لا يمكن إكمال ذلك الطلب. يرجى التقديم مرة أخرى.',
       },
       recoveryHeading: 'أكمل طلبك السابق',
       recoveryBody: 'تم رفع ملفك، لكن الطلب لم يكتمل. يمكنك إكماله الآن.',
       recoveryAction: 'إكمال التقديم',
       recoveryDiscard: 'بدء طلب جديد بدلاً من ذلك',
-      staleRecovery: 'لم تكتمل محاولة سابقة في هذه النافذة. يرجى التقديم مرة أخرى.',
       outstanding: {
         role: 'صفتك',
         authors: 'أسماء المؤلفين',

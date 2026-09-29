@@ -19,8 +19,10 @@
 --      PUBLIC, anon and authenticated (a revoke from anon alone would
 --      leave the PUBLIC default grant in force).
 --   3. Verifies the effective result and aborts (rolling everything back)
---      if anon or authenticated could still insert into the bucket or
---      execute submit_paper, or if the new path's functions were exposed.
+--      if anon or authenticated could still execute submit_paper or a new-
+--      path function, or if any permissive storage write policy reachable by
+--      a browser role (directly, through PUBLIC or through membership) is
+--      not provably limited to another bucket.
 -- The server-side signed flow is unaffected: signed upload authorizations
 -- are issued by the service role and do not rely on the anonymous policy
 -- (verified on the local Supabase stack: supabase/tests/supabase-cutover.test.js).
@@ -72,14 +74,46 @@ begin
     raise exception '0014: still executable: %', v_bad;
   end if;
 
-  select string_agg(policyname, ', ') into v_bad
-  from pg_policies
+  -- Storage. The Storage API writes through storage.objects under the
+  -- caller's role and RLS. A bucket-name substring proves nothing (a
+  -- policy "with check (true)" never mentions a bucket), so the check is
+  -- the other way round: every PERMISSIVE policy that can grant INSERT or
+  -- UPDATE to a browser role - directly, through PUBLIC, or through role
+  -- membership - must be provably limited to one OTHER bucket, written
+  -- exactly as bucket_id = '<name>'. Anything else aborts, because its
+  -- safety cannot be established here.
+  if not (select relrowsecurity from pg_class where oid = 'storage.objects'::regclass) then
+    raise exception '0014: row level security is off on storage.objects, so no policy limits browser uploads. Enable it (alter table storage.objects enable row level security) and re-run.';
+  end if;
+  if exists (select 1 from pg_roles where rolname in ('anon', 'authenticated') and rolbypassrls)
+     or exists (select 1 from pg_roles r where r.rolbypassrls
+                and (pg_has_role('anon', r.oid, 'MEMBER') or pg_has_role('authenticated', r.oid, 'MEMBER'))) then
+    raise exception '0014: anon or authenticated can bypass row level security (directly or through a role they belong to). Remove that before closing the path.';
+  end if;
+
+  select string_agg(format('%I (%s to %s: %s)', policyname, cmd, array_to_string(roles, ','),
+                           coalesce(with_check, qual, 'true')), '; ')
+  into v_bad
+  from pg_policies pol
   where schemaname = 'storage' and tablename = 'objects'
+    and permissive = 'PERMISSIVE'
     and cmd in ('INSERT', 'UPDATE', 'ALL')
-    and roles && array['public', 'anon', 'authenticated']::name[]
-    and (coalesce(with_check, '') || ' ' || coalesce(qual, '')) ~ 'papers';
+    and exists (
+      select 1 from unnest(pol.roles) as r(name)
+      where r.name = 'public'
+         or (r.name <> 'public' and exists (select 1 from pg_roles x where x.rolname = r.name)
+             and (pg_has_role('anon', r.name, 'MEMBER') or pg_has_role('authenticated', r.name, 'MEMBER')))
+    )
+    and not (
+      -- Provably another bucket: every expression that applies is exactly
+      -- bucket_id = '<name>' for one bucket that is not papers.
+      coalesce(with_check, qual) is not null
+      and coalesce(with_check, qual) ~ '^\(?bucket_id = ''[^'']+''(::text)?\)?$'
+      and coalesce(with_check, qual) !~ '''papers'''
+      and (qual is null or (qual ~ '^\(?bucket_id = ''[^'']+''(::text)?\)?$' and qual !~ '''papers'''))
+    );
   if v_bad is not null then
-    raise exception '0014: storage policies still allow browser writes to the papers bucket: %', v_bad;
+    raise exception '0014: storage policies still let browser roles write objects, and cannot be shown to exclude the papers bucket: %. Drop each, or restrict it to exactly bucket_id = ''<another bucket>'', then re-run. Nothing was changed.', v_bad;
   end if;
 end $$;
 

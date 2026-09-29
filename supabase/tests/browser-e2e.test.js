@@ -39,6 +39,8 @@ const setPolicy = (mode) => sql(`update extraction_policy set mode = ${lit(mode)
 let failed = 0
 const results = []
 async function check(name, fn) {
+  // E2E_ONLY=<regex> runs a subset (used to reproduce a finding first).
+  if (process.env.E2E_ONLY && !new RegExp(process.env.E2E_ONLY).test(name)) return
   try {
     await fn()
     console.log(`ok     ${name}`)
@@ -484,6 +486,164 @@ async function main() {
       assert.strictEqual(r.status, status)
       assert.strictEqual((await r.json()).reason, reason)
     }
+  })
+
+
+  // ------------------------------------------------------------ snapshot integrity (correction pass)
+  await check('snapshot: during the narrowed notice, setting, acceptance, file and language cannot drift from what was accepted and uploaded', async () => {
+    setPolicy('automatic')
+    const page = await newPage()
+    await openForm(page)
+    const email = uniq('snapshot')
+    const original = fs.readFileSync(pdf)
+    await fill(page, { name: 'Snapshot Case', email, file: pdf, setting: 'record_abstract_fulltext' })
+    setPolicy('manual')
+    await page.getByRole('button', { name: EN.submit }).click()
+    await page.getByRole('heading', { name: 'Processing has changed' }).waitFor()
+    // 1. Publication permission.
+    await page.getByLabel(EN.settings.record_abstract).check({ force: true, timeout: 2000 }).catch(() => {})
+    // 2. Acceptance.
+    await page.locator('form input[type=checkbox]').last().uncheck({ force: true, timeout: 2000 }).catch(() => {})
+    // 3. A different file of exactly the same size (and the same name).
+    const replacement = Buffer.from(original)
+    replacement[Math.floor(replacement.length / 2)] ^= 0x01
+    assert.strictEqual(replacement.length, original.length)
+    await page.setInputFiles('input[type=file]', { name: 'synthetic-thesis.pdf', mimeType: 'application/pdf', buffer: replacement }).catch(() => {})
+    // 4. Language.
+    await page.getByRole('button', { name: 'عرض الموقع بالعربية' }).click()
+    // What is visible still matches what was accepted.
+    assert.strictEqual(await page.getByLabel(AR.settings.record_abstract_fulltext).isChecked(), true, 'setting unchanged on screen')
+    assert.strictEqual(await page.locator('form input[type=checkbox]').last().isChecked(), true, 'acceptance unchanged on screen')
+    assert.strictEqual(await page.locator('[data-agreement-language]').getAttribute('data-agreement-language'), 'en', 'the accepted (English) agreement stays shown')
+    await page.screenshot({ path: `${SHOTS}/snapshot-locked-ar-1280.png`, fullPage: true })
+    await page.getByRole('button', { name: 'متابعة الرفع' }).click()
+    await page.waitForURL(/\/confirm\//, { timeout: 30000 })
+    const [acc] = acceptancesFor(email)
+    assert.strictEqual(acc.publication_setting, 'record_abstract_fulltext')
+    assert.strictEqual(sql(`select agreement_language from submission_acceptances where email = ${lit(email)}`), 'en')
+    assert.strictEqual(paperFor(email).file_sha256, crypto.createHash('sha256').update(original).digest('hex'), 'the uploaded bytes are the accepted file')
+    await page.context().close()
+  })
+
+  await check('snapshot: "Cancel and edit" after the narrowed notice unlocks the form, and edits then need a fresh submission', async () => {
+    setPolicy('automatic')
+    const page = await newPage()
+    await openForm(page)
+    const email = uniq('cancel-edit')
+    await fill(page, { name: 'Cancel Edit', email, file: pdf, setting: 'record_abstract_fulltext' })
+    setPolicy('manual')
+    await page.getByRole('button', { name: EN.submit }).click()
+    await page.getByRole('heading', { name: 'Processing has changed' }).waitFor()
+    await page.getByRole('button', { name: 'Cancel and edit details' }).click()
+    await page.getByLabel(EN.settings.record_abstract).check()
+    assert.strictEqual(await page.locator('form input[type=checkbox]').last().isChecked(), true)
+    await page.getByRole('button', { name: EN.submit }).click()
+    await page.getByRole('heading', { name: 'Processing has changed' }).waitFor()
+    await page.getByRole('button', { name: 'Continue with upload' }).click()
+    await page.waitForURL(/\/confirm\//, { timeout: 30000 })
+    const acc = acceptancesFor(email)
+    assert.deepStrictEqual(acc.map((x) => [x.publication_setting, x.status]), [['record_abstract_fulltext', 'open'], ['record_abstract', 'finalized']], 'a new acceptance for the edited choice')
+    await page.context().close()
+  })
+
+  await check('snapshot: controls are locked while the upload and finalization run', async () => {
+    setPolicy('manual')
+    const page = await newPage()
+    await openForm(page)
+    await fill(page, { name: 'Locked While Working', email: uniq('working'), file: pdf })
+    let release
+    const gate = new Promise((r) => { release = r })
+    await page.route('**/api/submissions/finalize', async (route) => { await gate; await route.continue() })
+    await page.getByRole('button', { name: EN.submit }).click()
+    await page.getByText('Completing your submission…').first().waitFor()
+    assert.ok(await page.getByLabel('Full name', { exact: true }).isDisabled())
+    assert.ok(await page.getByLabel(EN.settings.record_abstract_fulltext).isDisabled())
+    assert.ok(await page.locator('form input[type=checkbox]').last().isDisabled())
+    release()
+    await page.waitForURL(/\/confirm\//, { timeout: 30000 })
+    await page.context().close()
+  })
+
+  // ------------------------------------------------------------ recovery decided by the server (correction pass)
+  await check('recovery: finalized but the response was lost; after the intent expires, reload still recovers the same paper and link', async () => {
+    setPolicy('manual')
+    const page = await newPage()
+    await openForm(page)
+    const email = uniq('lost-expired')
+    await fill(page, { name: 'Lost Then Expired', email, file: pdf })
+    await page.route('**/api/submissions/finalize', async (route) => { await route.fetch(); return route.abort('connectionreset') })
+    await page.getByRole('button', { name: EN.submit }).click()
+    await page.getByText('We couldn’t reach the server').waitFor({ timeout: 30000 })
+    assert.strictEqual(acceptancesFor(email)[0].status, 'finalized', 'the server did finalize')
+    await page.unroute('**/api/submissions/finalize')
+    sql(`update submission_acceptances set expires_at = now() - interval '1 hour' where email = ${lit(email)}`)
+    // Make the browser's own copy look expired too.
+    await page.evaluate(() => {
+      const k = 'sarp_pending_submission'
+      const p = JSON.parse(sessionStorage.getItem(k))
+      p.expiresAt = new Date(Date.now() - 3600_000).toISOString()
+      sessionStorage.setItem(k, JSON.stringify(p))
+    })
+    await page.reload()
+    await page.getByRole('heading', { name: 'Finish your earlier submission' }).waitFor()
+    await page.getByRole('button', { name: 'Complete submission' }).click()
+    await page.waitForURL(/\/confirm\//, { timeout: 30000 })
+    const token = page.url().split('/confirm/')[1]
+    const acc = acceptancesFor(email)
+    assert.strictEqual(acc.length, 1)
+    assert.strictEqual(sql(`select confirmation_token_hash from papers where id = ${lit(acc[0].paper_id)}`), crypto.createHash('sha256').update(token).digest('hex'), 'the same private link')
+    await page.context().close()
+  })
+
+  await check('recovery: an uploaded but genuinely expired, unfinalized submission gets the expiry message and is cleared', async () => {
+    const page = await newPage()
+    await openForm(page)
+    const email = uniq('genuinely-expired')
+    await fill(page, { name: 'Genuinely Expired', email, file: pdf })
+    await page.route('**/api/submissions/finalize', (route) => route.abort('connectionreset'))
+    await page.getByRole('button', { name: EN.submit }).click()
+    await page.getByText('We couldn’t reach the server').waitFor({ timeout: 30000 })
+    await page.unroute('**/api/submissions/finalize')
+    sql(`update submission_acceptances set expires_at = now() - interval '1 hour' where email = ${lit(email)}`)
+    await page.reload()
+    await page.getByRole('heading', { name: 'Finish your earlier submission' }).waitFor()
+    await page.getByRole('button', { name: 'Complete submission' }).click()
+    await page.getByText('This submission expired before it was completed').waitFor()
+    assert.strictEqual(await page.getByRole('heading', { name: 'Finish your earlier submission' }).count(), 0)
+    assert.strictEqual(acceptancesFor(email)[0].status, 'expired')
+    assert.strictEqual(acceptancesFor(email)[0].paper_id, null)
+    await page.reload()
+    assert.strictEqual(await page.getByRole('heading', { name: 'Finish your earlier submission' }).count(), 0, 'not offered again')
+    await page.context().close()
+  })
+
+  await check('recovery: a temporary failure keeps a working retry, and the retry creates no second paper', async () => {
+    const page = await newPage()
+    await openForm(page)
+    const email = uniq('recovery-retry')
+    await fill(page, { name: 'Recovery Retry', email, file: pdf })
+    await page.route('**/api/submissions/finalize', (route) => route.abort('connectionreset'))
+    await page.getByRole('button', { name: EN.submit }).click()
+    await page.getByText('We couldn’t reach the server').waitFor({ timeout: 30000 })
+    await page.unroute('**/api/submissions/finalize')
+    await page.reload()
+    await page.getByRole('heading', { name: 'Finish your earlier submission' }).waitFor()
+    // The first recovery attempt meets a temporarily unavailable service.
+    await page.route('**/api/submissions/finalize', (route) => route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ reason: 'database_not_ready' }) }))
+    await page.getByRole('button', { name: 'Complete submission' }).click()
+    await page.getByText('We couldn’t reach the server').waitFor({ timeout: 30000 })
+    assert.ok(await page.getByRole('button', { name: 'Complete submission' }).isEnabled(), 'retry still offered')
+    // Rate limited: still recoverable.
+    await page.unroute('**/api/submissions/finalize')
+    await page.route('**/api/submissions/finalize', (route) => route.fulfill({ status: 429, contentType: 'application/json', body: JSON.stringify({ reason: 'rate_limited' }) }))
+    await page.getByRole('button', { name: 'Complete submission' }).click()
+    await page.getByText('There have been too many attempts').waitFor()
+    assert.ok(await page.getByRole('button', { name: 'Complete submission' }).isEnabled())
+    await page.unroute('**/api/submissions/finalize')
+    await page.getByRole('button', { name: 'Complete submission' }).click()
+    await page.waitForURL(/\/confirm\//, { timeout: 30000 })
+    assert.strictEqual(Number(sql(`select count(*) from papers where submission_acceptance_id in (select id from submission_acceptances where email = ${lit(email)})`)), 1)
+    await page.context().close()
   })
 
   // ------------------------------------------------------------ confirmation: Facebook and LinkedIn

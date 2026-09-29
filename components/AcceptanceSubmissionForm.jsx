@@ -104,13 +104,22 @@ export default function AcceptanceSubmissionForm() {
   const [notice, setNotice] = useState(null) // key in a.notices
   const [error, setError] = useState(null) // key in a.errors
   const [recovery, setRecovery] = useState(null) // pending intent from an earlier attempt
+  // The agreement the current intent accepted. While an intent is being
+  // created, awaits "Continue" or is uploading and finalizing, the form is
+  // locked to that snapshot: this agreement stays shown whatever the
+  // interface language, and no control can change.
+  const [pinnedAgreementId, setPinnedAgreementId] = useState(null)
   const busy = useRef(false)
+  // Set once a submission has been finalized: the form stays closed while
+  // the browser navigates, so a queued click or Enter cannot start another.
+  const done = useRef(false)
+  const [finished, setFinished] = useState(false)
   const intentRef = useRef(null)
   // A notice appears at the top of the form while the person is at its
   // Submit button; focus moves to it so it is seen and announced.
   const noticeRef = useRef(null)
   useEffect(() => {
-    if (notice && notice !== 'staleRecovery') noticeRef.current?.focus()
+    if (notice) noticeRef.current?.focus()
   }, [notice])
 
   const whatsapp = useMemo(() => validateWhatsApp(form.whatsapp, form.whatsappCountry), [form.whatsapp, form.whatsappCountry])
@@ -119,8 +128,9 @@ export default function AcceptanceSubmissionForm() {
   // first one offered (with a note). What is shown is what is accepted.
   const agreement = useMemo(() => {
     const list = terms.data?.agreements || []
+    if (pinnedAgreementId) return list.find((x) => x.id === pinnedAgreementId) || null
     return list.find((x) => x.language === locale) || list[0] || null
-  }, [terms.data, locale])
+  }, [terms.data, locale, pinnedAgreementId])
 
   const loadTerms = useCallback(async (why) => {
     let res
@@ -148,14 +158,12 @@ export default function AcceptanceSubmissionForm() {
     // Loaded on mount only; loadTerms sets state after the fetch resolves.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     loadTerms(null)
+    // The server decides what became of an earlier attempt: it may have
+    // been finalized even though the answer never arrived, or even after
+    // the intent's own expiry. So any pending attempt is offered for
+    // completion; only the server's answer (or the person) clears it.
     const pending = readPending()
-    if (pending) {
-      if (pending.uploaded && !pending.expired) setRecovery(pending)
-      else {
-        clearPending()
-        setNotice('staleRecovery')
-      }
-    }
+    if (pending) setRecovery(pending)
   }, [loadTerms])
 
   // Offer expiry: refresh before it lapses, but never under an attempt
@@ -178,6 +186,8 @@ export default function AcceptanceSubmissionForm() {
   const fileOk = Boolean(file && kind && file.size > 0 && file.size <= MAX_FILE_BYTES)
   const authorsOk = form.role !== 'authorized_depositor' || (form.authors.some((x) => x.trim()) && form.authors.every((x) => x.trim().length <= 200))
   const working = phase === 'intent' || phase === 'upload' || phase === 'finalize'
+  // Locked to the accepted snapshot (see pinnedAgreementId).
+  const locked = working || phase === 'narrowed' || finished
 
   const outstanding = []
   if (!form.fullName.trim()) outstanding.push(t.outstanding.name)
@@ -191,7 +201,15 @@ export default function AcceptanceSubmissionForm() {
   const canSubmit = ready && !working && phase !== 'narrowed' && !recovery
 
   function update(field, value) {
+    if (locked) return // the disabled controls already refuse; never drift
     setForm((f) => ({ ...f, [field]: value }))
+  }
+
+  // Unlocks the form: the snapshot is dropped, so any submission after an
+  // edit is a new intent with a fresh acceptance record.
+  function unlock() {
+    setPinnedAgreementId(null)
+    setPhase('idle')
   }
   function touch(field) {
     setTouched((x) => ({ ...x, [field]: true }))
@@ -202,6 +220,12 @@ export default function AcceptanceSubmissionForm() {
     clearPending()
   }
 
+  // Terminal outcomes clear the recovery offer; temporary ones keep it.
+  function endRecovery() {
+    clearPending()
+    setRecovery(null)
+  }
+
   // ---------------------------------------------------------------- steps
   async function finalize(intent) {
     setPhase('finalize')
@@ -209,6 +233,8 @@ export default function AcceptanceSubmissionForm() {
       const res = await postJson('/api/submissions/finalize', { intentId: intent.intentId, intentToken: intent.intentToken })
       const out = res.status === 0 ? { kind: 'retry' } : classifyFinalize(res.status, res.body)
       if (out.kind === 'done') {
+        done.current = true
+        setFinished(true)
         clearPending()
         intentRef.current = null
         markReceived()
@@ -228,33 +254,35 @@ export default function AcceptanceSubmissionForm() {
       if (out.kind === 'expired') {
         discardIntent()
         setError('submissionExpired')
-        return 'stop'
+        return 'terminal'
       }
       if (out.kind === 'error') {
         if (out.discard) discardIntent()
         setError(out.error)
-        return 'stop'
+        return out.discard ? 'terminal' : 'transient'
       }
       // retry: a lost response or a transient failure. Same call, same
       // result on the server; wait a little longer each time.
       await wait(1000 * (attempt + 1))
     }
     setError('network')
-    return 'stop'
+    return 'transient'
   }
 
   async function uploadAndFinalize(intent) {
     for (let round = 0; round < 2; round++) {
       if (!intent.uploaded) {
-        if (!file) {
+        // Always the File captured when this intent was created, never
+        // whatever the file input holds now.
+        if (!intent.file) {
           setError('uploadFailed')
           return
         }
         setPhase('upload')
         let outcome
         try {
-          const { error: upErr } = await supabase.storage.from('papers').uploadToSignedUrl(intent.upload.path, intent.upload.token, file, {
-            contentType: kind?.type,
+          const { error: upErr } = await supabase.storage.from('papers').uploadToSignedUrl(intent.upload.path, intent.upload.token, intent.file, {
+            contentType: intent.fileType,
           })
           outcome = classifyUpload(upErr)
         } catch {
@@ -286,10 +314,16 @@ export default function AcceptanceSubmissionForm() {
 
   async function handleSubmit(e) {
     e.preventDefault()
-    if (form.website || busy.current || !canSubmit) return
+    if (form.website || busy.current || done.current || !canSubmit) return
     busy.current = true
     setError(null)
     setNotice(null)
+    // Lock to exactly what is on screen now: this agreement, these
+    // choices, this File object.
+    setPinnedAgreementId(agreement.id)
+    const chosenFile = file
+    const chosenType = kind.type
+    let awaitingContinue = false
     try {
       const body = intentBody({
         offerToken: terms.data.offer.token,
@@ -301,7 +335,7 @@ export default function AcceptanceSubmissionForm() {
         email: form.email,
         whatsappE164: whatsapp.state === 'valid' ? whatsapp.e164 : null,
         authors: form.authors,
-        file: { name: file.name, size: file.size, type: kind.type },
+        file: { name: chosenFile.name, size: chosenFile.size, type: chosenType },
       })
       const key = snapshotKey(body, fileSerial.current)
       let intent = reusableIntent(intentRef.current, key)
@@ -319,32 +353,41 @@ export default function AcceptanceSubmissionForm() {
           setError(out.error)
           return
         }
-        intent = { ...res.body, key, uploaded: false }
+        intent = { ...res.body, key, uploaded: false, file: chosenFile, fileType: chosenType }
         intentRef.current = intent
         savePending(intent)
         if (intent.processing?.changedFromOffer) {
           // Narrower than what was shown: explained, and uploaded only on
           // the researcher's say-so.
           setPhase('narrowed')
+          awaitingContinue = true
           return
         }
       }
       await uploadAndFinalize(intent)
     } finally {
       busy.current = false
-      setPhase((p) => (p === 'narrowed' ? p : 'idle'))
+      if (!awaitingContinue && !done.current) unlock()
     }
   }
 
+  // Continues exactly the intent that was accepted; the form has been
+  // locked to it since, so nothing on screen can differ from it.
   async function continueNarrowed() {
-    if (busy.current || !intentRef.current) return
+    if (busy.current || !intentRef.current || phase !== 'narrowed') return
     busy.current = true
     try {
       await uploadAndFinalize(intentRef.current)
     } finally {
       busy.current = false
-      setPhase('idle')
+      if (!done.current) unlock()
     }
+  }
+
+  function cancelNarrowed() {
+    // The recorded acceptance is left unused and expires; nothing uploads.
+    discardIntent()
+    unlock()
   }
 
   async function completeRecovery() {
@@ -353,13 +396,15 @@ export default function AcceptanceSubmissionForm() {
     setError(null)
     try {
       const r = await finalize(recovery)
-      if (r !== 'done') {
-        if (r === 'reupload') {
-          clearPending()
-          setError('uploadFailed')
-        }
-        setRecovery(null)
+      if (r === 'reupload') {
+        // The file never reached storage and is not in this tab any more.
+        endRecovery()
+        setError('recoveryIncomplete')
+      } else if (r === 'terminal') {
+        endRecovery()
       }
+      // 'transient' (network, 5xx, rate limit): keep the offer and its
+      // retry; 'done' navigates away.
     } finally {
       busy.current = false
       setPhase('idle')
@@ -386,7 +431,7 @@ export default function AcceptanceSubmissionForm() {
 
   const decision = terms.data.offer.decision === 'automatic' ? 'automatic' : 'manual'
   const workingText = phase === 'intent' ? a.working.intent : phase === 'upload' ? a.working.upload : phase === 'finalize' ? a.working.finalize : null
-  const noticeText = notice === 'staleRecovery' ? a.staleRecovery : notice ? a.notices[notice] : languageNotice ? a.notices.language : null
+  const noticeText = notice ? a.notices[notice] : languageNotice ? a.notices.language : null
 
   return (
     <form onSubmit={handleSubmit} className={styles.form} lang={locale} dir={dir} noValidate>
@@ -406,7 +451,7 @@ export default function AcceptanceSubmissionForm() {
           <p>{a.recoveryBody}</p>
           <div className={styles.buttonRow}>
             <Button onClick={completeRecovery} disabled={working}>{working ? a.working.finalize : a.recoveryAction}</Button>
-            <button type="button" className={styles.secondaryButton} onClick={() => { clearPending(); setRecovery(null) }} disabled={working}>
+            <button type="button" className={styles.secondaryButton} onClick={endRecovery} disabled={working}>
               {a.recoveryDiscard}
             </button>
           </div>
@@ -417,6 +462,9 @@ export default function AcceptanceSubmissionForm() {
         <p role="status" className={styles.notice} ref={noticeRef} tabIndex={-1}>{noticeText}</p>
       )}
 
+      {/* Every control that makes up the accepted snapshot. Disabled as a
+          group while locked, so nothing can drift from the intent. */}
+      <fieldset className={styles.lockGroup} disabled={locked} aria-describedby={phase === 'narrowed' ? 'locked-note' : undefined}>
       <fieldset className={styles.section}>
         <legend>{t.aboutYou}</legend>
         <label className={styles.field}>
@@ -522,6 +570,13 @@ export default function AcceptanceSubmissionForm() {
             tabIndex={-1}
             aria-hidden="true"
             onChange={(e) => {
+              if (locked) {
+                // A disabled input should never fire; if it does, the
+                // selection is refused visibly, not silently swapped in.
+                e.target.value = ''
+                setNotice('locked')
+                return
+              }
               fileSerial.current += 1
               setFile(e.target.files[0] || null)
             }}
@@ -564,12 +619,15 @@ export default function AcceptanceSubmissionForm() {
       <fieldset className={styles.section}>
         <legend>{a.termsLegend}</legend>
         <p className={styles.summary}>{a.summary}</p>
-        {agreement.language !== locale && <p className={styles.hint}>{a.otherLanguage}</p>}
+        {agreement.language !== locale && (
+          <p className={styles.hint}>{pinnedAgreementId ? a.pinnedLanguage : a.otherLanguage}</p>
+        )}
         <details className={styles.terms}>
           <summary>
             {a.readTerms} <span className={styles.version}>({a.version(agreement.versionLabel, agreement.versionDate)})</span>
           </summary>
           <section
+            data-agreement-language={agreement.language}
             className={styles.termsBody}
             aria-label={a.termsRegion}
             tabIndex={0}
@@ -588,14 +646,16 @@ export default function AcceptanceSubmissionForm() {
           <span lang={agreement.language} dir={dirFor(agreement.language)}>{agreement.acceptanceSentence}</span>
         </label>
       </fieldset>
+      </fieldset>
 
       {phase === 'narrowed' && (
         <div className={styles.callout} role="alertdialog" aria-labelledby="narrowed-heading" aria-describedby="narrowed-body">
           <h2 id="narrowed-heading" className={styles.calloutHeading}>{a.narrowedHeading}</h2>
           <p id="narrowed-body">{a.narrowedBody}</p>
+          <p id="locked-note">{a.lockedNote}</p>
           <div className={styles.buttonRow}>
             <Button onClick={continueNarrowed} autoFocus>{a.narrowedContinue}</Button>
-            <button type="button" className={styles.secondaryButton} onClick={() => { discardIntent(); setPhase('idle') }}>
+            <button type="button" className={styles.secondaryButton} onClick={cancelNarrowed}>
               {a.narrowedCancel}
             </button>
           </div>

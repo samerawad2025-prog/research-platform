@@ -35,6 +35,7 @@ function psql(text) {
 const sql = (t) => { const r = psql(t); if (r.error) throw new Error(r.error); return r.out }
 
 let failed = 0
+const cleanups = []
 async function check(name, fn) {
   try {
     await fn()
@@ -42,6 +43,10 @@ async function check(name, fn) {
   } catch (err) {
     console.error(`FAIL   ${name} — ${err.stack || err.message}`)
     failed++
+  } finally {
+    // Test policies and roles are removed even when a check fails, so one
+    // failure cannot cascade into the next check.
+    while (cleanups.length) psql(cleanups.pop())
   }
 }
 
@@ -79,12 +84,53 @@ async function main() {
   })
 
   await check('0014 refuses to run while a stray browser-write storage policy would remain, and changes nothing', async () => {
+    cleanups.push(`drop policy if exists "stray upload" on storage.objects`)
     sql(`create policy "stray upload" on storage.objects for insert to public with check (bucket_id = 'papers')`)
     const r = psql(MIGRATION)
-    assert.ok(r.error && /storage policies still allow browser writes/.test(r.error), r.error)
+    assert.ok(r.error && /cannot be shown to exclude the papers bucket/.test(r.error) && /stray upload/.test(r.error), r.error)
     assert.strictEqual(sql(`select count(*) from pg_policies where policyname = 'anon can upload research files'`), '1', 'rolled back')
     assert.strictEqual(sql(`select has_function_privilege('anon', 'submit_paper(text,text,text,boolean,text[],text)', 'execute')`), 't', 'rolled back')
     sql(`drop policy "stray upload" on storage.objects`)
+  })
+
+  const unchanged = () => {
+    assert.strictEqual(sql(`select count(*) from pg_policies where policyname = 'anon can upload research files'`), '1', 'legacy policy still there: rolled back')
+    assert.strictEqual(sql(`select has_function_privilege('anon', 'submit_paper(text,text,text,boolean,text[],text)', 'execute')`), 't', 'grant still there: rolled back')
+  }
+
+  await check('0014 aborts on a broad policy that never names a bucket (with check (true)), and changes nothing', async () => {
+    cleanups.push(`drop policy if exists "broad anon insert" on storage.objects`)
+    sql(`create policy "broad anon insert" on storage.objects for insert to anon with check (true)`)
+    const r = psql(MIGRATION)
+    assert.ok(r.error && /cannot be shown to exclude the papers bucket/.test(r.error) && /broad anon insert/.test(r.error), r.error)
+    unchanged()
+    sql(`drop policy "broad anon insert" on storage.objects`)
+  })
+
+  await check('0014 aborts on a write policy reached through role membership, and on an UPDATE policy without a bucket', async () => {
+    cleanups.push(`drop policy if exists "group upload" on storage.objects; revoke uploader_group from authenticated`)
+    sql(`do $$ begin if not exists (select 1 from pg_roles where rolname = 'uploader_group') then create role uploader_group nologin; end if; end $$;
+         grant uploader_group to authenticated;
+         create policy "group upload" on storage.objects for insert to uploader_group with check (owner is null or owner is not null)`)
+    let r = psql(MIGRATION)
+    assert.ok(r.error && /group upload/.test(r.error), r.error)
+    unchanged()
+    sql(`drop policy "group upload" on storage.objects; revoke uploader_group from authenticated;`)
+    cleanups.push(`drop policy if exists "overwrite anything" on storage.objects`)
+    sql(`create policy "overwrite anything" on storage.objects for update to public using (true)`)
+    r = psql(MIGRATION)
+    assert.ok(r.error && /overwrite anything/.test(r.error), r.error)
+    unchanged()
+    sql(`drop policy "overwrite anything" on storage.objects`)
+  })
+
+  await check('0014 accepts a browser write policy provably limited to another bucket', async () => {
+    cleanups.push(`drop policy if exists "avatars upload" on storage.objects`)
+    sql(`create policy "avatars upload" on storage.objects for insert to anon with check (bucket_id = 'avatars')`)
+    const probe = psql(`begin;\n${MIGRATION.replace(/^commit;$/m, 'rollback;')}`)
+    assert.strictEqual(probe.error, null, probe.error)
+    unchanged()
+    sql(`drop policy "avatars upload" on storage.objects`)
   })
 
   await check('0014 applies (twice), closing every submit_paper overload including one granted only to PUBLIC', async () => {

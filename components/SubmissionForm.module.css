@@ -410,3 +410,11 @@
   gap: var(--space-3);
   align-items: center;
 }
+
+/* The group of controls locked to an accepted submission snapshot. */
+.lockGroup {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}

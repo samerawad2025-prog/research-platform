@@ -12,7 +12,7 @@ Anyone credited on a paper, and the person who submitted it (`papers.submitted_b
 | full_name | |
 | email | Private. Never returned by any public-facing RPC. |
 | whatsapp_number | Private, optional. Same footing as email. Loosely validated, not strict E.164. |
-| linkedin_url, linkedin_public, facebook_url | Before migration 0013: LinkedIn/Facebook stored only if the paper's `publication_scope` included `metadata_and_article`. From 0013 (Phase 3 M3, **not applied**): LinkedIn is stored regardless of scope and must be an `https://…linkedin.com/in/…` address; `linkedin_public` (default false, never inferred) is the separate display choice, settable only by the submitter for their own row; Facebook is no longer collected or returned, and existing values are kept unchanged. |
+| linkedin_url, linkedin_public, facebook_url | Before migration 0013: LinkedIn/Facebook stored only if the paper's `publication_scope` included `metadata_and_article`. From 0013 (Phase 3 M3, **not applied**): LinkedIn is stored regardless of scope and must be an `https://…linkedin.com/in/…` address; `linkedin_public` (default false, never inferred) is the separate display choice, settable only by the submitter for their own row; a researcher row shared with another paper cannot be renamed or re-profiled through one paper's confirmation link; Facebook is no longer collected or returned, and existing values are kept unchanged. |
 | school, department, graduation_year | Declared, not currently populated by anything. |
 
 ## `papers`

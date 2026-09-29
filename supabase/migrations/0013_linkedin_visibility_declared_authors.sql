@@ -10,8 +10,8 @@
 --    LinkedIn values are kept and are private (false) until their owner
 --    opts in: nothing is inferred from a legacy publication_scope.
 --    confirm_researcher_metadata now stores LinkedIn regardless of scope,
---    validates it, and applies profile changes only to a researcher row
---    that belongs to this paper alone. Only the submitter, and only for
+--    validates it, and refuses any change (name or profile) to a researcher
+--    row that is shared with another paper. Only the submitter, and only for
 --    their own row as a listed author, can make a LinkedIn link public.
 --    Anyone else named on the paper (for example by a depositor) is
 --    private until they opt in themselves.
@@ -247,9 +247,11 @@ $$;
 --   - facebook_url is ignored entirely;
 --   - LinkedIn is stored whatever the publication permission, and must be
 --     a linkedin.com profile address;
---   - LinkedIn and its display choice change only on a researcher row
---     linked to this paper alone (a row shared with another paper keeps
---     its own values);
+--   - a researcher row linked to another paper as well is shared: its
+--     name, LinkedIn and display choice cannot be changed through this
+--     paper's link. Sending it unchanged is fine; a change is refused with
+--     an explanation (never silently ignored). Rows exclusive to this
+--     paper are edited as before;
 --   - linkedin_public can be true only for the submitter's own row, and
 --     clearing the link clears it; every row created here starts private.
 -- ------------------------------------------------------------
@@ -272,6 +274,7 @@ declare
   v_linkedin text;
   v_public boolean;
   v_exclusive boolean;
+  v_existing researchers%rowtype;
 begin
   select * into v_paper
   from papers
@@ -313,11 +316,23 @@ begin
       v_public := v_linkedin is not null
                   and v_researcher_id = v_paper.submitted_by
                   and coalesce((v_item->>'linkedin_public')::boolean, false);
-      update researchers set
-        full_name = trim(v_item->>'full_name'),
-        linkedin_url = case when v_exclusive then v_linkedin else linkedin_url end,
-        linkedin_public = case when v_exclusive then v_public else linkedin_public end
-      where id = v_researcher_id;
+      if v_exclusive then
+        update researchers set
+          full_name = trim(v_item->>'full_name'),
+          linkedin_url = v_linkedin,
+          linkedin_public = v_public
+        where id = v_researcher_id;
+      else
+        -- Shared with another paper: one paper's link cannot rename a
+        -- person or change their profile for every paper they are on. An
+        -- unchanged row passes; a change is refused, not silently dropped.
+        select * into v_existing from researchers where id = v_researcher_id;
+        if trim(v_item->>'full_name') is distinct from v_existing.full_name
+           or v_linkedin is distinct from v_existing.linkedin_url
+           or (v_researcher_id = v_paper.submitted_by and v_public is distinct from v_existing.linkedin_public) then
+          raise exception 'This person is also listed on another submission, so their name and profile can''t be changed here. Please contact us to correct them.';
+        end if;
+      end if;
     else
       insert into researchers (full_name, linkedin_url, linkedin_public)
       values (trim(v_item->>'full_name'), v_linkedin, false)

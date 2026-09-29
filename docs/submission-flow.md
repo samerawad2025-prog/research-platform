@@ -138,7 +138,7 @@ The confirmation step (`confirm_researcher_metadata`) sets the final list and or
   - Only the submitter can turn it on, and only for their own row as a listed author.
   - A LinkedIn link that anyone else adds (for example a depositor adding an author) stays private until that person chooses otherwise, which M4/M5 will provide.
   - Clearing the link clears the choice.
-- **Shared rows are protected.** A researcher row linked to more than one paper keeps its own LinkedIn and display choice; one paper's confirmation cannot change them. Naming someone never reaches another paper's row: rows are matched only among this paper's own links.
+- **Shared researchers are protected.** A researcher row linked to more than one paper is a shared identity: no single paper's private link can change its name, LinkedIn or display choice, and an attempt is refused with an explanation ("also listed on another submission… please contact us") rather than silently ignored. Sending it unchanged is fine, and rows exclusive to the paper edit as before. Naming someone never reaches another paper's row: rows are matched only among this paper's own links.
 - **Public display is not built yet.** `publicLinkedIn()` in `lib/validation/linkedin.js` is the rule a public page will use: a link only when its owner chose to show it and it is still valid. Email and WhatsApp are never public fields.
 
 ## The processing decision: one authority
@@ -203,12 +203,13 @@ What the researcher accepts includes how their document will be processed, so th
 |---|---|
 | The offer is about to expire, or `/intent` answers `offer_stale` / `offer_invalid` | The terms are reloaded, acceptance is cleared, inputs and file are kept, and a notice (focused, announced) explains that acceptance is needed again. Nothing is resubmitted by itself. |
 | Processing became narrower (`changedFromOffer`) | Before any upload, the form explains that the document will not be read automatically. It uploads only after "Continue with upload". |
-| The interface language changes | Acceptance counts only for the agreement it was given to. Switching language shows the other text and withdraws acceptance, with a notice. The recorded agreement is the one shown when the box was ticked. |
-| Anything accepted changes: offer, agreement, setting, role, contact details, authors, or a new file selection | A new intent (a new acceptance record). An unchanged retry reuses the open intent. |
+| The interface language changes | Before submitting: acceptance counts only for the agreement it was given to, so switching language shows the other text and withdraws acceptance, with a notice. While a submission is in progress (below), the accepted agreement stays shown in its own language, with a note, and acceptance stands. The recorded agreement is always the one shown when the box was ticked. |
+| An intent exists (recording, awaiting "Continue with upload", uploading, finalizing) | **The form is locked to the accepted snapshot.** Every control is disabled, and the upload uses the File object captured with the intent, never whatever the file input holds later. The narrowed notice offers "Cancel and edit details", which drops the intent and unlocks the form. |
+| Anything accepted changes afterwards: offer, agreement, setting, role, contact details, authors, or a new file selection (a new selection is always new, even with the same name and size) | A new intent (a new acceptance record). An unchanged retry reuses the open intent. |
 | Upload fails | The error is explained; pressing Submit again reuses the same intent. |
 | **Upload link expired** (Storage's own lifetime, read from the link, never assumed) | A distinct message. The next Submit takes a new intent and link. |
 | **Submission expired** (the 30-minute intent) | A distinct message; inputs are kept, and Submit starts again. |
-| Finalization response lost or failing | Retried automatically (it is idempotent). If still unanswered, the intent id and token, never the file or confirmation token, stay in this tab's `sessionStorage`, and on reload the form offers "Complete submission". |
+| Finalization response lost or failing | Retried automatically (it is idempotent). If still unanswered, the intent id and token, never the file or confirmation token, stay in this tab's `sessionStorage`, and the form offers "Complete submission" after a reload. **The server decides the outcome, whatever the browser thinks of the expiry**: a submission finalized before its answer was lost is recovered with the same private link, even after the intent has expired. The offer is cleared only on success, a definitive answer (expired and never finalized, a file that never arrived, a mismatched file) or "Start a new one instead"; a network failure, a temporary server failure or a rate limit keeps it, with a working retry. |
 | Double clicks, Enter presses | One request at a time; the button is disabled while working. |
 
 Messages exist in English and Arabic for each of these, and for rate limiting, unavailable service and success.
@@ -244,7 +245,7 @@ The agreement rows are seeded `active = false`. Activating one is the founder's 
 - **Cleanup:** removes only abandoned objects, after link expiry plus margin.
 - **Cutover (`supabase-cutover.test.js`):**
   - before 0014, anonymous upload and `submit_paper` work (today's production state);
-  - 0014 aborts, changing nothing, while a stray browser-write storage policy remains;
+  - 0014 aborts, changing nothing, while any permissive storage write policy reachable by a browser role (directly, through `public`, or through role membership; including `with check (true)` and an unscoped UPDATE policy) is not provably limited to another bucket, and accepts one written exactly as `bucket_id = '<another bucket>'`;
   - it revokes every `submit_paper` overload, including one reachable only through `PUBLIC`;
   - after it, anonymous and authenticated direct upload and `submit_paper` are refused through the real APIs;
   - after it, the signed flow still completes for an author and a depositor, and confirmation still works with the token.
@@ -274,7 +275,7 @@ Order matters. The legacy form uploads with the anonymous role, so closing that 
 | 2 | Deploy this release with `SUBMISSION_ACCEPTANCE_FLOW` **unset** and `SUBMISSION_TOKEN_SECRET` set (Production scope). The legacy form is served; nothing visible changes except the confirmation screen (LinkedIn only, with its choice, and the private-link note). | 1 | Redeploy the previous build. |
 | 3 | On a preview project, not production: run the local checks' scenarios against hosted Supabase: link lifetime, path binding, overwrite refusal, expiry, CORS from the site origin. | 2 | Fix before step 4. |
 | 4 | **Founder decision:** activate an agreement version (`docs/legal/README.md` conditions), then set `SUBMISSION_ACCEPTANCE_FLOW=enabled` and redeploy. The new form is served. Make one real signed submission end to end. | 3 | Unset the flag and redeploy: the legacy form returns (the old path is still open). |
-| 5 | Apply **0014**. It aborts, changing nothing, unless 0012 and 0013 are present and no browser-write storage policy or `submit_paper` execute privilege remains afterwards. | 4, verified | Emergency rollback at the bottom of 0014 reopens the bypass, and is only paired with serving the legacy form again. |
+| 5 | Apply **0014**. It aborts, changing nothing, unless 0012 and 0013 are present and afterwards no `submit_paper` overload is executable by `anon`/`authenticated` (including through `PUBLIC`), no browser role can bypass RLS, and every permissive storage write policy a browser role can reach is provably limited to another bucket (the error names each offending policy). | 4, verified | Emergency rollback at the bottom of 0014 reopens the bypass, and is only paired with serving the legacy form again. |
 | 6 | Verify from outside: an anonymous upload to `papers` and an anonymous `submit_paper` call are refused, and a signed submission still completes. | 5 | Investigate; do not reopen the bypass as a resting state. |
 
 **Acceptance is enforced only from step 5.** Between steps 4 and 5 the bypass is still open; keep that window short. After step 5, `database_policy` stamps stop being created and every new paper's decision is server-made. Legacy rows keep their legacy consent columns unchanged.
