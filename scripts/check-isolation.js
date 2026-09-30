@@ -19,8 +19,13 @@
 //      checked by calling the project with them — see --live);
 //   3. no real AI provider can be called: AI_PROVIDER is mock or unset,
 //      GEMINI_API_KEY is absent, EXTRACTION_MODE is manual or unset;
-//   4. with --live: the service key is accepted by THIS project (a harmless
-//      read), and the production ref is not reachable with these keys.
+//   4. with --live (required whenever a key is not a JWT): each key is used
+//      against the test project and against production. The anon key must be
+//      accepted by the test project's API and refused by its admin API; the
+//      service key must be accepted by both; production must refuse both.
+//
+// Fails closed: a missing variable, an undecodable key, a network error or an
+// unexpected answer is a failure, never a pass.
 
 const PROD = String(process.env.PRODUCTION_SUPABASE_REF || '').trim()
 const problems = []
@@ -56,9 +61,12 @@ for (const [name, want] of [['NEXT_PUBLIC_SUPABASE_ANON_KEY', 'anon'], ['SUPABAS
     if (c.ref && urlRef && c.ref !== urlRef) problems.push(`${name} names project ${c.ref}, not the URL's ${urlRef}`)
     if (c.role !== want) problems.push(`${name} has role ${c.role}, expected ${want}`)
   } else {
-    facts.push(`${name}: not a JWT (new-style key); project checked only with --live`)
+    facts.push(`${name}: not a JWT (new-style key)`)
+    if (!process.argv.includes('--live')) problems.push(`${name} is not a JWT; its project can only be proven with --live`)
   }
 }
+
+if (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY === process.env.SUPABASE_SERVICE_ROLE_KEY) problems.push('the anon key and the service key are the same value')
 
 const provider = String(process.env.AI_PROVIDER || '').trim().toLowerCase()
 if (provider && provider !== 'mock') problems.push(`AI_PROVIDER is "${provider}"; hosted tests must use mock`)
@@ -67,17 +75,31 @@ const mode = String(process.env.EXTRACTION_MODE || '').trim().toLowerCase()
 if (mode && mode !== 'manual') problems.push(`EXTRACTION_MODE is "${mode}"; hosted tests must run manual`)
 facts.push(`AI_PROVIDER=${provider || '(unset)'} EXTRACTION_MODE=${mode || '(unset → manual)'} GEMINI_API_KEY=${process.env.GEMINI_API_KEY ? 'SET' : 'absent'}`)
 
+async function status(base, path, key) {
+  const r = await fetch(`${base}${path}`, { headers: { apikey: key, Authorization: `Bearer ${key}` } })
+  return r.status
+}
+
 async function live() {
-  if (!url || !process.env.SUPABASE_SERVICE_ROLE_KEY) return
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY
-  // A harmless read with the service key against the URL's project.
-  const r = await fetch(`${url.replace(/\/$/, '')}/storage/v1/bucket`, { headers: { apikey: key, Authorization: `Bearer ${key}` } })
-  if (r.status !== 200) problems.push(`the service key is not accepted by ${urlRef} (HTTP ${r.status})`)
-  else facts.push(`service key accepted by ${urlRef}`)
-  if (PROD) {
-    const p = await fetch(`https://${PROD}.supabase.co/storage/v1/bucket`, { headers: { apikey: key, Authorization: `Bearer ${key}` } })
-    if (p.status === 200) problems.push('the service key is ACCEPTED BY PRODUCTION')
-    else facts.push(`production refuses this service key (HTTP ${p.status})`)
+  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  const service = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!urlRef || !anon || !service || !PROD) { problems.push('--live needs the URL, both keys and PRODUCTION_SUPABASE_REF'); return }
+  const test = `https://${urlRef}.supabase.co`
+  const prod = `https://${PROD}.supabase.co`
+  // Browser credential: usable against the test project, not an admin key.
+  const a1 = await status(test, '/auth/v1/settings', anon)
+  if (a1 !== 200) problems.push(`the anon key is not accepted by ${urlRef} (HTTP ${a1})`); else facts.push(`anon key accepted by ${urlRef}`)
+  const a2 = await status(test, '/auth/v1/admin/users?per_page=1', anon)
+  if (a2 === 200) problems.push('the anon key has admin access: it is a service key'); else facts.push(`anon key refused by the admin API (HTTP ${a2})`)
+  // Server credential: admin on the test project.
+  const s1 = await status(test, '/auth/v1/admin/users?per_page=1', service)
+  if (s1 !== 200) problems.push(`the service key is not an admin key for ${urlRef} (HTTP ${s1})`); else facts.push(`service key is admin on ${urlRef}`)
+  const s2 = await status(test, '/storage/v1/bucket', service)
+  if (s2 !== 200) problems.push(`the service key cannot read ${urlRef} Storage (HTTP ${s2})`); else facts.push(`service key reads ${urlRef} Storage`)
+  // Production must refuse both.
+  for (const [name, key] of [['anon key', anon], ['service key', service]]) {
+    const p = await status(prod, '/auth/v1/settings', key)
+    if (p === 200) problems.push(`the ${name} is ACCEPTED BY PRODUCTION`); else facts.push(`production refuses the ${name} (HTTP ${p})`)
   }
 }
 
