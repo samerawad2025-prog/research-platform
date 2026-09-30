@@ -1,5 +1,7 @@
 # Admin review workflow (Phase 3 M4)
 
+> **Release order and steps live in [`docs/release-runbook.md`](release-runbook.md)** (authoritative since 2026-09-30). This file explains the reasoning; where the two differ, the runbook wins.
+
 The protected area where administrators and volunteer reviewers look at
 submissions, record what they checked, and make publication decisions.
 **Nothing here publishes anything.** There are no public pages yet (M5/M6).

@@ -1,5 +1,7 @@
 # CURRENT_STATUS.md
 
+> **Release order and steps live in [`docs/release-runbook.md`](docs/release-runbook.md)** (authoritative since 2026-09-30). This file explains the reasoning; where the two differ, the runbook wins.
+
 **Last updated:** September 26, 2026 (Phase 3, Milestone 0; documentation only). **Phases 1 and 2 are closed. Phase 3 is planned in `PHASE_3_PLAN.md` and not yet started in code.** The 2026-09-26 section below is current. Everything under it is dated history and says so.
 
 ---

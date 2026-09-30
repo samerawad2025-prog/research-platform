@@ -1,5 +1,7 @@
 # Legal content
 
+> **Release order and steps live in [`docs/release-runbook.md`](../release-runbook.md)** (authoritative since 2026-09-30). This file explains the reasoning; where the two differ, the runbook wins.
+
 | File | What it is |
 |---|---|
 | `submission-terms.en.md` | Submission and Deposit Agreement and Privacy Notice — English, Initial Version, dated 25 SEP 2026 |

@@ -1,5 +1,7 @@
 # Deployment
 
+> **Release order and steps live in [`docs/release-runbook.md`](release-runbook.md)** (authoritative since 2026-09-30). This file explains the reasoning; where the two differ, the runbook wins.
+
 ## Environment variables
 
 | Variable | Required | Notes |
