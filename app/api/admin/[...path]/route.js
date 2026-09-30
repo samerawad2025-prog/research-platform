@@ -48,8 +48,8 @@ async function run(request, context) {
     supabase, storage: supabase.storage.from('papers'),
   })
   const headers = { 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex, nofollow' }
-  if (status === 200 && out?.excludeUser) {
-    headers['Set-Cookie'] = staffCookieHeader(process.env, out.excludeUser, new URL(request.url).protocol === 'https:')
+  if (status === 200 && out?.exclude === true) {
+    headers['Set-Cookie'] = staffCookieHeader(process.env, new URL(request.url).protocol === 'https:')
     return Response.json({ ok: true }, { status, headers })
   }
   return Response.json(out, { status, headers })

@@ -100,15 +100,6 @@ async function main() {
     assert.strictEqual(A.automatedReason(hdr({ 'next-router-prefetch': '1' })), 'prefetch')
     assert.strictEqual(A.automatedReason(hdr()), null)
   })
-  await check('staff exclusion: only a cookie this server signed, unexpired and untampered, excludes', async () => {
-    const v = A.signStaffCookie(ENV, '00000000-0000-4000-8000-000000000001')
-    assert.ok(A.verifyStaffCookie(ENV, v))
-    assert.ok(!A.verifyStaffCookie({ SUBMISSION_TOKEN_SECRET: 'x'.repeat(40) }, v), 'another secret')
-    assert.ok(!A.verifyStaffCookie(ENV, v.replace(/.$/, (c) => (c === 'a' ? 'b' : 'a'))), 'tampered')
-    assert.ok(!A.verifyStaffCookie(ENV, A.signStaffCookie(ENV, 'u', Date.now() - 13 * 3600 * 1000)), 'expired')
-    for (const bad of ['staff', 'true', 'role=administrator', '']) assert.ok(!A.verifyStaffCookie(ENV, bad))
-    assert.match(A.staffCookieHeader(ENV, 'u', true), /HttpOnly; SameSite=Lax; Secure$/)
-  })
   const fake = (over = {}) => {
     const calls = []
     return {
@@ -123,13 +114,48 @@ async function main() {
       },
     }
   }
+  await check('staff exclusion: a signed marker with no user id or role; valid, expired, tampered and forged values', async () => {
+    const v = A.signStaffCookie(ENV)
+    assert.match(v, /^v1\.\d{10}\.[0-9a-f]{64}$/, 'no user id, no role, only an expiry and a signature')
+    assert.ok(A.verifyStaffCookie(ENV, v))
+    assert.ok(!A.verifyStaffCookie({ SUBMISSION_TOKEN_SECRET: 'x'.repeat(40) }, v), 'another secret')
+    assert.ok(!A.verifyStaffCookie(ENV, v.replace(/.$/, (c) => (c === 'a' ? 'b' : 'a'))), 'tampered signature')
+    const [, exp, mac] = v.split('.')
+    assert.ok(!A.verifyStaffCookie(ENV, `v1.${Number(exp) + 3600}.${mac}`), 'a later expiry with the old signature')
+    assert.ok(!A.verifyStaffCookie(ENV, A.signStaffCookie(ENV, Date.now() - 13 * 3600 * 1000)), 'expired')
+    for (const bad of ['staff', 'true', 'role=administrator', '', `v2.${exp}.${mac}`, `${exp}.${mac}`]) assert.ok(!A.verifyStaffCookie(ENV, bad), bad)
+    assert.ok(!A.verifyStaffCookie({}, v), 'no server secret: nothing verifies')
+    assert.match(A.staffCookieHeader(ENV, true), /^sarp_staff_nocount=v1\.\d+\.[0-9a-f]{64}; Path=\/; Max-Age=43200; HttpOnly; SameSite=Lax; Secure$/)
+  })
+  await check('client keys: the same client gets the same key all UTC day, an unrelated key the next day; no raw address or browser string leaves', async () => {
+    const h = hdr()
+    const noon = Date.parse('2026-09-30T12:00:00Z')
+    const a = A.clientHash(ENV, '203.0.113.7', h, Date.parse('2026-09-30T00:00:00Z'))
+    assert.strictEqual(a, A.clientHash(ENV, '203.0.113.7', h, Date.parse('2026-09-30T23:59:59.999Z')))
+    assert.notStrictEqual(a, A.clientHash(ENV, '203.0.113.7', h, Date.parse('2026-10-01T00:00:00Z')), 'no cross-day reuse')
+    assert.notStrictEqual(a, A.clientHash(ENV, '203.0.113.8', h, noon))
+    assert.notStrictEqual(A.clientHash(ENV, '203.0.113.7', h, noon), A.clientHash(ENV, '203.0.113.7', hdr({ 'user-agent': 'Mozilla/5.0 Firefox/130' }), noon))
+    const sb = fake()
+    const lines = []
+    await A.recordEvent({ supabase: sb, publicId: 'abcdefghjkmn', event: 'page_view', headers: h, clientKey: '203.0.113.7', env: ENV, log: { error: (x) => lines.push(x) }, now: noon })
+    const sent = JSON.stringify(sb.calls) + lines.join('')
+    assert.ok(!sent.includes('203.0.113.7') && !sent.includes('Chrome/130'), 'neither the address nor the browser string is sent or logged')
+    const limiterKey = sb.calls.find((c) => c[0] === 'consume_submission_rate_limit')[1].p_key
+    assert.strictEqual(limiterKey, `activity:${A.clientHash(ENV, '203.0.113.7', h, noon).slice(0, 32)}`, 'the rate-limit key is the daily key too')
+    // The document route's limiter uses the same daily key.
+    const fsb = fake({ public_document: () => ({ data: null, error: null }) })
+    await handlePublicFile({ publicId: 'abcdefghjkmn', supabase: fsb, storage: {}, headers: h, env: ENV, clientKey: '203.0.113.7', log: quiet })
+    assert.strictEqual(fsb.calls[0][1].p_key, `public_file:${A.clientHash(ENV, '203.0.113.7', h).slice(0, 32)}`)
+    // 10-minute windows are epoch-aligned, so a UTC day always starts a new window: the daily key never splits one.
+    assert.strictEqual(86400 % A.EVENT_LIMIT[1], 0)
+  })
   await check('recording: the browser names an event only; the server hashes the client, never sends the address, never throws', async () => {
     let sb = fake()
     assert.strictEqual(await A.recordEvent({ supabase: sb, publicId: 'abcdefghjkmn', event: 'page_view', headers: hdr(), clientKey: '203.0.113.7', env: ENV, log: quiet }), 'counted')
     const args = sb.calls.find((c) => c[0] === 'public_record_event')[1]
     assert.match(args.p_client, /^[0-9a-f]{64}$/); assert.ok(!JSON.stringify(sb.calls).includes('203.0.113.7'))
     sb = fake()
-    const staff = hdr({ cookie: `other=1; ${A.STAFF_COOKIE}=${A.signStaffCookie(ENV, 'u')}` })
+    const staff = hdr({ cookie: `other=1; ${A.STAFF_COOKIE}=${A.signStaffCookie(ENV)}` })
     assert.strictEqual(await A.recordEvent({ supabase: sb, publicId: 'abcdefghjkmn', event: 'page_view', headers: staff, env: ENV, log: quiet }), 'skipped:staff')
     assert.strictEqual(sb.calls.length, 0)
     sb = fake({ public_record_event: () => ({ data: null, error: { message: 'down' } }) })
@@ -139,6 +165,46 @@ async function main() {
     sb = fake({ consume_submission_rate_limit: () => ({ data: false, error: null }) })
     assert.strictEqual(await A.recordEvent({ supabase: sb, publicId: 'abcdefghjkmn', event: 'page_view', headers: hdr(), env: ENV, log: quiet }), 'skipped:rate_limited')
   })
+  // A dependency that never answers (not an immediate rejection).
+  const stall = () => new Promise(() => {})
+  const stalledRpc = (names) => fake(Object.fromEntries(names.map((n) => [n, stall])))
+  await check('time budget: a stalled metrics database is abandoned within the budget, the request is aborted, and it is reported as not recorded', async () => {
+    for (const names of [['consume_submission_rate_limit'], ['public_record_event']]) {
+      const t0 = Date.now()
+      const r = await A.recordEvent({ supabase: stalledRpc(names), publicId: 'abcdefghjkmn', event: 'page_view', headers: hdr(), env: ENV, log: quiet, budgetMs: 150 })
+      const took = Date.now() - t0
+      assert.strictEqual(r, 'not_recorded', names[0]); assert.ok(took >= 140 && took < 400, `${names[0]} took ${took} ms`)
+    }
+    let aborted = false
+    const builder = { then: (res) => new Promise(() => {}).then(res), abortSignal(sig) { sig.addEventListener('abort', () => { aborted = true }); return this } }
+    await A.recordEvent({ supabase: { rpc: () => builder }, publicId: 'abcdefghjkmn', event: 'page_view', headers: hdr(), env: ENV, log: quiet, budgetMs: 50 })
+    assert.ok(aborted, 'the supabase-js request is aborted, not left running in the background')
+    const t0 = Date.now()
+    assert.deepStrictEqual(await A.getActivity(stalledRpc(['public_activity']), 'abcdefghjkmn', 150), { error: true })
+    assert.ok(Date.now() - t0 < 400)
+    assert.deepStrictEqual(await A.getActivity(fake({ public_activity: () => ({ data: { page_view: 3 }, error: null }) }), 'abcdefghjkmn'), { data: { page_view: 3 } }, 'normal reads still work')
+    assert.strictEqual(A.METRICS_BUDGET_MS, 400)
+  })
+  await check('time budget: citation and document requests return promptly while metrics stall; eligibility is never skipped', async () => {
+    let t0 = Date.now()
+    let r = await handleCite({ publicId: 'abcdefghjkmn', format: 'ris', supabase: stalledRpc(['public_record_event']), headers: hdr(), env: ENV, log: quiet })
+    assert.strictEqual(r.status, 200); assert.ok(Date.now() - t0 < 1000, `cite took ${Date.now() - t0} ms`)
+    // Eligibility itself is not optional: a stalled record read is not bypassed.
+    const slowRecord = fake({ public_record: () => new Promise((res) => setTimeout(() => res({ data: null, error: null }), 600)) })
+    r = await handleCite({ publicId: 'abcdefghjkmn', format: 'ris', supabase: slowRecord, headers: hdr(), env: ENV, log: quiet })
+    assert.strictEqual(r.status, 404, 'waited for the rule and refused')
+    const doc = { storage_path: 'dissemination/p/v.pdf', format: 'pdf', title: 'T' }
+    let signedAt = 0
+    const storage = { createSignedUrl: async (p) => { signedAt = Date.now(); return { data: { signedUrl: `https://s.invalid/${p}` }, error: null } } }
+    t0 = Date.now()
+    r = await handlePublicFile({ publicId: 'abcdefghjkmn', mode: 'read', supabase: fake({ public_document: () => ({ data: doc, error: null }), public_record_event: stall }), storage, headers: hdr(), env: ENV, clientKey: 'c', log: quiet })
+    const lost = Date.now() - signedAt
+    assert.strictEqual(r.status, 303); assert.ok(lost < 1000, `the link lost ${lost} ms of its 60 s before the reader got it`)
+    const hsb = fake({ public_document: () => ({ data: doc, error: null }), public_record_event: stall })
+    r = await handlePublicFile({ method: 'HEAD', publicId: 'abcdefghjkmn', mode: 'read', supabase: hsb, storage, headers: hdr(), env: ENV, clientKey: 'c', log: quiet })
+    assert.strictEqual(r.status, 200); assert.ok(!hsb.calls.some((c) => c[0] === 'public_record_event'), 'HEAD: no activity')
+  })
+
   await check('event endpoint: two named events only, no counts or roles from the browser, cross-site refused, honest "recorded"', async () => {
     const run = (body, h = hdr(), over) => handleEvent({ publicId: 'abcdefghjkmn', body, headers: h, supabase: fake(over), env: ENV, log: quiet })
     assert.deepStrictEqual(await run({ event: 'page_view' }), { status: 202, body: { recorded: true } })

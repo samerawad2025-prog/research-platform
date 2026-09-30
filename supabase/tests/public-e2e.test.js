@@ -11,7 +11,7 @@ const assert = require('node:assert')
 const crypto = require('node:crypto')
 const fs = require('node:fs')
 const path = require('node:path')
-const { execFileSync } = require('node:child_process')
+const { execFileSync, spawn } = require('node:child_process')
 const { chromium } = require('playwright')
 const { createClient } = require('@supabase/supabase-js')
 const { PDFDocument } = require('pdf-lib')
@@ -246,11 +246,11 @@ async function main() {
     // A staff member: the admin API sets a cookie this server signed.
     const ex = await fetch(`${APP}/api/admin/metrics-exclusion`, { method: 'POST', headers: { Authorization: `Bearer ${ADMIN}`, 'Content-Type': 'application/json' }, body: '{}' })
     const cookie = (ex.headers.get('set-cookie') || '').split(';')[0]
-    assert.match(cookie, /^sarp_staff_nocount=\d+\./); assert.match(ex.headers.get('set-cookie'), /HttpOnly/)
+    assert.match(cookie, /^sarp_staff_nocount=v1\.\d+\.[0-9a-f]{64}$/, 'a signed marker, no user id'); assert.match(ex.headers.get('set-cookie'), /HttpOnly/)
     assert.strictEqual((await (await post(pid, 'page_view', { Cookie: cookie })).json()).recorded, false)
     await get(`/research/${pid}/cite?format=bibtex`, { headers: { 'User-Agent': UA, Cookie: cookie } })
     // A forged cookie is not staff.
-    assert.strictEqual((await (await post(pid, 'page_view', { Cookie: 'sarp_staff_nocount=9999999999.YWRtaW4.' + '0'.repeat(64) })).json()).recorded, true)
+    assert.strictEqual((await (await post(pid, 'page_view', { Cookie: 'sarp_staff_nocount=v1.9999999999.' + '0'.repeat(64) })).json()).recorded, true)
     assert.deepStrictEqual([count('p1', 'citation_export'), count('p1', 'page_view')], [before[0], before[1] + 1])
     // Nobody but staff can get the cookie.
     assert.strictEqual((await fetch(`${APP}/api/admin/metrics-exclusion`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })).status, 401)
@@ -310,6 +310,44 @@ async function main() {
     for (const label of ['Page views', 'Citation exports', 'not citations and not a count of individual readers']) assert.ok(html.includes(label), label)
     assert.ok(!html.includes('Download requests') && !html.includes('Requests to read the document online'), 'metadata-only: no document counts')
     for (const k of hidden) if (papers[k].pid) assert.ok(!(await (await get(`/research/${papers[k].pid}`)).text()).includes('Page views'), k)
+  })
+
+
+  await check('stalled metrics (a real lock on the counts table): page, citation and document arrive promptly; HEAD records nothing; nothing is shown as counted', async () => {
+    // A full-text record, restriction lifted in this synthetic database only.
+    await seed('st', { title: `Stall Test Full Text ${RUN}`, scope: '{full_paper}' })
+    const des = await api('POST', `reviews/${papers.st.id}/documents`, { origin: 'original_reviewed' })
+    await approve('st', 'record_abstract_fulltext', des.body.versionId)
+    sql(`update release_restrictions set active = false, changed_by = 'synthetic e2e only', note = 'local test' where key = 'fulltext_legal_advice'`)
+    const lock = spawn('docker', ['exec', '-i', '-e', 'PGPASSWORD=localtestpw', 'sb-db', 'psql', '-h', 'localhost', '-U', 'supabase_admin', '-d', 'postgres', '-X', '-q',
+      '-c', 'begin; lock table activity_counts in access exclusive mode; select pg_sleep(12); commit;'], { stdio: 'ignore' })
+    try {
+      await new Promise((r) => setTimeout(r, 1500))
+      const timed = async (fn) => { const t = Date.now(); const r = await fn(); return [r, Date.now() - t] }
+      const [page, pageMs] = await timed(() => get(`/research/${papers.st.pid}`))
+      const html = await page.text()
+      assert.strictEqual(page.status, 200)
+      assert.ok(html.includes('Activity counts are not available right now') && html.includes(`Stall Test Full Text ${RUN}`) && html.includes('Cite this research'), 'research shown, metrics unavailable')
+      const [cite, citeMs] = await timed(() => get(`/research/${papers.st.pid}/cite?format=ris`, { headers: { 'User-Agent': UA } }))
+      assert.strictEqual(cite.status, 200); assert.match(await cite.text(), /^TY {2}- THES/)
+      const [file, fileMs] = await timed(() => get(`/research/${papers.st.pid}/file?mode=read`, { headers: { 'User-Agent': UA } }))
+      assert.strictEqual(file.status, 303)
+      const { iat, exp } = JSON.parse(Buffer.from(new URL(file.headers.get('location')).searchParams.get('token').split('.')[1], 'base64url').toString())
+      const remaining = exp - Date.now() / 1000
+      assert.ok(remaining > 55, `the link had ${remaining.toFixed(1)} s left when the reader got it (issued for ${exp - iat} s)`)
+      const [head] = await timed(() => fetch(`${APP}/research/${papers.st.pid}/file?mode=read`, { method: 'HEAD', headers: { 'User-Agent': UA } }))
+      assert.strictEqual(head.status, 200)
+      assert.deepStrictEqual(await (await post(papers.st.pid, 'page_view')).json(), { recorded: false }, 'a timeout is not reported as a count')
+      for (const [what, ms] of [['page', pageMs], ['citation', citeMs], ['document', fileMs]]) assert.ok(ms < 2500, `${what} took ${ms} ms while metrics were stalled`)
+    } finally {
+      await new Promise((r) => lock.on('close', r))
+      sql(`update release_restrictions set active = true, changed_by = 'synthetic e2e restore', note = 'restored' where key = 'fulltext_legal_advice'`)
+    }
+    // After the stall: normal counting works again. (A write that reached the
+    // database before the abort may have completed once the lock was released:
+    // documented, never reported as counted.)
+    assert.strictEqual((await (await post(papers.st.pid, 'citation_copy', { 'User-Agent': UA + ' after' })).json()).recorded, true)
+    assert.ok((await (await get(`/research/${papers.st.pid}`)).text()).includes('Citation exports'))
   })
 
   // ------------------------------------------------------------- browser

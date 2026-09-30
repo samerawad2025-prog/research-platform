@@ -3,8 +3,8 @@
 -- Run once in Supabase -> SQL Editor -> New query -> Run.
 -- REQUIRES 0016. Additive: no existing column, row, policy or grant changes.
 --
--- Four separate counters per paper, each an AGGREGATE (no reader, address
--- or time of an individual event is kept):
+-- Four separate counters per paper, each an AGGREGATE total per record and
+-- kind of event (no per-event history, reader, address or browser string):
 --   page_view         the research page was shown in a browser and stayed
 --                     visible (a beacon from the page, not server rendering)
 --   document_open     a link to read the approved document online was issued
@@ -14,10 +14,20 @@
 -- Issuing a link does not prove the file was opened or fully downloaded;
 -- the labels say "requests". None of these is a citation or a unique reader.
 --
--- Deduplication: at most one count per event type, per record, per client,
--- per UTC day. The client key is a keyed hash made by the server (address
--- and browser string, hashed with a server secret) and is kept only in
--- activity_dedup, for at most 2 days, then deleted in bounded batches.
+-- Temporary data, both keyed by a per-UTC-day client hash the server makes
+-- (HMAC of the date, address and browser string with a server secret; it
+-- changes every UTC day):
+--   activity_dedup          one row per client, record, event and day: a
+--                           one-way key and its creation time. Stops a
+--                           second count the same day.
+--   submission_rate_limits  (from 0012) rows keyed 'activity:<hash>' or
+--                           'public_file:<hash>': a count per 10-minute
+--                           window, with the window start time.
+-- Both become eligible for deletion after 2 days. Deletion happens during
+-- later requests, in bounded batches (200 dedup rows per event, 50 limiter
+-- rows per limiter call), so with little or no traffic rows can stay longer:
+-- 2 days is NOT a guaranteed maximum. activity_purge_expired() clears every
+-- expired row at once; it is run by hand from the SQL editor (no schedule).
 --
 -- Every function is SECURITY DEFINER, pins search_path and is executable
 -- by service_role only. Events are accepted only while the record passes
@@ -27,7 +37,7 @@
 --
 -- Rollback:
 --   begin;
---   drop function if exists public_record_event(text, text, text), public_activity(text);
+--   drop function if exists public_record_event(text, text, text), public_activity(text), activity_purge_expired();
 --   drop table if exists activity_counts, activity_dedup;
 --   commit;
 -- ============================================================
@@ -131,6 +141,29 @@ begin
     'document_download', case when v_full then coalesce((select count from activity_counts where paper_id = v_paper and event = 'document_download'), 0) end);
 end;
 $fn$;
+
+-- Manual maintenance: delete every expired activity row now. Owner only
+-- (SQL editor); not callable by the application or any browser role.
+--   select activity_purge_expired();
+create or replace function activity_purge_expired()
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $fn$
+declare
+  v_dedup int;
+  v_limits int;
+begin
+  delete from activity_dedup where created_at < now() - interval '2 days';
+  get diagnostics v_dedup = row_count;
+  delete from submission_rate_limits
+  where (key like 'activity:%' or key like 'public_file:%') and window_start < now() - interval '2 days';
+  get diagnostics v_limits = row_count;
+  return jsonb_build_object('activity_dedup_deleted', v_dedup, 'rate_limit_rows_deleted', v_limits);
+end;
+$fn$;
+revoke all on function activity_purge_expired() from public, anon, authenticated, service_role;
 
 do $grants$
 declare

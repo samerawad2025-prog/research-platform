@@ -4306,6 +4306,29 @@ begin
 end;
 $fn$;
 
+-- Manual maintenance: delete every expired activity row now. Owner only
+-- (SQL editor); not callable by the application or any browser role.
+--   select activity_purge_expired();
+create or replace function activity_purge_expired()
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $fn$
+declare
+  v_dedup int;
+  v_limits int;
+begin
+  delete from activity_dedup where created_at < now() - interval '2 days';
+  get diagnostics v_dedup = row_count;
+  delete from submission_rate_limits
+  where (key like 'activity:%' or key like 'public_file:%') and window_start < now() - interval '2 days';
+  get diagnostics v_limits = row_count;
+  return jsonb_build_object('activity_dedup_deleted', v_dedup, 'rate_limit_rows_deleted', v_limits);
+end;
+$fn$;
+revoke all on function activity_purge_expired() from public, anon, authenticated, service_role;
+
 do $grants$
 declare
   r record;

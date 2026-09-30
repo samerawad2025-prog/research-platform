@@ -380,14 +380,37 @@ async function main() {
     assert.strictEqual(cols, 'count,created_at,event,key,paper_id,updated_at', 'no address, agent, reader or time of an individual event is stored')
   })
 
-  await check('activity: deduplication keys are removed after 2 days in bounded batches', async () => {
-    sqlOk(`insert into activity_dedup (key, created_at) select encode(sha256(('old-' || g)::bytea), 'hex'), now() - interval '3 days' from generate_series(1, 450) g`)
+  await check('activity: a UTC-day rollover starts a fresh day; yesterday\'s key does not block today', async () => {
+    const pid = pidOf(S.eligible)
+    const client = hex('rollover-client')
+    // The key the function wrote "yesterday" for this client, record and event.
+    sqlOk(`insert into activity_dedup (key, created_at)
+           values (encode(extensions.digest(${lit(client)} || ':' || ${lit(pid)} || ':page_view:' || to_char((now() - interval '1 day') at time zone 'utc', 'YYYY-MM-DD'), 'sha256'), 'hex'), now() - interval '1 day')`)
+    assert.strictEqual(sqlOk(`select public_record_event(${lit(pid)}, 'page_view', ${lit(client)})`), 'counted', 'a new day counts again')
+    assert.strictEqual(sqlOk(`select public_record_event(${lit(pid)}, 'page_view', ${lit(client)})`), 'duplicate', 'but only once that day')
+  })
+
+  await check('activity cleanup: bounded during traffic, nothing happens without traffic (2 days is not a guaranteed maximum), the manual purge clears everything expired', async () => {
+    sqlOk(`delete from activity_dedup; delete from submission_rate_limits`)
+    sqlOk(`insert into activity_dedup (key, created_at) select encode(sha256(('old-' || g)::bytea), 'hex'), now() - interval '3 days' from generate_series(1, 450) g;
+           insert into activity_dedup (key, created_at) select encode(sha256(('new-' || g)::bytea), 'hex'), now() - interval '1 day' from generate_series(1, 5) g;
+           insert into submission_rate_limits (key, window_start, count) select 'activity:' || g, now() - interval '3 days', 1 from generate_series(1, 120) g;
+           insert into submission_rate_limits (key, window_start, count) select 'public_file:' || g, now() - interval '3 days', 1 from generate_series(1, 30) g;
+           insert into submission_rate_limits (key, window_start, count) values ('intent:recent', now(), 1);`)
     const old = () => Number(sqlOk(`select count(*) from activity_dedup where created_at < now() - interval '2 days'`))
-    assert.strictEqual(old(), 450)
+    const oldLimits = () => Number(sqlOk(`select count(*) from submission_rate_limits where window_start < now() - interval '2 days'`))
+    // No traffic: nothing is deleted, however old.
+    assert.deepStrictEqual([old(), oldLimits()], [450, 150])
+    // One event: at most 200 dedup rows go.
     event(pidOf(S.eligible), 'page_view', 'cleanup-1')
-    assert.strictEqual(old(), 250, 'at most 200 per call')
-    event(pidOf(S.eligible), 'page_view', 'cleanup-2'); event(pidOf(S.eligible), 'page_view', 'cleanup-3')
-    assert.strictEqual(old(), 0)
+    assert.strictEqual(old(), 250, 'bounded batch')
+    // The manual operation (owner, SQL editor) clears every expired row now.
+    const r = json(`select activity_purge_expired()`)
+    assert.deepStrictEqual(r, { activity_dedup_deleted: 250, rate_limit_rows_deleted: 150 })
+    assert.deepStrictEqual([old(), oldLimits()], [0, 0])
+    assert.strictEqual(Number(sqlOk(`select count(*) from activity_dedup where created_at > now() - interval '2 days'`)) >= 5, true, 'unexpired rows are kept')
+    assert.strictEqual(sqlOk(`select count(*) from submission_rate_limits where key = 'intent:recent'`), '1', 'other limiters untouched')
+    for (const role of ['service_role', 'anon', 'authenticated']) assert.ok(psql(`set role ${role}; select activity_purge_expired();`).error, `${role} cannot run it`)
   })
 
   await check('activity: browser roles can neither read counts nor record events', async () => {

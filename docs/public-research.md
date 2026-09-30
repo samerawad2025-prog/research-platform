@@ -295,24 +295,93 @@ platform activity counts, **not citations and not unique readers**.
 
   This removes the obvious cases. It is not perfect bot detection.
 - **Staff.** When a verified staff member opens the review area, the
-  server sets an HttpOnly cookie **it signed** (12 hours). Requests
-  carrying it are not counted. A forged or expired cookie is ignored, and
-  no browser-supplied role or count is trusted.
-- **Repeats.** Each visitor is represented only by an HMAC of their address
-  and browser string, made with a server secret.
-- **Rate limit.** 300 events per client per 10 minutes, across all records.
+  server sets an HttpOnly cookie that **it signed**, valid for 12 hours.
+  - The cookie is a marker, `v1.<expiry>.<signature>`. It contains no user
+    id or role.
+  - It grants nothing: the review API authorizes by bearer token only and
+    never reads cookies.
+  - Its only effect is that this browser's activity is not counted.
+  - A forged, altered or expired marker is ignored. No browser-supplied
+    role or count is trusted.
+- **Repeats.** Each visitor is represented by a **per-UTC-day** client key:
+  an HMAC, made with a server secret, of the date, the address and the
+  browser string.
+  - It changes every UTC day, so no stored key links a client across
+    days.
+  - It approximates repeat clients and cannot identify people. People
+    sharing a connection and browser can count as one visitor, and a
+    changing address or browser can count as several.
+- **Rate limit.** 300 events per client key per 10 minutes, across all
+  records. The document route has its own limit, 60 per 10 minutes.
+  - The 10-minute windows are aligned to the epoch, so a UTC day always
+    begins a new window. The daily key never splits a window, and so never
+    loosens the limit.
 - **What the browser can send.** The event endpoint accepts only `{event}`,
   as `page_view` or `citation_copy`. Anything else, including a count or a
   role, is refused, and cross-site posts are refused too.
 
-### Retention and privacy
+### Time budget
 
-- `activity_counts` holds only the record, the kind of event, the total
-  and when it last changed.
-- `activity_dedup` holds only a one-way key and when it was created. Keys
-  are deleted after **2 days**, in batches of at most 200 per event.
-- No address, browser string, reader identity or event time is stored.
-  No cookie is set on readers, and there are no third-party analytics.
+Metrics are optional; publication checks are not.
+
+- Every metrics call, whether recording an event or reading the counts,
+  has a **400 ms** budget (`METRICS_BUDGET_MS` in
+  `lib/public/activity.js`). When the budget runs out:
+  - the caller stops waiting;
+  - the database request is aborted (supabase-js `abortSignal`);
+  - the result is reported as not recorded or unavailable, never as a
+    count.
+- The page shows *Activity counts are not available right now*. The
+  citation file is served, and the document redirect is sent.
+- The document link is signed before the event is recorded, so a stall
+  costs the reader at most the budget out of the link's 60 seconds.
+- No background promise is left running: the request is awaited up to the
+  budget and then aborted.
+- **One honest imprecision.** A write that already reached the database
+  before the abort can still complete afterwards. For example, the
+  database may finish it once a lock is released. So a timed-out event can
+  occasionally be counted, but it is never reported as counted.
+- The publication rule (`public_record`, `public_document`) and the
+  document route's request limit are **not** budgeted and never skipped. A
+  slow check delays the answer; it does not let anything through.
+
+### Temporary data, retention and privacy
+
+| Where | What | Why |
+|---|---|---|
+| `activity_counts` | record, kind of event, total, when the total last changed | the counts shown |
+| `activity_dedup` | a one-way key (the daily client key hashed again with the record and event) and when it was created | to count a client once a day per record and event |
+| `submission_rate_limits` | rows keyed `activity:<first 32 hex of the daily client key>` or `public_file:<…>`, with a count per 10-minute window and the window's start time | the request limits |
+
+- These rows **do contain timestamps**: the dedup row's creation time and
+  the limiter window's start.
+- There is no reading history. No row records a reader, an address, a
+  browser string, a page sequence or an individual event.
+- No cookie is set on readers, and there are no third-party analytics.
+  Raw addresses and browser strings are neither stored nor logged.
+
+**Cleanup, as it actually works:**
+
+- Dedup and limiter rows become **eligible for deletion after 2 days**.
+- They are deleted **during later requests**, in bounded batches: up to
+  200 dedup rows per recorded event, and up to 50 limiter rows per limiter
+  call.
+- With little or no traffic, nothing runs, and rows stay until traffic
+  resumes. **Two days is therefore not a guaranteed maximum.**
+
+Manual maintenance, for quiet periods or before an export or review of the
+database. Run it by hand in the Supabase SQL editor; there is no schedule:
+
+```sql
+select activity_purge_expired();
+-- → {"activity_dedup_deleted": N, "rate_limit_rows_deleted": M}
+```
+
+It deletes every dedup row older than 2 days, and every `activity:` or
+`public_file:` limiter row whose window started more than 2 days ago. It
+touches no other limiter and no count. It is executable only by the
+database owner: not by the application's service role and not by any
+browser role.
 
 ### Publication boundaries
 
@@ -327,10 +396,10 @@ platform activity counts, **not citations and not unique readers**.
 
 ### Failure handling
 
-- If counting fails, the page, the citation and the document still work,
-  and the event endpoint answers `{"recorded": false}`.
-- If the counts cannot be read, the page says so instead of showing
-  zeros.
+- If counting fails or times out, the page, the citation and the document
+  still work, and the event endpoint answers `{"recorded": false}`.
+- If the counts cannot be read in time, the page says so instead of
+  showing zeros.
 - No alerts or activity emails are sent.
 
 ## 8. Before switching it on
