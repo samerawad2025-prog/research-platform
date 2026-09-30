@@ -11,7 +11,7 @@ link. Nothing is public until the release requirements at the end of this
 page are met and the flag is set deliberately.
 
 Migration: `supabase/migrations/0016_public_research.sql` requires 0015.
-Citation export and activity metrics are M6, not here.
+Citation export and activity counts (M6) are described in §7a.
 
 ---
 
@@ -152,7 +152,17 @@ Only `https://` origins are accepted, apart from `http://127.0.0.1` and
     change in the database and the next request.
   - The only exposure window is a signed file link issued **before** a
     withdrawal: it keeps working for up to 60 seconds after it was issued.
-    This is tested.
+    What the local tests establish, against the local Storage API only:
+    - the link's token is issued with a lifetime of at most 60 seconds;
+    - the link still works immediately after a withdrawal;
+    - once its expiry time has passed (plus a 3-second clock tolerance), a
+      **fresh** request with the same link is refused and returns no
+      document bytes.
+
+    Expiry ends *authorization* only. It does not reach a file already
+    downloaded, a copy a browser or proxy has cached, or a document still
+    open in a reader's viewer. Hosted Storage (and any CDN in front of it)
+    must be checked separately before release.
   - Copies people already downloaded cannot be recalled. The agreement says
     so (`docs/legal/submission-terms.en.md` §5, §8).
   - If a CDN or proxy is added in front later, it must honour `no-store`,
@@ -207,6 +217,121 @@ The states tested:
 - changed after approval;
 - withdrawn and superseded dissemination versions;
 - active full-text restriction.
+
+## 7a. Citations and activity counts (Phase 3 M6)
+
+### Citation export
+
+Each public research page has a **Cite this research** panel, closed by
+default and placed after the research itself. It offers:
+
+- **Citation text**, which can be copied;
+- **RIS** (`/research/[publicId]/cite?format=ris`) for Zotero, Mendeley and
+  EndNote;
+- **BibTeX** (`?format=bibtex`) for LaTeX tools.
+
+All three are generated from the record's confirmed public fields
+(`lib/public/citation.js`):
+
+- **Authors** appear exactly as confirmed and in their order. A full name is
+  never split into family and given names: BibTeX gets each name in braces,
+  so it is read as one literal name.
+- **Title**: the English title, with the Arabic one as the translated title
+  (RIS `TT`, a BibTeX note, or in brackets in the text). An Arabic-only
+  record uses its Arabic title. UTF-8 is kept.
+- **Type:**
+  - a thesis whose degree reads as a doctorate becomes `@phdthesis` / RIS
+    `THES`;
+  - a master's degree becomes `@mastersthesis`;
+  - any other thesis becomes `@misc` with its degree as written;
+  - an article becomes `@misc` / RIS `GEN`, because no journal is recorded
+    and none is invented.
+- **Nothing missing is invented.** A missing year is omitted (shown as
+  "n.d." in the text only), and so are missing publishers, journals and
+  degrees.
+- **No DOI:** the schema records none, so none is exported. DOI
+  registration and Crossref/OpenAlex lookups are out of scope.
+- **Escaping:** BibTeX escapes `\ { } % & $ # _ ~ ^`. Line breaks and control
+  characters are collapsed, so a value can never start a new RIS tag or
+  break an entry.
+- **URL:** from `PUBLIC_SITE_ORIGIN` only. Without it the exports have no
+  URL, and the panel says the site has no permanent address yet. The
+  request host is never used.
+- **Same rule as the page:** a record that stops being public after its page
+  was shown gets a 404 from the export route.
+
+Validation:
+
+- `scripts/test-citations-activity.js` (CI) checks structure, types,
+  escaping, brace balance and the absence of invented fields.
+- `scripts/validate-citations.py` (local; needs `bibtexparser` 1.4,
+  `rispy` and `pylatexenc`) parses the exports with independent parsers and
+  checks what a reference manager reads back. It covers English, Arabic,
+  mixed-language and title-only records.
+
+### Activity counts: what each one means
+
+Four separate counts per record, shown under **Activity on this platform**.
+Each is at most one per visitor, per kind, per record, per UTC day:
+
+| Shown as | Counted when | Not counted |
+|---|---|---|
+| Page views | the page stayed **visible for 2 seconds** in a browser, which then sent a beacon | server rendering, metadata generation, prefetch/prerender, a hidden tab, `navigator.webdriver` browsers, reloads the same day |
+| Requests to read the document online | the server issued a link to read the approved document (`mode=read`) | HEAD requests, which issue no link; refusals |
+| Download requests | the server issued a download link | as above |
+| Citation exports | an RIS or BibTeX file was served (GET), **or** the citation text was copied successfully | opening the panel, a failed copy, HEAD requests |
+
+Issuing a document link does not prove the file was opened or fully
+downloaded, so the labels say "requests". The page states that these are
+platform activity counts, **not citations and not unique readers**.
+
+### What is filtered out, and how
+
+- **Automated traffic:**
+  - declared bots, link-preview fetchers (WhatsApp, Slack, Facebook and
+    others), headless and scripted clients, and requests without a browser
+    string;
+  - `Purpose` / `Sec-Purpose: prefetch`.
+
+  This removes the obvious cases. It is not perfect bot detection.
+- **Staff.** When a verified staff member opens the review area, the
+  server sets an HttpOnly cookie **it signed** (12 hours). Requests
+  carrying it are not counted. A forged or expired cookie is ignored, and
+  no browser-supplied role or count is trusted.
+- **Repeats.** Each visitor is represented only by an HMAC of their address
+  and browser string, made with a server secret.
+- **Rate limit.** 300 events per client per 10 minutes, across all records.
+- **What the browser can send.** The event endpoint accepts only `{event}`,
+  as `page_view` or `citation_copy`. Anything else, including a count or a
+  role, is refused, and cross-site posts are refused too.
+
+### Retention and privacy
+
+- `activity_counts` holds only the record, the kind of event, the total
+  and when it last changed.
+- `activity_dedup` holds only a one-way key and when it was created. Keys
+  are deleted after **2 days**, in batches of at most 200 per event.
+- No address, browser string, reader identity or event time is stored.
+  No cookie is set on readers, and there are no third-party analytics.
+
+### Publication boundaries
+
+- Events are accepted only while the record is public.
+- Document events are accepted only while its full text is public, which
+  includes the legal restriction.
+- Counts are shown only while the record is public. Document counts are
+  shown only while full text is public, so a metadata-only record never
+  appears to offer a document.
+- When a record becomes unavailable, its counts are kept privately and
+  shown again, unchanged, only after a fresh approval.
+
+### Failure handling
+
+- If counting fails, the page, the citation and the document still work,
+  and the event endpoint answers `{"recorded": false}`.
+- If the counts cannot be read, the page says so instead of showing
+  zeros.
+- No alerts or activity emails are sent.
 
 ## 8. Before switching it on
 

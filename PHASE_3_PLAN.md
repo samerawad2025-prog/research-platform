@@ -283,6 +283,8 @@ In addition, a withdrawn record stops being served within the documented window,
 
 ### M6 (F): Citation export and truthful aggregate activity metrics
 
+> **Status: built, not deployed** (stacked PR on #21). Migration `0017_activity_metrics.sql`; *Cite this research* (text, RIS, BibTeX) and *Activity on this platform* on each public page, behind the same `PUBLIC_RESEARCH` flag (off). Four separately labelled counts (page views, requests to read online, download requests, citation exports), deduplicated per visitor per day, with obvious bots, previews, prefetch and staff (server-signed cookie) excluded, and document counts shown only while full text is public. No DOI is recorded in the schema, so none is exported. Details: `docs/public-research.md` §7a.
+
 **Scope.**
 - **Citation export.** Citation text plus RIS and BibTeX, generated from **confirmed local metadata only**, with the stable record URL. Missing authors or years are omitted or marked, never invented. An existing valid DOI is included if one is recorded; no DOIs are invented, and DOI registration is not part of Phase 3. External lookups (Crossref) are not required.
 - **Activity counts.** Aggregate counts per record for page views, document opens, downloads and citation exports, each labelled separately as service activity. Known bots, previews, test and admin actions, and obvious repeats are filtered where feasible. There is no invasive fingerprinting and no public individual reading history. The UI states that none of these counts is a citation.

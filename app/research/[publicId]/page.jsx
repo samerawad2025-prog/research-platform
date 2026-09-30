@@ -1,6 +1,9 @@
 import { notFound } from 'next/navigation'
 import RecordView from '../../../components/research/RecordView'
-import { isPublicEnabled, siteOrigin } from '../../../lib/public/server'
+import { isPublicEnabled, siteOrigin, recordUrl } from '../../../lib/public/server'
+import { citationText } from '../../../lib/public/citation'
+import { getActivity } from '../../../lib/public/activity'
+import { publicClient } from '../../../lib/public/pageData'
 import { loadRecord, pageLocale } from '../../../lib/public/pageData'
 import { messagesFor } from '../../../lib/i18n'
 
@@ -38,5 +41,10 @@ export default async function Page({ params }) {
   const r = await loadRecord(publicId)
   if (r.error) throw new Error('public record unavailable')
   if (!r.data) notFound()
-  return <RecordView record={r.data} />
+  const url = recordUrl(r.data.public_id)
+  // Counts are read, never written, while rendering. If they cannot be read
+  // the page still renders, saying so.
+  const sb = publicClient()
+  const act = sb ? await getActivity(sb, r.data.public_id) : { error: true }
+  return <RecordView record={r.data} citation={citationText(r.data, url)} hasUrl={!!url} activity={act.error ? null : act.data} activityError={!!act.error} />
 }

@@ -69,5 +69,6 @@ $PSQL < supabase/migrations/0012_submission_acceptance.sql
 $PSQL < supabase/migrations/0013_linkedin_visibility_declared_authors.sql
 $PSQL < supabase/migrations/0015_admin_review.sql
 $PSQL < supabase/migrations/0016_public_research.sql
+$PSQL < supabase/migrations/0017_activity_metrics.sql
 $PSQL -c "notify pgrst, 'reload schema'"
 echo "local Supabase stack ready at http://127.0.0.1:54321 (keys in $SB_DIR)"

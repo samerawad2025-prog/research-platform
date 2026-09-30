@@ -8,6 +8,7 @@
 
 import { getSupabaseAdmin } from '../../../../lib/supabaseAdminClient'
 import { handleAdmin } from '../../../../lib/admin/handlers'
+import { staffCookieHeader } from '../../../../lib/public/activity'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -46,7 +47,12 @@ async function run(request, context) {
     method: request.method, segments: path || [], query, body, bodyError, token: bearer(request),
     supabase, storage: supabase.storage.from('papers'),
   })
-  return Response.json(out, { status, headers: { 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex, nofollow' } })
+  const headers = { 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex, nofollow' }
+  if (status === 200 && out?.excludeUser) {
+    headers['Set-Cookie'] = staffCookieHeader(process.env, out.excludeUser, new URL(request.url).protocol === 'https:')
+    return Response.json({ ok: true }, { status, headers })
+  }
+  return Response.json(out, { status, headers })
 }
 
 export const GET = run

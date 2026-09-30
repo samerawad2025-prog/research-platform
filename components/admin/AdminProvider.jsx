@@ -122,6 +122,8 @@ export default function AdminProvider({ children }) {
     if (r.status === 403) { setPhase('forbidden'); return }
     if (!r.ok) { setPhase('unavailable'); return }
     setMe(r.data)
+    // Keep this browser's visits out of the public activity counts.
+    api('POST', 'metrics-exclusion', {}).catch(() => {})
     setPhase(r.data.confidentiality_required && !r.data.acknowledged ? 'gate' : 'ready')
   }, [])
   // eslint-disable-next-line react-hooks/set-state-in-effect -- loads from the server on mount

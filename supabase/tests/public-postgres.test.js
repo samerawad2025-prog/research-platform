@@ -11,7 +11,7 @@ const crypto = require('node:crypto')
 const fs = require('node:fs')
 const os = require('node:os')
 const path = require('node:path')
-const { execFileSync } = require('node:child_process')
+const { execFileSync, spawn } = require('node:child_process')
 
 const ROOT = path.join(__dirname, '../..')
 const { makePsql, lit } = require('./pg-adapter')
@@ -32,7 +32,7 @@ function setup() {
   const tmp = path.join(os.tmpdir(), 'm5-pre-schema.sql')
   fs.writeFileSync(tmp, execFileSync('git', ['show', `${BASE_REF}:supabase/schema.sql`], { cwd: ROOT, encoding: 'utf8' }))
   run(tmp)
-  for (const m of ['0011_manual_entry', '0012_submission_acceptance', '0013_linkedin_visibility_declared_authors', '0015_admin_review', '0016_public_research', '0016_public_research']) {
+  for (const m of ['0011_manual_entry', '0012_submission_acceptance', '0013_linkedin_visibility_declared_authors', '0015_admin_review', '0016_public_research', '0016_public_research', '0017_activity_metrics', '0017_activity_metrics']) {
     run(path.join(ROOT, 'supabase/migrations', `${m}.sql`))
   }
 }
@@ -307,8 +307,99 @@ async function main() {
     }
   })
 
+  // ------------------------------------------------------------ M6 activity counts
+  const hex = (x) => crypto.createHash('sha256').update(String(x)).digest('hex')
+  const event = (pid, ev, client) => sqlOk(`select public_record_event(${lit(pid)}, ${lit(ev)}, ${lit(hex(client))})`)
+  const activity = (pid) => q('public_activity', pid)
+  const stored = (paper, ev) => Number(sqlOk(`select coalesce((select count from activity_counts where paper_id = ${lit(paper)} and event = ${lit(ev)}), 0)`))
+  const runPsql = (sqlText) => new Promise((resolve) => {
+    const c = spawn('psql', ['-X', '-q', '-At', '-d', DB, '-c', sqlText], { stdio: ['ignore', 'pipe', 'pipe'] })
+    let out = ''; c.stdout.on('data', (b) => (out += b)); c.stderr.on('data', (b) => (out += b)); c.on('close', () => resolve(out.trim()))
+  })
+
+  await check('activity: one count per client, record, event and day; retries and repeats do not add', async () => {
+    const pid = pidOf(S.eligible)
+    assert.deepStrictEqual(activity(pid), { page_view: 0, citation_export: 0, document_open: null, document_download: null })
+    assert.strictEqual(event(pid, 'page_view', 'client-1'), 'counted')
+    assert.strictEqual(event(pid, 'page_view', 'client-1'), 'duplicate')
+    assert.strictEqual(event(pid, 'page_view', 'client-1'), 'duplicate')
+    assert.strictEqual(event(pid, 'citation_export', 'client-1'), 'counted', 'another kind of event is separate')
+    assert.strictEqual(event(pid, 'page_view', 'client-2'), 'counted')
+    assert.deepStrictEqual(activity(pid), { page_view: 2, citation_export: 1, document_open: null, document_download: null })
+    assert.ok(psql(`select public_record_event(${lit(pid)}, 'page_view', 'not-a-hash')`).error, 'the client key must be a server hash')
+    assert.ok(psql(`select public_record_event(${lit(pid)}, 'likes', ${lit(hex('x'))})`).error, 'unknown events are refused')
+  })
+
+  await check('activity: concurrent increments are atomic (20 clients at once → 20; one client 10 times at once → 1)', async () => {
+    const pid = pidOf(S.eligible)
+    const before = stored(S.eligible, 'citation_export')
+    await Promise.all(Array.from({ length: 20 }, (_, i) => runPsql(`select public_record_event(${lit(pid)}, 'citation_export', ${lit(hex(`par-${i}`))})`)))
+    assert.strictEqual(stored(S.eligible, 'citation_export'), before + 20)
+    const outs = await Promise.all(Array.from({ length: 10 }, () => runPsql(`select public_record_event(${lit(pid)}, 'citation_export', ${lit(hex('same-client'))})`)))
+    assert.strictEqual(stored(S.eligible, 'citation_export'), before + 21)
+    assert.strictEqual(outs.filter((o) => o === 'counted').length, 1, outs.join(','))
+  })
+
+  await check('activity: hidden records accept no events and show no counts; document events only while full text is public', async () => {
+    // ('suspended' was re-approved by an earlier check, so it is public again.)
+    for (const k of hidden.filter((x) => x !== 'suspended')) {
+      if (!pids[k]) continue
+      assert.strictEqual(event(pids[k], 'page_view', `h-${k}`), 'not_eligible', k)
+      assert.strictEqual(activity(pids[k]), null, k)
+    }
+    const pid = pidOf(S.eligible)
+    assert.strictEqual(event(pid, 'document_open', 'd1'), 'not_eligible', 'metadata-only: no document events')
+    const docx = pidOf(DOCX.id)
+    assert.strictEqual(event(docx, 'document_download', 'd1'), 'not_eligible', 'restriction active')
+    assert.strictEqual(activity(docx).document_download, null)
+    lift()
+    try {
+      assert.strictEqual(event(docx, 'document_download', 'd1'), 'counted')
+      assert.strictEqual(event(docx, 'document_open', 'd1'), 'counted')
+      assert.deepStrictEqual([activity(docx).document_open, activity(docx).document_download], [1, 1])
+    } finally { restore() }
+    assert.deepStrictEqual([activity(docx).document_open, activity(docx).document_download], [null, null], 'restored: document counts hidden again, kept privately')
+    assert.strictEqual(stored(DOCX.id, 'document_download'), 1)
+  })
+
+  await check('activity: withdrawal and a suspended approval hide counts at once; the aggregate is kept privately; re-approval shows it again', async () => {
+    const p = paper({ title: 'Activity Withdrawal Study' }); approveLegacy(p)
+    const pid = pidOf(p)
+    event(pid, 'page_view', 'w1'); event(pid, 'page_view', 'w2')
+    assert.strictEqual(activity(pid).page_view, 2)
+    ok('admin_raise_issue', A, p, 'privacy', 'x', true)
+    assert.strictEqual(activity(pid), null); assert.strictEqual(event(pid, 'page_view', 'w3'), 'not_eligible')
+    for (const i of q('admin_review_detail', A, p).issues.filter((x) => x.state === 'open')) ok('admin_resolve_issue', A, p, i.id, 'fixed')
+    assert.strictEqual(activity(pid), null, 'resolving does not restore it')
+    approveLegacy(p)
+    assert.strictEqual(activity(pid).page_view, 2, 'the kept aggregate, not a reset')
+    assert.strictEqual(decide(p, 'withdrawn', 'Author asked.').ok, true)
+    assert.strictEqual(activity(pid), null)
+    assert.strictEqual(stored(p, 'page_view'), 2, 'kept privately')
+    const cols = sqlOk(`select string_agg(column_name, ',' order by column_name) from information_schema.columns where table_name in ('activity_counts', 'activity_dedup')`)
+    assert.strictEqual(cols, 'count,created_at,event,key,paper_id,updated_at', 'no address, agent, reader or time of an individual event is stored')
+  })
+
+  await check('activity: deduplication keys are removed after 2 days in bounded batches', async () => {
+    sqlOk(`insert into activity_dedup (key, created_at) select encode(sha256(('old-' || g)::bytea), 'hex'), now() - interval '3 days' from generate_series(1, 450) g`)
+    const old = () => Number(sqlOk(`select count(*) from activity_dedup where created_at < now() - interval '2 days'`))
+    assert.strictEqual(old(), 450)
+    event(pidOf(S.eligible), 'page_view', 'cleanup-1')
+    assert.strictEqual(old(), 250, 'at most 200 per call')
+    event(pidOf(S.eligible), 'page_view', 'cleanup-2'); event(pidOf(S.eligible), 'page_view', 'cleanup-3')
+    assert.strictEqual(old(), 0)
+  })
+
+  await check('activity: browser roles can neither read counts nor record events', async () => {
+    for (const role of ['anon', 'authenticated']) {
+      assert.ok(psql(`set role ${role}; select public_activity('abcdefghjkmn');`).error)
+      assert.ok(psql(`set role ${role}; select public_record_event('abcdefghjkmn', 'page_view', ${lit(hex(1))});`).error)
+      assert.ok(psql(`set role ${role}; select * from activity_counts;`).error)
+    }
+  })
+
   execFileSync('dropdb', ['--if-exists', DB])
-  console.log(failed ? `\n${failed} check(s) failed.` : '\nAll M5 real-database checks passed.')
+  console.log(failed ? `\n${failed} check(s) failed.` : '\nAll M5/M6 real-database checks passed.')
   process.exit(failed ? 1 : 0)
 }
 
