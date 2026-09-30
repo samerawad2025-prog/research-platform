@@ -205,6 +205,7 @@ Full-text checks (H7/H8 document parts) only on synthetic records in the test pr
 | H5 after 0014 (database/gateway half) | 0014 @ `b4397b93` | — | same | **pass**: anon upload 403 (RLS); anon `submit_paper` 401/42501; `bootstrap_first_administrator` and `public_catalogue` not callable via API (42501) | 2026-09-30 |
 | H3 CORS preflight (Storage) | — | — | same | **observed**: `access-control-allow-origin: *` for the preview origin **and for a foreign origin** — browser uploads will work; origin is no protection, the signed token is | 2026-09-30 |
 | `check-isolation.js` on the branch preview values | `b4397b93`+ | — | same | **fails closed as designed**: URL and anon key name the test project; mock, manual, no Gemini key; `SUPABASE_SERVICE_ROLE_KEY is not set` | 2026-09-30 |
+| Preview wiring | `7ed511ed` | `dpl_8mmgqqDg4n8G8joTwcjAfQxJTifW` (branch alias `research-platform-5zpu-git-claude-phase3-release-prep-samer22.vercel.app`) | same | **observed**: deployment built from the candidate commit with the branch-scoped variables; `/research` 200 with `robots: noindex` / `x-robots-tag: noindex` (no origin), `cache-control: private, no-store`, and an honest "catalogue could not be loaded" message (server routes lack the service key) — no production data reachable | 2026-09-30 |
 | H1, H2, H4, H6–H11; H5 "signed submission still works" | — | — | — | **not run** — need the test service key | — |
 
 ---
