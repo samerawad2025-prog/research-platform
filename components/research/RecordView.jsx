@@ -8,9 +8,10 @@ import Link from 'next/link'
 import { useLocale } from '../LocaleProvider'
 import { CONTACT_EMAIL, messagesFor } from '../../lib/i18n'
 import { titles, named, fileSize } from './format'
+import { CitePanel, ActivityPanel, PageViewBeacon } from './CiteAndActivity'
 import s from './research.module.css'
 
-export default function RecordView({ record: r }) {
+export default function RecordView({ record: r, citation, hasUrl, activity, activityError }) {
   const { locale } = useLocale()
   const t = messagesFor(locale).research
   const rt = t.record
@@ -77,6 +78,8 @@ export default function RecordView({ record: r }) {
           </section>
         )}
 
+        <CitePanel publicId={r.public_id} text={citation} hasUrl={hasUrl} />
+
         <section>
           <h2 className={s.h2}>{rt.rightsTitle}</h2>
           <div className={s.rights}>
@@ -86,6 +89,8 @@ export default function RecordView({ record: r }) {
             <p>{rt.concern} <a className={s.link} href={`mailto:${CONTACT_EMAIL}`} dir="ltr">{CONTACT_EMAIL}</a>.</p>
           </div>
         </section>
+        <ActivityPanel activity={activity} error={activityError} />
+        <PageViewBeacon publicId={r.public_id} />
       </article>
     </div>
   )

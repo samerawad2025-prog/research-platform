@@ -73,3 +73,7 @@ Individual function bodies are mirrored in `supabase/functions/` for easier revi
 ## Public records (migration 0016, Phase 3 M5, not applied)
 
 `public_records` holds one stable, random `public_id` per approved paper (never its UUID or token). The public site reads only through `public_record`, `public_catalogue`, `public_document` and `public_sitemap`: service-role functions that re-apply `publication_eligibility()` and return an allowlist of public fields. Details: `docs/public-research.md`.
+
+## Activity counts (migration 0017, Phase 3 M6, not applied)
+
+`activity_counts` (paper, event kind, total) and `activity_dedup` (one-way daily keys with a creation time, eligible for deletion after 2 days and removed in bounded batches during later requests, or all at once by the owner-only `activity_purge_expired()`). Written only through `public_record_event`, read only through `public_activity`; both service-role, both re-applying `publication_eligibility()`. No address, browser string or reading history is stored; dedup and limiter rows carry timestamps. Details: `docs/public-research.md` §7a.

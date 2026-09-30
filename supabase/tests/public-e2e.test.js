@@ -11,7 +11,7 @@ const assert = require('node:assert')
 const crypto = require('node:crypto')
 const fs = require('node:fs')
 const path = require('node:path')
-const { execFileSync } = require('node:child_process')
+const { execFileSync, spawn } = require('node:child_process')
 const { chromium } = require('playwright')
 const { createClient } = require('@supabase/supabase-js')
 const { PDFDocument } = require('pdf-lib')
@@ -197,7 +197,7 @@ async function main() {
     assert.strictEqual((await get(`/research/../api/admin/queue`)).status >= 400, true)
   })
 
-  await check('withdrawal: page, file and sitemap stop at once; an already issued link lasts at most its 60 seconds', async () => {
+  await check('withdrawal: page, file and sitemap stop at once; a link issued before it still works immediately afterwards (expiry is checked below)', async () => {
     await decide('ft', 'withdrawn', 'Author asked to withdraw the full text.')
     assert.strictEqual((await get(`/research/${papers.ft.pid}`)).status, 404)
     assert.strictEqual((await get(`/research/${papers.ft.pid}/file?mode=read`)).status, 404)
@@ -210,6 +210,144 @@ async function main() {
   await check('admin: a public link appears only for a public record', async () => {
     assert.strictEqual((await api('GET', `reviews/${papers.ok.id}`)).body.public_url, `http://127.0.0.1:3100/research/${papers.ok.pid}`)
     for (const k of hidden) assert.strictEqual((await api('GET', `reviews/${papers[k].id}`)).body.public_url, null, k)
+  })
+
+
+  // ------------------------------------------------------------- M6: citations and activity
+  const UA = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36'
+  const count = (key, ev) => Number(sql(`select coalesce((select count from activity_counts where paper_id = ${lit(papers[key].id)} and event = ${lit(ev)}), 0)`))
+  const post = (pid, event, headers = {}) => fetch(`${APP}/api/research/${pid}/events`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'User-Agent': UA, ...headers }, body: JSON.stringify({ event }) })
+
+  await check('cite: RIS and BibTeX from confirmed metadata with the permanent URL; each served file counts once per day', async () => {
+    const before = count('ok', 'citation_export')
+    const ris = await get(`/research/${papers.ok.pid}/cite?format=ris`, { headers: { 'User-Agent': UA } })
+    assert.strictEqual(ris.status, 200); assert.match(ris.headers.get('content-type'), /research-info-systems/)
+    assert.match(ris.headers.get('content-disposition'), new RegExp(`attachment; filename="sarp-${papers.ok.pid}.ris"`))
+    const text = await ris.text()
+    assert.ok(text.startsWith('TY  - THES\r\n') && text.includes('AU  - Samira Idris\r\nAU  - Khalid Osman\r\n'))
+    assert.ok(text.includes(`UR  - http://127.0.0.1:3100/research/${papers.ok.pid}`) && text.includes('TT  - ملوحة المياه الجوفية'))
+    noLeak(text, 'ok')
+    const bib = await (await get(`/research/${papers.ok.pid}/cite?format=bibtex`, { headers: { 'User-Agent': UA } })).text()
+    assert.match(bib, /^@mastersthesis\{sarp-/); assert.ok(bib.includes('author = {{Samira Idris} and {Khalid Osman}}'))
+    assert.strictEqual(count('ok', 'citation_export'), before + 1, 'RIS then BibTeX from the same client on the same day: one citation export')
+    await get(`/research/${papers.ok.pid}/cite?format=ris`, { headers: { 'User-Agent': UA } })
+    assert.strictEqual(count('ok', 'citation_export'), before + 1, 'a repeat is not counted')
+  })
+
+  await check('not counted: HEAD, declared bots, link previews, prefetch, and staff (server-signed cookie)', async () => {
+    const pid = papers.p1.pid
+    const before = [count('p1', 'citation_export'), count('p1', 'page_view')]
+    assert.strictEqual((await fetch(`${APP}/research/${pid}/cite?format=ris`, { method: 'HEAD', headers: { 'User-Agent': UA } })).status, 200)
+    for (const ua of ['Googlebot/2.1 (+http://www.google.com/bot.html)', 'facebookexternalhit/1.1', 'WhatsApp/2.23.20.0', 'curl/8.4.0']) {
+      await get(`/research/${pid}/cite?format=ris`, { headers: { 'User-Agent': ua } })
+      assert.strictEqual((await (await post(pid, 'page_view', { 'User-Agent': ua })).json()).recorded, false, ua)
+    }
+    await get(`/research/${pid}/cite?format=ris`, { headers: { 'User-Agent': UA, 'Sec-Purpose': 'prefetch' } })
+    // A staff member: the admin API sets a cookie this server signed.
+    const ex = await fetch(`${APP}/api/admin/metrics-exclusion`, { method: 'POST', headers: { Authorization: `Bearer ${ADMIN}`, 'Content-Type': 'application/json' }, body: '{}' })
+    const cookie = (ex.headers.get('set-cookie') || '').split(';')[0]
+    assert.match(cookie, /^sarp_staff_nocount=v1\.\d+\.[0-9a-f]{64}$/, 'a signed marker, no user id'); assert.match(ex.headers.get('set-cookie'), /HttpOnly/)
+    assert.strictEqual((await (await post(pid, 'page_view', { Cookie: cookie })).json()).recorded, false)
+    await get(`/research/${pid}/cite?format=bibtex`, { headers: { 'User-Agent': UA, Cookie: cookie } })
+    // A forged cookie is not staff.
+    assert.strictEqual((await (await post(pid, 'page_view', { Cookie: 'sarp_staff_nocount=v1.9999999999.' + '0'.repeat(64) })).json()).recorded, true)
+    assert.deepStrictEqual([count('p1', 'citation_export'), count('p1', 'page_view')], [before[0], before[1] + 1])
+    // Nobody but staff can get the cookie.
+    assert.strictEqual((await fetch(`${APP}/api/admin/metrics-exclusion`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })).status, 401)
+  })
+
+  await check('the event endpoint takes a name only: counts, roles and unknown events are refused, cross-site posts too', async () => {
+    const pid = papers.p2.pid
+    for (const body of ['{"event":"page_view","count":1000}', '{"event":"download"}', '{"event":"page_view","role":"administrator"}', 'not json']) {
+      const r = await fetch(`${APP}/api/research/${pid}/events`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'User-Agent': UA }, body })
+      assert.strictEqual(r.status, 400, body)
+    }
+    assert.strictEqual((await post(pid, 'page_view', { 'Sec-Fetch-Site': 'cross-site' })).status, 403)
+    assert.strictEqual(count('p2', 'page_view'), 0)
+  })
+
+  await check('eligibility changes between showing the page and the request: no citation, no event, no counts', async () => {
+    await seed('late', { title: `Late Withdrawal ${RUN}` }); await approve('late')
+    const html = await (await get(`/research/${papers.late.pid}`)).text()
+    assert.ok(html.includes('Cite this research') && html.includes('Activity on this platform'))
+    await decide('late', 'withdrawn', 'Author asked.')
+    assert.strictEqual((await get(`/research/${papers.late.pid}/cite?format=ris`, { headers: { 'User-Agent': UA } })).status, 404)
+    assert.strictEqual((await post(papers.late.pid, 'citation_copy')).status, 404)
+    assert.strictEqual((await post(papers.late.pid, 'page_view')).status, 404)
+    await seed('late2', { title: `Late Suspension ${RUN}` }); await approve('late2')
+    assert.strictEqual((await (await post(papers.late2.pid, 'page_view')).json()).recorded, true)
+    assert.strictEqual((await api('POST', `reviews/${papers.late2.id}/issues`, { kind: 'rights', description: 'x', blocking: true })).status, 201)
+    for (const i of (await api('GET', `reviews/${papers.late2.id}`)).body.issues.filter((x) => x.state === 'open')) await api('POST', `reviews/${papers.late2.id}/issues/${i.id}/resolve`, { resolution: 'fixed' })
+    for (const p of [`/research/${papers.late2.pid}`, `/research/${papers.late2.pid}/cite?format=bibtex`]) assert.strictEqual((await get(p)).status, 404, p)
+    assert.strictEqual((await post(papers.late2.pid, 'page_view')).status, 404)
+    assert.strictEqual(count('late2', 'page_view'), 1, 'kept privately')
+  })
+
+  await check('a collection failure never blocks reading, citing or the document, and is never shown as a count', async () => {
+    sql(`revoke execute on function public_record_event(text, text, text) from service_role`)
+    try {
+      const before = count('p3', 'citation_export')
+      const r = await get(`/research/${papers.p3.pid}/cite?format=ris`, { headers: { 'User-Agent': UA } })
+      assert.strictEqual(r.status, 200); assert.match(await r.text(), /^TY {2}- THES/)
+      assert.deepStrictEqual(await (await post(papers.p3.pid, 'page_view')).json(), { recorded: false })
+      assert.strictEqual((await get(`/research/${papers.p3.pid}`)).status, 200)
+      assert.strictEqual(count('p3', 'citation_export'), before)
+    } finally {
+      sql(`grant execute on function public_record_event(text, text, text) to service_role`)
+    }
+    sql(`revoke execute on function public_activity(text) from service_role`)
+    try {
+      const html = await (await get(`/research/${papers.p3.pid}`)).text()
+      assert.ok(html.includes('Activity counts are not available right now') && html.includes('Cite this research'))
+      assert.ok(!/Page views/.test(html), 'no invented zeros')
+    } finally {
+      sql(`grant execute on function public_activity(text) to service_role`)
+    }
+  })
+
+  await check('activity section: separate counts, no document counts for a metadata-only record, no counts for hidden records', async () => {
+    const html = await (await get(`/research/${papers.ok.pid}`)).text()
+    for (const label of ['Page views', 'Citation exports', 'not citations and not a count of individual readers']) assert.ok(html.includes(label), label)
+    assert.ok(!html.includes('Download requests') && !html.includes('Requests to read the document online'), 'metadata-only: no document counts')
+    for (const k of hidden) if (papers[k].pid) assert.ok(!(await (await get(`/research/${papers[k].pid}`)).text()).includes('Page views'), k)
+  })
+
+
+  await check('stalled metrics (a real lock on the counts table): page, citation and document arrive promptly; HEAD records nothing; nothing is shown as counted', async () => {
+    // A full-text record, restriction lifted in this synthetic database only.
+    await seed('st', { title: `Stall Test Full Text ${RUN}`, scope: '{full_paper}' })
+    const des = await api('POST', `reviews/${papers.st.id}/documents`, { origin: 'original_reviewed' })
+    await approve('st', 'record_abstract_fulltext', des.body.versionId)
+    sql(`update release_restrictions set active = false, changed_by = 'synthetic e2e only', note = 'local test' where key = 'fulltext_legal_advice'`)
+    const lock = spawn('docker', ['exec', '-i', '-e', 'PGPASSWORD=localtestpw', 'sb-db', 'psql', '-h', 'localhost', '-U', 'supabase_admin', '-d', 'postgres', '-X', '-q',
+      '-c', 'begin; lock table activity_counts in access exclusive mode; select pg_sleep(12); commit;'], { stdio: 'ignore' })
+    try {
+      await new Promise((r) => setTimeout(r, 1500))
+      const timed = async (fn) => { const t = Date.now(); const r = await fn(); return [r, Date.now() - t] }
+      const [page, pageMs] = await timed(() => get(`/research/${papers.st.pid}`))
+      const html = await page.text()
+      assert.strictEqual(page.status, 200)
+      assert.ok(html.includes('Activity counts are not available right now') && html.includes(`Stall Test Full Text ${RUN}`) && html.includes('Cite this research'), 'research shown, metrics unavailable')
+      const [cite, citeMs] = await timed(() => get(`/research/${papers.st.pid}/cite?format=ris`, { headers: { 'User-Agent': UA } }))
+      assert.strictEqual(cite.status, 200); assert.match(await cite.text(), /^TY {2}- THES/)
+      const [file, fileMs] = await timed(() => get(`/research/${papers.st.pid}/file?mode=read`, { headers: { 'User-Agent': UA } }))
+      assert.strictEqual(file.status, 303)
+      const { iat, exp } = JSON.parse(Buffer.from(new URL(file.headers.get('location')).searchParams.get('token').split('.')[1], 'base64url').toString())
+      const remaining = exp - Date.now() / 1000
+      assert.ok(remaining > 55, `the link had ${remaining.toFixed(1)} s left when the reader got it (issued for ${exp - iat} s)`)
+      const [head] = await timed(() => fetch(`${APP}/research/${papers.st.pid}/file?mode=read`, { method: 'HEAD', headers: { 'User-Agent': UA } }))
+      assert.strictEqual(head.status, 200)
+      assert.deepStrictEqual(await (await post(papers.st.pid, 'page_view')).json(), { recorded: false }, 'a timeout is not reported as a count')
+      for (const [what, ms] of [['page', pageMs], ['citation', citeMs], ['document', fileMs]]) assert.ok(ms < 2500, `${what} took ${ms} ms while metrics were stalled`)
+    } finally {
+      await new Promise((r) => lock.on('close', r))
+      sql(`update release_restrictions set active = true, changed_by = 'synthetic e2e restore', note = 'restored' where key = 'fulltext_legal_advice'`)
+    }
+    // After the stall: normal counting works again. (A write that reached the
+    // database before the abort may have completed once the lock was released:
+    // documented, never reported as counted.)
+    assert.strictEqual((await (await post(papers.st.pid, 'citation_copy', { 'User-Agent': UA + ' after' })).json()).recorded, true)
+    assert.ok((await (await get(`/research/${papers.st.pid}`)).text()).includes('Citation exports'))
   })
 
   // ------------------------------------------------------------- browser
@@ -273,7 +411,80 @@ async function main() {
     assert.ok(!/الملخص \(بالعربية\)/.test(text), 'no empty Arabic abstract section')
     await ctx.close()
   })
+
+  await check('browser: page view only after the page stays visible, not from an automated browser; copy success counts, failure does not', async () => {
+    const human = async (init) => {
+      const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, userAgent: UA, permissions: ['clipboard-read', 'clipboard-write'] })
+      await ctx.addInitScript(() => Object.defineProperty(Navigator.prototype, 'webdriver', { get: () => false }))
+      if (init) await ctx.addInitScript(init)
+      return { ctx, page: await ctx.newPage() }
+    }
+    // Automated (the default for this test browser): nothing is sent.
+    const auto = await open(1280, 'en')
+    await auto.page.goto(`${APP}/research/${papers.p5.pid}`); await auto.page.waitForTimeout(3000)
+    assert.strictEqual(count('p5', 'page_view'), 0, 'navigator.webdriver: not counted')
+    await auto.ctx.close()
+    // A person: counted once, after 2 seconds; a reload the same day is not.
+    let h = await human()
+    await h.page.goto(`${APP}/research/${papers.p5.pid}`)
+    await h.page.waitForTimeout(800)
+    assert.strictEqual(count('p5', 'page_view'), 0, 'not before 2 seconds')
+    await h.page.waitForTimeout(2200)
+    assert.strictEqual(count('p5', 'page_view'), 1)
+    await h.page.reload(); await h.page.waitForTimeout(3000)
+    assert.strictEqual(count('p5', 'page_view'), 1, 'a reload is not another view')
+    // Keyboard: open the citation panel, copy.
+    const before = count('p5', 'citation_export')
+    await h.page.locator('summary', { hasText: 'Cite this research' }).focus()
+    await h.page.keyboard.press('Enter')
+    assert.strictEqual(count('p5', 'citation_export'), before, 'opening the panel is not an export')
+    await h.page.locator('button', { hasText: 'Copy citation' }).focus()
+    await h.page.keyboard.press('Enter')
+    await h.page.locator('[role=status]', { hasText: 'Copied.' }).waitFor()
+    assert.ok((await h.page.evaluate(() => navigator.clipboard.readText())).includes(`Paging Record 05 ${RUN}`))
+    await h.page.waitForTimeout(500)
+    assert.strictEqual(count('p5', 'citation_export'), before + 1)
+    await h.page.screenshot({ path: path.join(SHOTS, 'record-cite-1280-en.png'), fullPage: true })
+    await h.ctx.close()
+    // A copy that fails says so and counts nothing.
+    h = await human(() => { Object.defineProperty(navigator, 'clipboard', { get: () => ({ writeText: () => Promise.reject(new Error('denied')) }) }) })
+    await h.page.goto(`${APP}/research/${papers.p6.pid}`)
+    await h.page.locator('summary', { hasText: 'Cite this research' }).click()
+    await h.page.locator('button', { hasText: 'Copy citation' }).click()
+    await h.page.locator('[role=status]', { hasText: 'Copying did not work' }).waitFor()
+    await h.page.waitForTimeout(500)
+    assert.strictEqual(count('p6', 'citation_export'), 0)
+    await h.ctx.close()
+  })
+
+  await check('browser: citation and activity in Arabic and on phones, secondary to the research, no horizontal scroll', async () => {
+    for (const [w, lang] of [[320, 'ar'], [390, 'en'], [768, 'ar'], [1440, 'en']]) {
+      const { ctx, page } = await open(w, lang)
+      await page.goto(`${APP}/research/${papers.ok.pid}`)
+      await page.locator('summary').first().click()
+      assert.ok((await overflow(page)) <= 0, `${w} ${lang}`)
+      const text = await page.locator('main').innerText()
+      assert.ok(text.includes(lang === 'ar' ? 'الاستشهاد بهذا البحث' : 'Cite this research'))
+      assert.ok(text.includes(lang === 'ar' ? 'النشاط على هذه المنصة' : 'Activity on this platform'))
+      const order = await page.evaluate(() => { const h = document.querySelector('h1').getBoundingClientRect().top; const c = document.querySelector('details').getBoundingClientRect().top; return c > h })
+      assert.ok(order, 'the research comes first')
+      await page.screenshot({ path: path.join(SHOTS, `record-m6-${w}-${lang}.png`), fullPage: true })
+      await ctx.close()
+    }
+  })
   await browser.close()
+
+  // M5 follow-up: the link issued before the withdrawal really expires.
+  await check('signed link expiry (local Storage): after its expiry time a fresh request with the old link is refused', async () => {
+    const token = new URL(issuedLink).searchParams.get('token')
+    const { exp } = JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString())
+    const wait = exp * 1000 - Date.now() + 3000 // 3 s clock tolerance
+    if (wait > 0) await new Promise((r) => setTimeout(r, wait))
+    const r = await fetch(issuedLink, { headers: { 'Cache-Control': 'no-cache' } })
+    assert.ok(r.status >= 400 && r.status < 500, `expected a refusal, got ${r.status}`)
+    const body = Buffer.from(await r.arrayBuffer())
+    assert.ok(!body.equals(papers.ft.bytes) && !body.subarray(0, 5).toString().startsWith('%PDF'), 'no document bytes after expiry')
+  })
 }
 
 main().then(() => { console.log(failed ? `\n${failed} FAILED` : '\nall public e2e checks passed'); process.exit(failed ? 1 : 0) }, (e) => { console.error(e); process.exit(1) })

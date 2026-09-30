@@ -87,3 +87,6 @@ jobs:
 
       - name: Public research pages and files (Phase 3 M5)
         run: node scripts/test-public.js
+
+      - name: Citations and activity counts (Phase 3 M6)
+        run: node scripts/test-citations-activity.js
