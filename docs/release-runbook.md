@@ -6,7 +6,7 @@ Prepared 2026-09-30 against candidate commit `f433a37` (PR #22 head) plus the re
 
 ---
 
-## 0. Where things stand (2026-09-30)
+## 0. Where things stand (updated 2026-10-02)
 
 ### Built and tested locally
 Everything in PRs #16–#22 (M0 docs, M1 manual path, M2A acceptance, M2B/M3 new form + LinkedIn, M4 review, M5 public site, M6 citations/metrics). Local Postgres 16 and a local Supabase stack with real GoTrue; CI (`test`) green on every head.
@@ -24,17 +24,16 @@ Test project `qwxfxckrabvuvuzidxuo` (`research-platform-test`, free plan, eu-cen
 - Vercel production serves **`f45dc690`** (the pre-Phase-3 app). No custom domain (`research-platform-5zpu.vercel.app`), Vercel SSO on previews.
 - Supabase `mzpkiuovjppmavqkppem` (the only project): live schema matches `schema.sql` at `f45dc690` exactly. Migrations applied through **0010**; 0011–0017 **not** applied. Legacy anonymous upload + `submit_paper` **open**. 35 papers (5 confirmed), 0 Auth users.
 - No Phase 3 environment variable is set in production.
+- Re-checked read-only on 2026-10-02 15:36–16:10 UTC: Stage A PREFLIGHT (`supabase/release/stage-a-checks.sql`) **PASS**; data fingerprint `ece227369f14ec7f3639362b4c011dbf`; last paper created and last confirmation 2026-09-25.
 
 ### Blocked or unverified
 | Item | Blocked on |
 |---|---|
-| All hosted checks (§6) | An isolated test project (§2) — authorization needed |
 | Agreement activation (§4 stage D) | §6 of the agreement: provider arrangement unverified → production must run **manual**; founder approval |
 | 0014 cutover | Agreement activation + a real signed submission |
 | Volunteers opening submissions | Founder approval of the confidentiality draft |
 | Public site | First admin, reviewed/approved UofK records, domain decision |
 | Full text | Sudan-qualified legal advice + dissemination copies (`docs/legal/README.md`); stays off |
-| Client-address trust for rate limits | Hosted check H10 (does Vercel overwrite a client-sent `x-forwarded-for`?) |
 | §8 request handling | Founder's private request log (process, not code) |
 
 ---
@@ -90,7 +89,7 @@ select concat_ws(' ',
   case when to_regclass('public.public_records') is not null then '0016' end,
   case when to_regclass('public.activity_counts') is not null then '0017' end) as applied;
 ```
-Production today returns an empty string. All of 0011–0017 are idempotent, so re-running one already applied is harmless; skipping one is not (each checks its prerequisites and aborts).
+Production today returns an empty string. All of 0011–0017 are idempotent, so re-running one already applied is harmless; skipping one is not. Only 0014 checks its prerequisites explicitly; the others fail on their first reference to a missing object and roll back (each file is one `begin … commit` transaction). The Stage A checks below are the guard: each confirms the exact fingerprint before the next file is run.
 
 **Dependencies:** 0012 ← 0011; 0013 ← 0012; 0015 ← 0012, 0013, Auth; 0016 ← 0015; 0017 ← 0016; 0014 ← 0012, 0013 and a live new form. Numbers are not order: **0014 is last.**
 
@@ -113,12 +112,53 @@ Any failure: fix on the release branch, redeploy the preview, re-run the affecte
 ### Region (before stage B)
 `vercel.json` on the release branch sets `"regions": ["fra1"]`. Deployments built from commits containing it run in Frankfurt, next to the database; the **current** production deployment is not affected. When the stack is merged (stage B), production functions move from `iad1` to `fra1` with that deploy — intended, and verified on the preview (§7, H11 re-run). Rollback: promoting the previous production deployment also restores its region.
 
-### Stage A — production database, before any merge
-Precondition: stage 0 passed and recorded in §7.
-Apply in the SQL editor, one file at a time, in order: **0011, 0012, 0013, 0015, 0016, 0017.** Not 0014.
-- Safe with the deployed `f45dc690`: all additive; the rehearsal runs the legacy `submit_paper` after them.
-- Verify: fingerprint = `0011 0012 0013 0015 0016 0017`; one legacy submission from production still completes; `select mode from extraction_policy;` = `manual`; `select id, active from agreement_versions;` all false; `select count(*) from staff_members;` = 0.
-- Rollback: each file has a rollback block at its end; nothing is lost while no new-path data exists.
+### Stage A — production database, before any merge (exact procedure)
+
+Precondition: stage 0 passed and recorded in §7 (met 2026-10-02).
+
+**What it changes.** Six additive migrations: 22 new tables (6 → 28), new columns on `papers` (nullable) and `researchers` (`linkedin_public`, default false), new functions, and replacements of `get_paper_for_confirmation` / `confirm_researcher_metadata` with the **same signatures**. No existing row is updated or deleted; the old anonymous path stays open; nothing becomes visible to the public. The deployed app (`f45dc690`) keeps working and keeps its current behaviour, including automatic Gemini extraction for new papers, until stage B. Two small user-visible effects on the live confirmation page: a LinkedIn value that is not a LinkedIn profile address is refused with a clear message, and a Facebook value is ignored (production holds no LinkedIn or Facebook values today, and no researcher is shared between papers).
+
+**Evidence it is safe (2026-10-02).**
+- Same six files (SHA-256 below) applied on hosted Postgres 17 to a copy of the production schema (test project, §7) and then exercised end to end (H1–H11).
+- `scripts/rehearse-stage-a.sh` (local Postgres 16 with Supabase's default grants): production schema `f45dc690` + synthetic data shaped like production (35 papers in the same status/failure/scope mix, 55 researchers, 50 author links, 70 AI rows) → every check below PASS; **data fingerprint identical before and after**; as the browser (`anon`): direct reads of `papers` return 0 rows, wrong token and bare paper UUID refused, correct token reads, the exact confirmation payload `f45dc690` sends succeeds (Facebook ignored, `٢٠١٩م` stored as 2019), legacy `submit_paper` succeeds and is stamped `manual`; anon has no access to new tables.
+- `scripts/rehearse-release.sh`: migrated database identical in structure and privileges to a fresh install.
+- Production PREFLIGHT read-only: **PASS** at 2026-10-02 ~16:10 UTC.
+
+**Files (exactly these; unchanged since `b4397b93`):**
+
+| Order | File | Lines | SHA-256 |
+|---|---|---|---|
+| 1 | `0011_manual_entry.sql` | 210 | `FAC1E84D07FA93D908DE430BC1B73E57A549DFDB2B28BD7CD3F905F0C19C72D2` |
+| 2 | `0012_submission_acceptance.sql` | 546 | `47A085C339140610D797251F980DB63B4AAA76A3EC07A41ACBFDB00F0761196D` |
+| 3 | `0013_linkedin_visibility_declared_authors.sql` | 397 | `1E5614CB72174CDEC8FB15B1134A54FECECC48392547069CD0860FEDFE14A724` |
+| 4 | `0015_admin_review.sql` | 2366 | `485415578ADED442DBB29E29F02E621A311D0D28544EA27C2C1DED549E1C4241` |
+| 5 | `0016_public_research.sql` | 391 | `CD7A6452FFCC035166C9ACEA8A43420C8B72365346A41EC1F3D06015E13BEBE6` |
+| 6 | `0017_activity_metrics.sql` | 182 | `60DE5C1BEB67C77A8FAC0803E84C69D5F35A9AF2FF01B050B6EEB0F426BFBED8` |
+
+Not 0014 (that is stage E). Never `schema.sql`.
+
+**Procedure** (Supabase dashboard → the **production** project `mzpkiuovjppmavqkppem` → SQL Editor; check the project name in the top bar is *not* `research-platform-test`). Checks come from `supabase/release/stage-a-checks.sql`; paste one block at a time.
+1. **Window.** A quiet time (production's last paper and confirmation: 2026-09-25). Allow 30 minutes.
+2. **Copy of current data.** Database → Backups: note the newest backup time if one is listed. Whether or not one is, also export `papers`, `researchers`, `paper_researchers` and `ai_generations` as CSV from the Table Editor and keep them privately (they contain personal data).
+3. **Preflight.** Run the `PREFLIGHT` block → must be `PASS`. Run the `DATA FINGERPRINT` block → write down `data_fingerprint`, `max_created`, `max_confirmed` (on 2026-10-02 it was `ece227369f14ec7f3639362b4c011dbf`).
+4. **For each file in the order above:**
+   a. Open it on GitHub at the PR #23 head (`supabase/migrations/<file>` → *Raw*), select all, copy, paste into a new SQL Editor query. The editor's last line number must equal the *Lines* column. (Optional, exact: download the raw file and compare `Get-FileHash <file> -Algorithm SHA256` with the table.)
+   b. Run. Expected: success, no rows. The editor may warn about `drop … if exists` statements; they only replace the file's own triggers/constraints — confirm only if step a's line count matched.
+   c. Run the matching `AFTER 00xx` block → must be `PASS`, and its `applied` column must show the files so far.
+5. **After 0017:** run `DATA FINGERPRINT` again → identical to step 3 (if not, `max_created` / `max_confirmed` show whether a real submission or confirmation happened in between; otherwise STOP).
+6. **Live app.** Open the production site's home and `/submit` pages; Vercel → Logs for the production deployment: no new errors in the next hour. No test submission is needed (the deployed app's calls were exercised against the migrated schema in the rehearsal).
+
+**Stop conditions — do not continue, report instead:**
+- any `STOP:` result (it names the reason), or a PREFLIGHT that is not `PASS`;
+- a migration that ends with an error: because each file is a single transaction, nothing from it was applied; confirm by re-running the previous step's `AFTER` block (it must still `PASS`), then stop;
+- a line count that does not match, or a query that runs for more than two minutes (cancel it; the transaction rolls back);
+- the data fingerprint changed without a matching new submission or confirmation;
+- new errors in the production logs after step 6.
+Do **not** run any rollback block from the files, and do not re-run a file, without asking first. (Re-running is harmless — every file is idempotent — but a STOP means something is unexpected and should be looked at first.)
+
+**Rollback.** Not expected to be needed: nothing in the deployed app depends on the new objects. Each file ends with a commented rollback block, to be used only in reverse order (0017 → 0011) and only after review.
+
+**Done when:** `AFTER 0017` is `PASS`, the data fingerprint is unchanged, and the result is recorded in §7.
 
 ### Stage B — code to production, every flag off
 Set first (Production scope): `EXTRACTION_MODE=manual`, `SUBMISSION_TOKEN_SECRET=<random>`. Leave `SUBMISSION_ACCEPTANCE_FLOW`, `ADMIN_REVIEW`, `PUBLIC_RESEARCH`, `PUBLIC_SITE_ORIGIN` unset.
@@ -229,10 +269,17 @@ Full-text checks (H7/H8 document parts) only on synthetic records in the test pr
 | **H11** metrics timeout + staff exclusion | same | same | same | **pass (safety), finding (coverage)**: with `activity_counts`/`activity_dedup` locked, the page rendered in 1.2 s with "Activity counts are not available right now." and a citation export returned in 0.8 s; staff-cookie events not counted; HEAD records nothing. **Finding:** without any lock, 5 of ~8 event writes logged `activity_timed_out` — functions run in `iad1` (Washington) and the database in `eu-central-1` (Frankfurt), so several round trips exceed the 400 ms budget. Counts are never faked, but most activity would go uncounted. Fix before relying on counts: set the Vercel Function Region to `fra1` (one region, available on the free plan), then re-run H11 | 2026-10-02 |
 | **Regions verified** | — | production `dpl_5QKkcSogvP1pm6dx54kavRa91ijK` (`f45dc690`) runs in **`iad1`**; test and production Supabase are **`eu-central-1`** | both | the live site already crosses the Atlantic for every database call | 2026-10-02 |
 | **H11 re-run on `fra1`** | `70d88ef3` (adds `vercel.json` `"regions": ["fra1"]`, branch only) | **`dpl_68qKpVFHM4nKKdAW22QtCuj3YTd1`** (`regions: fra1`); production deployment unchanged (still `iad1`, `f45dc690`) | `qwxfxckrabvuvuzidxuo` | **pass**: 30 ordinary page-view events from distinct browser clients → **30/30 recorded**, median 209 ms; 10 citation exports 200, median 221 ms; **0** `activity_timed_out` log lines. Same load against the `iad1` deployment `dpl_AsGp…` minutes later: **7/30 recorded**, median 469 ms; citations median 577 ms; **28** timeouts (23 events + 5 citations). The database later showed 16 page views and 4 citations from that iad1 run landing *after* the request had reported a timeout — the documented "write may complete after the caller stops waiting"; no response claimed them. With the metrics tables locked on `fra1`: page 200 in 1.1 s with "Activity counts are not available right now.", citation 200 in 1.05 s. The 400 ms budget is kept; no code change is supported by the evidence | 2026-10-02 |
+| **Stage A rehearsal, production-shaped data** | migrations as in §4 Stage A; schema `f45dc690` | local Postgres 16 + Supabase default grants (`scripts/rehearse-stage-a.sh`) | — | **pass**: PREFLIGHT and every AFTER block PASS; data fingerprint identical before/after; as `anon`: direct reads 0 rows, wrong and bare-UUID tokens refused, correct token reads, `f45dc690`'s exact confirmation payload succeeds (Facebook ignored, `٢٠١٩م` → 2019), legacy `submit_paper` works and is stamped `manual`, new tables denied | 2026-10-02 |
+| **Stage A checks on hosted Postgres 17** | `supabase/release/stage-a-checks.sql` | test project (has 0014 + synthetic activity) | `qwxfxckrabvuvuzidxuo` | **runs and catches deviations**: `AFTER 0017` reports exactly the expected differences there (0014 present, activity rows, test agreements active, old path closed, fewer rows) and no unexpected browser grants | 2026-10-02 |
+| **Production preflight (read-only)** | — | production `mzpkiuovjppmavqkppem` | — | **PREFLIGHT PASS**; data fingerprint `ece227369f14ec7f3639362b4c011dbf` (35 papers, last created/confirmed 2026-09-25) | 2026-10-02 |
 
 ---
 
-## 7a. Rotating the exposed production service-role key (prepared, not done)
+## 7a. The exposed production service-role key — founder decision: not rotated
+
+**Decision (Samer, 2026-10-02): the Supabase keys will not be rotated or changed. Rotation is not a prerequisite for this release.** The sequence below is kept for reference only, in case that decision is revisited.
+
+**Remaining risk, accepted.** Whoever obtains that key can read, change or delete any production data and files, bypassing RLS, from anywhere, without going through the application; nothing in this release limits that. After stage D the database will also hold submission acceptances, contact details and (later) reviewer records, which widens what the key reaches. Exposure points: this session's transcript and the PowerShell history on the founder's computer. Mitigations that need no key change: delete the PowerShell history (`Remove-Item (Get-PSReadLineOption).HistorySavePath`); do not paste the key anywhere else; Supabase → Logs (API / Postgres) can be reviewed for service-role requests not coming from Vercel. Revisit the decision before full-text release or if any unexplained data change appears.
 
 On 2026-10-02 the production `service_role` key (legacy JWT, project `mzpkiuovjppmavqkppem`) and the production anon key were pasted into a terminal prompt and so appear in this session's transcript and in the founder's PowerShell history. Until rotated, anyone holding that key bypasses every RLS policy in production.
 
@@ -242,7 +289,7 @@ On 2026-10-02 the production `service_role` key (legacy JWT, project `mzpkiuovjp
 - Not in GitHub Actions (`checks.yml` uses no secrets), not committed anywhere, not in Preview (the release branch's Preview uses the test project's key).
 - The production **anon** key (`NEXT_PUBLIC_SUPABASE_ANON_KEY`, all environments except this branch's override) is signed by the same legacy JWT secret and is built into browser bundles, so rotating the legacy secret replaces it too.
 
-**Recommended sequence (legacy JWT secret rotation; the smallest change the deployed code is known to support).** It changes production settings and redeploys production, so it needs your explicit approval and is best done in a quiet hour. Production has 0 Auth users, so signing everyone out costs nothing.
+**Reference sequence, not planned (legacy JWT secret rotation; the smallest change the deployed code is known to support).** It changes production settings and redeploys production, so it needs your explicit approval and is best done in a quiet hour. Production has 0 Auth users, so signing everyone out costs nothing.
 1. Clear the PowerShell history: `Remove-Item (Get-PSReadLineOption).HistorySavePath`.
 2. Supabase → production project → Settings → JWT Keys → rotate (generate a new) legacy JWT secret. From this moment the old anon **and** service keys stop working, and the live site cannot submit until step 4 finishes; have steps 3–4 ready.
 3. Copy the new `anon` and `service_role` keys from Settings → API Keys (legacy tab). In Vercel, edit (do not add a second copy of) `SUPABASE_SERVICE_ROLE_KEY` (Production, Sensitive) and the shared `NEXT_PUBLIC_SUPABASE_ANON_KEY` (Development/Preview/Production). Leave this branch's Preview overrides alone.
@@ -266,10 +313,13 @@ Smallest dependable release: stages A→G with **manual processing**, the **Univ
 | D5 | Merge strategy | One final production deploy |
 | D6 | Permanent domain | Soft launch without origin, then decide |
 | D7 | Authorize a free second Supabase project + branch-scoped preview variables (§2) | Done 2026-09-30/10-02 |
-| D8 | Rotate the exposed production service-role key (§7a) | Yes, before stage A, in a quiet hour |
+| D8 | Rotate the exposed production service-role key (§7a) | **Decided 2026-10-02: no rotation; risk accepted (§7a)** |
 
 ### Remaining blockers (2026-10-02)
-1. **Exposed production `service_role` key not rotated** (§7a). Rotate before any production change.
-2. **Founder decisions** D2 (agreement), D3 (confidentiality text), D4 (request log), D6 (domain) — unchanged.
-3. Stage A–G approvals; nothing in production has changed.
-Not blockers any more: isolated hosted verification (done), activity counts (fixed by `fra1`, verified).
+1. **Approval of stage A** (production migrations 0011–0017, §4). Everything it needs is prepared and the production preflight passes.
+2. Later stages need their own approvals and founder decisions D2 (agreement), D3 (confidentiality text), D4 (request log), D6 (domain).
+Not blockers: isolated hosted verification (complete, §7), activity counts (fixed by `fra1`, verified), key rotation (founder decision: not rotated; accepted risk in §7a).
+
+### Pre-existing observations (not introduced by this release; no action needed for it)
+- On the six original tables the browser roles hold Supabase's default grants (including `TRUNCATE`, which RLS does not cover). The API cannot issue `TRUNCATE`, so it is not reachable through the site; a later hardening migration can revoke these grants.
+- `anon` can execute `normalize_year_text` (a pure year parser) and the trigger functions `prevent_premature_publish` / `stamp_submission_extraction_policy` (not callable directly). Harmless; listed so the Stage A checks' allow-list is explained.
