@@ -110,6 +110,9 @@ Nothing in stages A–G touches production until this passes.
 4. Record every result in §7 with the commit, deployment id and test project ref.
 Any failure: fix on the release branch, redeploy the preview, re-run the affected checks. Production stays untouched.
 
+### Region (before stage B)
+`vercel.json` on the release branch sets `"regions": ["fra1"]`. Deployments built from commits containing it run in Frankfurt, next to the database; the **current** production deployment is not affected. When the stack is merged (stage B), production functions move from `iad1` to `fra1` with that deploy — intended, and verified on the preview (§7, H11 re-run). Rollback: promoting the previous production deployment also restores its region.
+
 ### Stage A — production database, before any merge
 Precondition: stage 0 passed and recorded in §7.
 Apply in the SQL editor, one file at a time, in order: **0011, 0012, 0013, 0015, 0016, 0017.** Not 0014.
@@ -213,7 +216,8 @@ Full-text checks (H7/H8 document parts) only on synthetic records in the test pr
 | Preview access for hosted checks | `daed2b35` (code identical to `3c22c729`) | **`dpl_AsGpKUfwJ4u7Y77DNHzfgoKJB2Bx`** (`research-platform-5zpu-1mnde5e7o-samer22.vercel.app`), pinned for every check below | `qwxfxckrabvuvuzidxuo` | temporary Vercel automation bypass created for these checks and **revoked afterwards**; test agreements activated in the test project only | 2026-10-02 |
 | **H10** trusted client address | same | same | same | **pass**: six requests all claiming `x-forwarded-for: 198.51.100.7` produced 4 rate-limit keys (the container's real egress pool), not 1 — Vercel replaces the client's header. (A first run with five *different* spoofed values gave 5 keys; a control run without spoofing showed the container egresses from several addresses, so that run was inconclusive.) | 2026-10-02 |
 | **H3** browser upload + CORS | same | same | same | **pass**: real Chromium on the preview origin: terms → intent (201) → cross-origin PUT to the signed Storage URL **200** → finalize 200, decision `manual`, `extraction.mayStart=false` | 2026-10-02 |
-| **H2** signed upload | same | same | same | **pass**: other path with the same token refused (400); anonymous direct upload refused (403); issued path accepted; overwrite via the same authorization refused even with upsert (409); hosted Storage issues the authorization for **120 minutes**. *Not observed:* an upload attempt after that expiry (would require waiting until 16:54 UTC) | 2026-10-02 |
+| **H2** signed upload | same | same | same | **pass**: other path with the same token refused (400); anonymous direct upload refused (403); issued path accepted; overwrite via the same authorization refused even with upsert (409); hosted Storage issues the authorization for **120 minutes**. Post-expiry attempt: see the next row | 2026-10-02 |
+| **H2** actual authorization expiry | — | authorization issued by `dpl_68qK…` at 15:19 UTC, expiring 17:19:05 UTC; never used before expiry | same | **pending**: a background attempt to upload with this authorization runs at 17:20 UTC; the result is recorded in the next commit | 2026-10-02 |
 | **H4** finalize and recovery | same | same | same | **pass**: finalize before the upload 409 `upload_missing`, then succeeds after upload; wrong intent token 404; two concurrent finalizes + a retry return one paper and the same confirmation token (`alreadyFinalized`) | 2026-10-02 |
 | **H6** manual mode, no AI | same | same | same | **pass**: `/api/extract` returns 200 `{mode:"manual", recorded:true}` (documented M1 behaviour, not an error); `ai_generations` stays 0; no extraction started | 2026-10-02 |
 | **H5** after cutover | same | same | same | **pass**: anonymous `submit_paper` refused (42501) while signed submissions complete (H3/H4) | 2026-10-02 |
@@ -223,8 +227,30 @@ Full-text checks (H7/H8 document parts) only on synthetic records in the test pr
 | **H8** withdrawal + signed-link expiry | same | same | same | **pass**: withdrawal makes page, API, citation and file 404 immediately and removes the record from search and sitemap; an already-issued 60 s signed link kept working inside its lifetime (documented exposure window) and was refused (400) at 66 s | 2026-10-02 |
 | **H9** hosted caching | same | same | same | **pass**: public page `private, no-cache, no-store`, API `no-store`, `x-vercel-cache: MISS`; no stale content after withdrawal | 2026-10-02 |
 | **H11** metrics timeout + staff exclusion | same | same | same | **pass (safety), finding (coverage)**: with `activity_counts`/`activity_dedup` locked, the page rendered in 1.2 s with "Activity counts are not available right now." and a citation export returned in 0.8 s; staff-cookie events not counted; HEAD records nothing. **Finding:** without any lock, 5 of ~8 event writes logged `activity_timed_out` — functions run in `iad1` (Washington) and the database in `eu-central-1` (Frankfurt), so several round trips exceed the 400 ms budget. Counts are never faked, but most activity would go uncounted. Fix before relying on counts: set the Vercel Function Region to `fra1` (one region, available on the free plan), then re-run H11 | 2026-10-02 |
+| **Regions verified** | — | production `dpl_5QKkcSogvP1pm6dx54kavRa91ijK` (`f45dc690`) runs in **`iad1`**; test and production Supabase are **`eu-central-1`** | both | the live site already crosses the Atlantic for every database call | 2026-10-02 |
+| **H11 re-run on `fra1`** | `70d88ef3` (adds `vercel.json` `"regions": ["fra1"]`, branch only) | **`dpl_68qKpVFHM4nKKdAW22QtCuj3YTd1`** (`regions: fra1`); production deployment unchanged (still `iad1`, `f45dc690`) | `qwxfxckrabvuvuzidxuo` | **pass**: 30 ordinary page-view events from distinct browser clients → **30/30 recorded**, median 209 ms; 10 citation exports 200, median 221 ms; **0** `activity_timed_out` log lines. Same load against the `iad1` deployment `dpl_AsGp…` minutes later: **7/30 recorded**, median 469 ms; citations median 577 ms; **28** timeouts (23 events + 5 citations). The database later showed 16 page views and 4 citations from that iad1 run landing *after* the request had reported a timeout — the documented "write may complete after the caller stops waiting"; no response claimed them. With the metrics tables locked on `fra1`: page 200 in 1.1 s with "Activity counts are not available right now.", citation 200 in 1.05 s. The 400 ms budget is kept; no code change is supported by the evidence | 2026-10-02 |
 
 ---
+
+## 7a. Rotating the exposed production service-role key (prepared, not done)
+
+On 2026-10-02 the production `service_role` key (legacy JWT, project `mzpkiuovjppmavqkppem`) and the production anon key were pasted into a terminal prompt and so appear in this session's transcript and in the founder's PowerShell history. Until rotated, anyone holding that key bypasses every RLS policy in production.
+
+**Where the production key is used today**
+- Vercel: `SUPABASE_SERVICE_ROLE_KEY`, Production target only (created 2026-09-22). Read server-side by `lib/supabaseAdminClient.js`.
+- `lib/public/activity.js` falls back to it as an HMAC secret only when `SUBMISSION_TOKEN_SECRET` is unset (not relevant to the deployed `f45dc690`; set the secret in stage B).
+- Not in GitHub Actions (`checks.yml` uses no secrets), not committed anywhere, not in Preview (the release branch's Preview uses the test project's key).
+- The production **anon** key (`NEXT_PUBLIC_SUPABASE_ANON_KEY`, all environments except this branch's override) is signed by the same legacy JWT secret and is built into browser bundles, so rotating the legacy secret replaces it too.
+
+**Recommended sequence (legacy JWT secret rotation; the smallest change the deployed code is known to support).** It changes production settings and redeploys production, so it needs your explicit approval and is best done in a quiet hour. Production has 0 Auth users, so signing everyone out costs nothing.
+1. Clear the PowerShell history: `Remove-Item (Get-PSReadLineOption).HistorySavePath`.
+2. Supabase → production project → Settings → JWT Keys → rotate (generate a new) legacy JWT secret. From this moment the old anon **and** service keys stop working, and the live site cannot submit until step 4 finishes; have steps 3–4 ready.
+3. Copy the new `anon` and `service_role` keys from Settings → API Keys (legacy tab). In Vercel, edit (do not add a second copy of) `SUPABASE_SERVICE_ROLE_KEY` (Production, Sensitive) and the shared `NEXT_PUBLIC_SUPABASE_ANON_KEY` (Development/Preview/Production). Leave this branch's Preview overrides alone.
+4. Redeploy the **current** production deployment (`f45dc690`) so both values take effect; anon is baked in at build time, so a redeploy is required, not optional.
+5. Verify: run `scripts/check-isolation.js`-style probes with the **old** key against production (`/auth/v1/admin/users` must answer 401); load the production site and submit one synthetic document; confirm it appears in `papers`; delete it.
+6. Rollback: there is no way back to the old secret, and none is wanted; if step 4 fails, fix the Vercel values and redeploy again.
+
+**Alternative, later:** move to Supabase's new API keys (`sb_publishable_…` / `sb_secret_…`) and disable legacy keys. Test it on the test project first (the deployed code has not been exercised with non-JWT keys); it can follow the release.
 
 ## 8. Launch recommendation
 
@@ -239,4 +265,11 @@ Smallest dependable release: stages A→G with **manual processing**, the **Univ
 | D4 | Keep a private §8 request log | Start one (a private spreadsheet) before D |
 | D5 | Merge strategy | One final production deploy |
 | D6 | Permanent domain | Soft launch without origin, then decide |
-| D7 | Authorize a free second Supabase project + branch-scoped preview variables (§2) | Yes — it unblocks every hosted check |
+| D7 | Authorize a free second Supabase project + branch-scoped preview variables (§2) | Done 2026-09-30/10-02 |
+| D8 | Rotate the exposed production service-role key (§7a) | Yes, before stage A, in a quiet hour |
+
+### Remaining blockers (2026-10-02)
+1. **Exposed production `service_role` key not rotated** (§7a). Rotate before any production change.
+2. **Founder decisions** D2 (agreement), D3 (confidentiality text), D4 (request log), D6 (domain) — unchanged.
+3. Stage A–G approvals; nothing in production has changed.
+Not blockers any more: isolated hosted verification (done), activity counts (fixed by `fra1`, verified).
