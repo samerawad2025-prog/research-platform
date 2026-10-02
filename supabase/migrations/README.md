@@ -1,5 +1,7 @@
 # Migrations
 
+> **Release order and steps live in [`docs/release-runbook.md`](../../docs/release-runbook.md)** (authoritative since 2026-09-30). This file explains the reasoning; where the two differ, the runbook wins.
+
 **This project does not use the Supabase CLI's migration tracking system.** Every file here was run manually, once, via Supabase → SQL Editor, against the live database, in the order listed below. There is no `supabase migration up` history to reconcile — this folder's order is a reconstruction based on each migration's actual dependencies (a later file assumes an earlier one has already run), not literal timestamps.
 
 If you're setting up a **fresh** database, don't run these individually — use `supabase/schema.sql`, which already reflects their combined end state. Use this folder only against a database that already has some earlier subset applied (i.e., the real, existing production database), or to understand the project's history.

@@ -29,6 +29,7 @@ Full methodology: `docs/troubleshooting.md`. If using Claude Code's command syst
 | Need to know about... | Go to |
 |---|---|
 | **Current verified status** — what's confirmed working in production, open bugs, technical debt | `CURRENT_STATUS.md` (read this first; its dated top section is current) |
+| **Releasing Phase 3** — migration order, env vars, cutover, rollback, hosted checks | `docs/release-runbook.md` (authoritative) |
 | **What's next** — Phase 3 milestones, founder decisions, unverified facts | `PHASE_3_PLAN.md` |
 | Submission agreement (EN/AR) and what must be true before it is activated | `docs/legal/README.md` |
 | Product vision, target users, non-negotiable standards | `docs/vision.md` |

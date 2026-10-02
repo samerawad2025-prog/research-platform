@@ -1,5 +1,7 @@
 # Submission flow (Phase 3 M2A + M2B): acceptance, upload, finalization
 
+> **Release order and steps live in [`docs/release-runbook.md`](release-runbook.md)** (authoritative since 2026-09-30). This file explains the reasoning; where the two differ, the runbook wins.
+
 **Status (2026-09-27): built and tested locally; not deployed; inactive by default.**
 - **M2A** (PR #18) is the server side: terms, intent, signed upload, finalization.
 - **M2B/M3** (the PR stacked on it) adds:
