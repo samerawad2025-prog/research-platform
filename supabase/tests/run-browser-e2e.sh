@@ -16,6 +16,8 @@ export SUPABASE_SERVICE_ROLE_KEY="$(key service)"
 export SUBMISSION_ACCEPTANCE_FLOW=enabled
 export SUBMISSION_TOKEN_SECRET="$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")"
 export EXTRACTION_MODE=automatic
+# Paid Gemini terms attested (migration 0018); the provider is still the mock.
+export GEMINI_DATA_TERMS=paid
 export AI_PROVIDER=mock
 unset GEMINI_API_KEY VERCEL_ENV || true
 if [ "${E2E_SKIP_BUILD:-}" != 1 ]; then npx next build > /var/tmp/e2e-build.log 2>&1; fi

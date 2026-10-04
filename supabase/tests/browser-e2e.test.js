@@ -138,7 +138,7 @@ async function noHorizontalScroll(page) {
 
 async function main() {
   browser = await chromium.launch()
-  sql(`update agreement_versions set active = true`)
+  sql(`update agreement_versions set active = (id like 'submission-terms-2026-10-04-%')`)
   const pdf = await pdfFile('synthetic-thesis.pdf', 'Synthetic thesis for local testing')
   const pdf2 = await pdfFile('بحث-تجريبي.pdf', 'Second synthetic document')
   const docx = await docxFile('synthetic.docx')
@@ -178,7 +178,7 @@ async function main() {
     assert.strictEqual(await page.locator('input[type=file]').count(), 0)
     assert.strictEqual(await page.getByText('Publish the complete paper').count(), 0, 'no legacy form')
     await page.screenshot({ path: `${SHOTS}/unavailable-en-1280.png`, fullPage: true })
-    sql(`update agreement_versions set active = true`)
+    sql(`update agreement_versions set active = (id like 'submission-terms-2026-10-04-%')`)
     await page.getByRole('button', { name: 'Try again' }).click()
     await page.waitForSelector('form input[type=checkbox]')
     await page.context().close()
@@ -235,7 +235,10 @@ async function main() {
     const paper = paperFor(email)
     assert.strictEqual(paper.status, 'submitted')
     assert.strictEqual(paper.submission_extraction_policy, 'manual')
-    assert.ok(paper.manual_entry_at, 'manual decision recorded, no provider call')
+    // Recorded by the server when the page first opens (it never reads this paper).
+    for (let i = 0; i < 50 && !paperFor(email).manual_entry_at; i++) await new Promise((r) => setTimeout(r, 100))
+    assert.ok(paperFor(email).manual_entry_at, 'manual decision recorded, no provider call')
+    assert.strictEqual(paperFor(email).manual_entry_source, 'mode', 'the server\'s decision, not labelled as the researcher\'s')
     assert.deepStrictEqual(authorsOf(paper.id).map((x) => [x.name, x.order]), [['Keyboard Author', 1]])
     await page.context().close()
   })
@@ -326,7 +329,7 @@ async function main() {
     assert.ok(await page.getByText('The agreement is not available in your language').isVisible())
     assert.strictEqual(await page.locator('form input[type=checkbox]').last().isChecked(), false)
     assert.strictEqual(acceptancesFor(email).length, 0)
-    sql(`update agreement_versions set active = true`)
+    sql(`update agreement_versions set active = (id like 'submission-terms-2026-10-04-%')`)
     await page.context().close()
   })
 
@@ -480,8 +483,16 @@ async function main() {
 
   await check('server enforces acceptance and the offer even if the browser is bypassed', async () => {
     const terms = await (await fetch(`${APP}/api/submissions/terms`)).json()
-    const body = { offerToken: terms.offer.token, agreementId: 'submission-terms-2026-09-25-en', publicationSetting: 'record_abstract', claimedRole: 'author', fullName: 'Direct', email: uniq('direct'), file: { name: 'a.pdf', size: 100, type: 'application/pdf' } }
-    for (const [over, status, reason] of [[{ accepted: false }, 400, 'acceptance_required'], [{ accepted: true, offerToken: 'forged.offer' }, 400, 'offer_invalid'], [{ accepted: true, processingDecision: 'automatic' }, 400, 'unexpected_field']]) {
+    const body = { offerToken: terms.offer.token, agreementId: 'submission-terms-2026-10-04-en', publicationSetting: 'record_abstract', claimedRole: 'author', processingChoice: 'automatic', fullName: 'Direct', email: uniq('direct'), file: { name: 'a.pdf', size: 100, type: 'application/pdf' } }
+    for (const [over, status, reason] of [
+      [{ accepted: false }, 400, 'acceptance_required'],
+      [{ accepted: true, offerToken: 'forged.offer' }, 400, 'offer_invalid'],
+      [{ accepted: true, processingDecision: 'automatic' }, 400, 'unexpected_field'],
+      // The processing choice is never implied: it must be sent, explicitly.
+      [{ accepted: true, processingChoice: undefined }, 400, 'processing_choice_invalid'],
+      // An agreement without the AI-reading disclosure is not offered at all.
+      [{ accepted: true, agreementId: 'submission-terms-2026-09-25-en' }, 409, 'offer_stale'],
+    ]) {
       const r = await fetch(`${APP}/api/submissions/intent`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...body, ...over }) })
       assert.strictEqual(r.status, status)
       assert.strictEqual((await r.json()).reason, reason)

@@ -380,11 +380,13 @@ export default function ConfirmationScreen({ token, manualMode = false }) {
 
       const stillWorking = applyPaperData(data)
 
-      // Manual mode still tells the server once, so the manual decision is
-      // stored on the paper. The server sends nothing anywhere for it;
-      // this only makes the record durable if the form's own call never
-      // landed.
-      if (attempt === 0 && manualMode && !data.manual_entry_at && !data.metadata_confirmed_at) {
+      // Manual mode, or a paper that can never be read (migration 0018:
+      // legacy form, no applicable agreement), still tells the server once,
+      // so the manual decision is stored on the paper. The server sends
+      // nothing anywhere for it; this only makes the record durable if the
+      // form's own call never landed.
+      const neverRead = manualMode || data.automatic_processing === false
+      if (attempt === 0 && neverRead && !data.manual_entry_at && !data.metadata_confirmed_at) {
         triggerExtraction('confirm_page_manual')
       }
 
@@ -747,6 +749,7 @@ export default function ConfirmationScreen({ token, manualMode = false }) {
   // announce that it is reading anything.
   const manualCopy = manual || (!paper && effectiveManualMode)
   const showFallbackNote = manual && screen.reason === 'fallback' && !paper?.metadata_confirmed_at
+  const showChosenNote = manual && screen.reason === 'chosen' && !paper?.metadata_confirmed_at
 
   // Offered wherever automatic reading did not produce a result. The
   // primary style only where it is the one way forward; next to "Try
@@ -860,11 +863,17 @@ export default function ConfirmationScreen({ token, manualMode = false }) {
             <p>{t.receipt.body}</p>
           </div>
         )}
-        <h1>{manualCopy ? t.manual.heading : extracting ? t.loadingHeading : t.readyHeading}</h1>
-        <p className={styles.subtitle}>
-          {manualCopy ? t.manual.subtitle : extracting ? t.loadingSubtitle : t.readySubtitle}
-        </p>
+        {/* Until the first answer, the page does not know whether anything
+            is being read (the researcher may have chosen manual entry), so
+            it says only that it is opening. */}
+        <h1>{manualCopy ? t.manual.heading : !paper ? t.openingHeading : extracting ? t.loadingHeading : t.readyHeading}</h1>
+        {paper || manualCopy ? (
+          <p className={styles.subtitle}>
+            {manualCopy ? t.manual.subtitle : extracting ? t.loadingSubtitle : t.readySubtitle}
+          </p>
+        ) : null}
         {showFallbackNote && <p className={styles.attentionBanner}>{t.manual.fallbackNote}</p>}
+        {showChosenNote && <p className={styles.subtitle}>{t.manual.chosenNote}</p>}
         {!extracting && attentionCount > 0 && (
           <p className={styles.attentionBanner}>{t.attention(attentionCount)}</p>
         )}
@@ -942,7 +951,7 @@ export default function ConfirmationScreen({ token, manualMode = false }) {
       </section>
 
       <Button type="submit" disabled={extracting || status === 'saving'}>
-        {extracting ? t.confirmExtracting : status === 'saving' ? t.confirmSaving : t.confirm}
+        {!paper ? t.openingHeading : extracting ? t.confirmExtracting : status === 'saving' ? t.confirmSaving : t.confirm}
       </Button>
 
       {extracting && extractionUnavailable && !pollTimedOut && (

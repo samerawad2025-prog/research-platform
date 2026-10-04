@@ -13,6 +13,7 @@ const fs = require('node:fs')
 const path = require('node:path')
 
 const { AGREEMENTS } = require('../lib/submission/agreements')
+const { previewDecision } = require('../lib/submission/acceptanceHandlers')
 const { validateIntentBody, handleCreateIntent, handleFinalize, handleTerms, confirmationTokenFor, signOffer, verifyOffer, authorizationExpiry } = require('../lib/submission/acceptanceHandlers')
 const { clientKeyOf } = require('../lib/submission/routeHelpers')
 
@@ -29,6 +30,7 @@ async function check(name, fn) {
 
 const ROOT = path.join(__dirname, '..')
 const migration = fs.readFileSync(path.join(ROOT, 'supabase/migrations/0012_submission_acceptance.sql'), 'utf8')
+const migration18 = fs.readFileSync(path.join(ROOT, 'supabase/migrations/0018_ai_processing_agreement.sql'), 'utf8')
 
 // A database stand-in that fails the test if it is touched at all.
 const untouchable = new Proxy({}, { get: () => { throw new Error('the database was reached') } })
@@ -41,6 +43,7 @@ const good = () => ({
   accepted: true,
   publicationSetting: 'record_abstract_fulltext',
   claimedRole: 'authorized_depositor',
+  processingChoice: 'automatic',
   authors: ['مؤلف أول', 'Second Author'],
   fullName: 'سارة أحمد',
   email: 'sara@example.invalid',
@@ -57,12 +60,61 @@ async function main() {
     }
   })
 
-  await check('registry: migration 0012 seeds the same ids, languages and hashes, all inactive', () => {
+  await check('registry: migrations 0012 and 0018 seed the same ids, languages, hashes and AI arrangement, all inactive', () => {
     for (const a of AGREEMENTS) {
-      const re = new RegExp(`\\('${a.id}', '${a.key}', '${a.language}', '${a.versionLabel}', '${a.versionDate}',\\s*'${a.sha256}', false\\)`)
-      assert.ok(re.test(migration), a.id)
+      if (a.externalAi) {
+        const re = new RegExp(`\\('${a.id}', '${a.key}', '${a.language}', '${a.versionLabel}', '${a.versionDate}',\\s*'${a.sha256}', false, '${a.externalAi}'\\)`)
+        assert.ok(re.test(migration18), a.id)
+      } else {
+        const re = new RegExp(`\\('${a.id}', '${a.key}', '${a.language}', '${a.versionLabel}', '${a.versionDate}',\\s*'${a.sha256}', false\\)`)
+        assert.ok(re.test(migration), a.id)
+      }
     }
     assert.ok(!/,\s*true\)\s*(,|on conflict)/.test(migration), 'no agreement is seeded active')
+    assert.ok(!/,\s*true,\s*'[a-z_]+'\)/.test(migration18), 'no agreement is seeded active')
+    // 0018 never touches the existing rows: no update of agreement_versions at all.
+    assert.ok(!/update\s+agreement_versions/i.test(migration18), 'existing agreement rows are not modified')
+  })
+
+  await check('registry: only version 2 describes external AI reading; both languages of it say so', () => {
+    const v1 = AGREEMENTS.filter((a) => a.versionDate === '2026-09-25')
+    const v2 = AGREEMENTS.filter((a) => a.versionDate === '2026-10-04')
+    assert.strictEqual(v1.length, 2)
+    assert.strictEqual(v2.length, 2)
+    for (const a of v1) assert.strictEqual(a.externalAi, null, a.id)
+    for (const a of v2) assert.strictEqual(a.externalAi, 'gemini_api_paid', a.id)
+    for (const a of v2) {
+      const text = fs.readFileSync(path.join(ROOT, a.file), 'utf8')
+      // Every disclosure the founder asked for is present in both languages.
+      const must = a.language === 'en'
+        ? ['first 10 pages', '25 pages', '6,000 characters', 'not sent to Gemini', 'paid services', 'unpaid', '55 days', 'authorized Google personnel', 'any country', 'does not delete', 'can be wrong', 'manual entry', 'does not give consent on behalf']
+        : ['أول 10 صفحات', '25 صفحة', '6000 حرف', 'لا يُرسل مستندك إلى Gemini', 'للخدمات المدفوعة', 'غير المدفوعة', '55 يوماً', 'موظفين مفوّضين لدى Google', 'أي بلد', 'لا يؤدي سحب إيداعك', 'خاطئة', 'الإدخال اليدوي', 'نيابةً عن']
+      for (const phrase of must) assert.ok(text.includes(phrase), `${a.id}: ${phrase}`)
+      // The old blanket promise is gone from the version that sends documents out.
+      assert.ok(!text.includes('External AI extraction may operate only under provider arrangements'), a.id)
+    }
+  })
+
+  await check('validation: the processing choice is explicit, and only automatic or manual', () => {
+    for (const processingChoice of [undefined, null, '', 'Automatic', 'gemini', true, 1]) {
+      assert.strictEqual(validateIntentBody({ ...good(), processingChoice }).error, 'processing_choice_invalid', String(processingChoice))
+    }
+    assert.strictEqual(validateIntentBody({ ...good(), processingChoice: 'manual' }).value.processingChoice, 'manual')
+  })
+
+  await check('offer: automatic only with the mode, the policy, attested paid terms AND agreements that describe them', () => {
+    const v2 = AGREEMENTS.filter((a) => a.externalAi)
+    const v1 = AGREEMENTS.filter((a) => !a.externalAi)
+    const full = { EXTRACTION_MODE: 'automatic', GEMINI_DATA_TERMS: 'paid' }
+    assert.strictEqual(previewDecision(full, 'automatic', v2), 'automatic')
+    assert.strictEqual(previewDecision(full, 'manual', v2), 'manual', 'policy row')
+    assert.strictEqual(previewDecision({ ...full, EXTRACTION_MODE: 'manual' }, 'automatic', v2), 'manual', 'mode')
+    for (const t of [undefined, '', 'unpaid', 'free', 'yes']) {
+      assert.strictEqual(previewDecision({ EXTRACTION_MODE: 'automatic', GEMINI_DATA_TERMS: t }, 'automatic', v2), 'manual', `terms ${t}`)
+    }
+    assert.strictEqual(previewDecision(full, 'automatic', v1), 'manual', 'an agreement without AI disclosure never leads to reading')
+    assert.strictEqual(previewDecision(full, 'automatic', [...v2, v1[0]]), 'manual', 'every agreement offered must describe it')
+    assert.strictEqual(previewDecision(full, 'automatic', []), 'manual')
   })
 
   await check('validation: a complete Arabic request with a DOCX is accepted as data', () => {

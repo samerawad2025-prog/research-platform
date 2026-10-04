@@ -38,7 +38,11 @@ const network = []
 global.fetch = async (url) => { network.push(String(url)); throw new Error('network is not allowed in this test') }
 
 const SECRET = crypto.randomBytes(32).toString('hex')
-const ENV = (mode) => ({ SUBMISSION_ACCEPTANCE_FLOW: 'enabled', SUBMISSION_TOKEN_SECRET: SECRET, ...(mode === undefined ? {} : { EXTRACTION_MODE: mode }) })
+// Paid Gemini terms are attested by default (GEMINI_DATA_TERMS, migration
+// 0018); tests about the attestation itself pass their own environment.
+const ENV = (mode) => ({ SUBMISSION_ACCEPTANCE_FLOW: 'enabled', SUBMISSION_TOKEN_SECRET: SECRET, GEMINI_DATA_TERMS: 'paid', ...(mode === undefined ? {} : { EXTRACTION_MODE: mode }) })
+const V1 = 'submission-terms-2026-09-25-en'
+const V2 = 'submission-terms-2026-10-04-en'
 
 function logCapture() {
   const lines = []
@@ -65,6 +69,8 @@ function setup() {
   run(path.join(ROOT, 'supabase/migrations/0012_submission_acceptance.sql')) // idempotent
   run(path.join(ROOT, 'supabase/migrations/0013_linkedin_visibility_declared_authors.sql'))
   run(path.join(ROOT, 'supabase/migrations/0013_linkedin_visibility_declared_authors.sql')) // idempotent
+  run(path.join(ROOT, 'supabase/migrations/0018_ai_processing_agreement.sql'))
+  run(path.join(ROOT, 'supabase/migrations/0018_ai_processing_agreement.sql')) // idempotent
 }
 
 async function pdfBytes(text = 'Synthetic thesis') {
@@ -82,10 +88,11 @@ async function docxBytes() {
 function body(over = {}) {
   return {
     offerToken: 'placeholder',
-    agreementId: 'submission-terms-2026-09-25-en',
+    agreementId: V2,
     accepted: true,
     publicationSetting: 'record_abstract',
     claimedRole: 'author',
+    processingChoice: 'automatic',
     fullName: 'Synthetic Researcher',
     email: 'synthetic@example.invalid',
     file: { name: 'thesis.pdf', size: 0, type: 'application/pdf' },
@@ -101,7 +108,10 @@ async function main() {
   const storage = fakeStorage()
   const supabase = pgClient({ psql }, { storage })
   const setPolicy = (mode) => sqlOk(`update extraction_policy set mode = ${lit(mode)}, changed_at = now()`)
-  const activate = (on = true) => sqlOk(`update agreement_versions set active = ${on}`)
+  // Version 2 by default: the version whose text describes Gemini reading.
+  // A version without that disclosure can never lead to automatic reading.
+  const activate = (on = true, ids = ['submission-terms-2026-10-04-en', 'submission-terms-2026-10-04-ar']) =>
+    sqlOk(`update agreement_versions set active = (${on} and id in (${ids.map(lit).join(', ')}))`)
 
   async function submit(opts = {}) {
     // 'mode' present but undefined means "EXTRACTION_MODE unset", so no default.
@@ -111,7 +121,11 @@ async function main() {
     // The offer the researcher was shown: from /terms, under the same
     // environment unless the test supplies its own.
     const offerToken = opts.offerToken || (await handleTerms({ env: ENV('termsMode' in opts ? opts.termsMode : mode), supabase, clientKey })).body.offer.token
-    const r = await handleCreateIntent({ body: body({ offerToken, file: { name, size: b.length, type }, ...over }), env: ENV(mode), supabase, storage, clientKey, log })
+    // Like the form: automatic reading can be chosen only when it was offered.
+    let offered = 'manual'
+    try { offered = JSON.parse(Buffer.from(offerToken.split('.')[0], 'base64url').toString()).d } catch { /* a forged token */ }
+    const processingChoice = offered === 'automatic' ? 'automatic' : 'manual'
+    const r = await handleCreateIntent({ body: body({ offerToken, processingChoice, file: { name, size: b.length, type }, ...over }), env: ENV(mode), supabase, storage, clientKey, log })
     return { r, bytes: b }
   }
   async function upload(r, bytes) {
@@ -126,7 +140,7 @@ async function main() {
 
   const mockProvider = { sent: [], extractMetadata: async ({ pass }) => { mockProvider.sent.push(pass); return { provider: 'fake', model: 'fake', result: { document_type: 'thesis', title: { status: 'found', value: 'Found' } } } } }
   const extract = (token, mode) =>
-    handleExtract({ token, env: { EXTRACTION_MODE: mode, AI_PROVIDER: 'mock' }, getSupabaseAdmin: () => supabase, getProvider: () => mockProvider, runExtraction, log: logCapture() })
+    handleExtract({ token, env: { EXTRACTION_MODE: mode, GEMINI_DATA_TERMS: 'paid', AI_PROVIDER: 'mock' }, getSupabaseAdmin: () => supabase, getProvider: () => mockProvider, runExtraction, log: logCapture() })
 
   // ------------------------------------------------------------ gating
   await check('inert by default: flow disabled, agreement inactive, secret required', async () => {
@@ -179,13 +193,13 @@ async function main() {
   })
 
   await check('acceptance: a database row whose hash differs from the application registry cannot be accepted', async () => {
-    sqlOk(`update agreement_versions set content_sha256 = '${'1'.repeat(64)}' where id = 'submission-terms-2026-09-25-ar'`)
-    const { r } = await submit({ over: { agreementId: 'submission-terms-2026-09-25-ar' } })
+    sqlOk(`update agreement_versions set content_sha256 = '${'1'.repeat(64)}' where id = 'submission-terms-2026-10-04-ar'`)
+    const { r } = await submit({ over: { agreementId: 'submission-terms-2026-10-04-ar' } })
     assert.strictEqual(r.status, 409)
     assert.strictEqual(r.body.reason, 'offer_stale', 'the tampered row was never offered')
     const terms = await handleTerms({ env: ENV('automatic'), supabase, clientKey: nextIp() })
     assert.deepStrictEqual(terms.body.agreements.map((a) => a.language), ['en'], 'the tampered row is not offered')
-    sqlOk(`update agreement_versions set content_sha256 = '54a78f8441426b5c2dd190235fb57cfaa0ae9e1a956d6aefb64ff0a13208795b' where id = 'submission-terms-2026-09-25-ar'`)
+    sqlOk(`update agreement_versions set content_sha256 = '3bcfe8c27a1046835423b38dc59e7f17d5b4deae94a28cf8273208ea5a71faf0' where id = 'submission-terms-2026-10-04-ar'`)
   })
 
   await check('file checks at acceptance: extension, declared type and size', async () => {
@@ -214,7 +228,9 @@ async function main() {
     assert.match(r.body.upload.path, /^intents\/[0-9a-f-]{36}\/[0-9a-f]{24}\.pdf$/)
     const a = acceptanceOf(r.body.intentId)
     assert.strictEqual(a.status, 'open')
-    assert.strictEqual(a.agreement_sha256, '77376e5ef87f47395475525dea70a4716b7e9d2a9c4b30003612f2d172e676da')
+    assert.strictEqual(a.agreement_sha256, '468c51eb1e8edb493de94a969415c8fce28344523503bc43f409a2a45f459367')
+    assert.strictEqual(a.processing_choice, 'automatic')
+    assert.strictEqual(a.ai_processing_terms, 'gemini_api_paid', 'the arrangement automatic reading was permitted under')
     assert.strictEqual(a.identity_verified, false)
     assert.ok(Math.abs(Date.parse(a.accepted_at) - Date.now()) < 60_000, 'server time')
     assert.notStrictEqual(a.intent_token_hash, r.body.intentToken, 'only the hash is stored')
@@ -234,6 +250,9 @@ async function main() {
     // The confirmation link works through the existing RPC; the bare id does not.
     const view = json(`select get_paper_for_confirmation(${lit(f.body.confirmationToken)})`)
     assert.strictEqual(view.paper_id, p.id)
+    assert.strictEqual(view.automatic_processing, true)
+    assert.deepStrictEqual(json(`select external_ai_permission(${lit(p.id)})`), { permitted: true, terms: 'gemini_api_paid', agreement_version_id: V2 })
+    assert.strictEqual(p.manual_entry_at, null)
     assert.strictEqual(json(`select get_paper_for_confirmation(${lit(p.id)})`), null)
     happy = { r, f, bytes, p, log }
   })
@@ -609,7 +628,7 @@ async function main() {
     setPolicy('manual')
     const { r } = await submit({ offerToken: shown.body.offer.token })
     assert.strictEqual(r.status, 201)
-    assert.deepStrictEqual(r.body.processing, { decision: 'manual', offered: 'automatic', changedFromOffer: true })
+    assert.deepStrictEqual(r.body.processing, { decision: 'manual', offered: 'automatic', choice: 'automatic', changedFromOffer: true })
     const a = acceptanceOf(r.body.intentId)
     assert.strictEqual(a.processing_decision, 'manual')
     assert.strictEqual(a.processing_offer_decision, 'automatic')
@@ -620,12 +639,12 @@ async function main() {
 
   await check('offer: an agreement deactivated or added after /terms needs reacceptance', async () => {
     const shown = await handleTerms({ env: ENV('automatic'), supabase, clientKey: nextIp() })
-    sqlOk(`update agreement_versions set active = false where id = 'submission-terms-2026-09-25-en'`)
+    sqlOk(`update agreement_versions set active = false where id = ${lit(V2)}`)
     const { r } = await submit({ offerToken: shown.body.offer.token })
     assert.strictEqual(r.status, 409)
     assert.strictEqual(r.body.staleBecause, 'agreement_changed')
     const onlyAr = await handleTerms({ env: ENV('automatic'), supabase, clientKey: nextIp() })
-    sqlOk(`update agreement_versions set active = true`)
+    activate(true)
     // An offer that never showed the English text cannot accept it.
     const { r: r2 } = await submit({ offerToken: onlyAr.body.offer.token })
     assert.strictEqual(r2.body.staleBecause, 'agreement_changed')
@@ -638,7 +657,7 @@ async function main() {
     const [b64, mac] = shown.body.offer.token.split('.')
     const payload = JSON.parse(Buffer.from(b64, 'base64url').toString())
     const widened = `${Buffer.from(JSON.stringify({ ...payload, d: 'automatic' })).toString('base64url')}.${mac}`
-    const agreements = [{ id: 'submission-terms-2026-09-25-en', sha256: '77376e5ef87f47395475525dea70a4716b7e9d2a9c4b30003612f2d172e676da' }]
+    const agreements = [{ id: V2, sha256: '468c51eb1e8edb493de94a969415c8fce28344523503bc43f409a2a45f459367' }]
     const foreign = signOffer('z'.repeat(40), { decision: 'automatic', agreements }).token
     const expired = signOffer(SECRET, { decision: 'automatic', agreements, now: Date.now() - 31 * 60_000 }).token
     const before = count('select count(*) from submission_acceptances')
@@ -652,8 +671,8 @@ async function main() {
 
   await check('offer: the database never records processing broader than the offer', async () => {
     setPolicy('automatic')
-    const res = json(`select create_submission_intent('${'a'.repeat(64)}','submission-terms-2026-09-25-en','en','77376e5ef87f47395475525dea70a4716b7e9d2a9c4b30003612f2d172e676da',
-      'author','record_abstract','automatic','Direct','d@example.invalid',null,'pdf',10,60,'manual',now())`)
+    const res = json(`select create_submission_intent('${'a'.repeat(64)}',${lit(V2)},'en','468c51eb1e8edb493de94a969415c8fce28344523503bc43f409a2a45f459367',
+      'author','record_abstract','automatic','Direct','d@example.invalid',null,'pdf',10,60,'manual',now(),'automatic','gemini_api_paid')`)
     assert.strictEqual(res.processing_decision, 'manual')
     assert.ok(psql(`update submission_acceptances set processing_decision = 'automatic' where id = ${lit(res.id)}`).error, 'check constraint')
     sqlOk(`update submission_acceptances set status = 'expired', object_removed_at = now(), upload_authorization_expires_at = now() - interval '1 day' where id = ${lit(res.id)}`)
@@ -774,7 +793,8 @@ async function main() {
       'select * from submission_rate_limits',
       'select * from extraction_policy',
       `select get_submission_intent('${happy.r.body.intentId}', 'x')`,
-      `select create_submission_intent('h','submission-terms-2026-09-25-en','en','x','author','record_abstract','automatic','n','e',null,'pdf',10,60,'automatic',now())`,
+      `select create_submission_intent('h','submission-terms-2026-10-04-en','en','x','author','record_abstract','automatic','n','e',null,'pdf',10,60,'automatic',now(),'automatic','gemini_api_paid')`,
+      `select external_ai_permission('${happy.p.id}')`,
       `select record_upload_authorization('${happy.r.body.intentId}', now() - interval '1 day')`,
       `select mark_submission_object_removed('${happy.r.body.intentId}')`,
       `select finalize_submission_intent('${happy.r.body.intentId}', 'x', 1, 'x', 'x')`,
@@ -786,13 +806,158 @@ async function main() {
     }
   })
 
-  await check('compatibility: the old submission path still works and is stamped from the policy row; legacy rows untouched', async () => {
+  // ------------------------------------------------------------ 0018: agreement gate and researcher choice
+  await check('0018: choosing manual entry records it with the paper, atomically; nothing is ever read', async () => {
+    setPolicy('automatic')
+    const { r, bytes } = await submit({ over: { processingChoice: 'manual' } })
+    assert.strictEqual(r.status, 201, JSON.stringify(r.body))
+    assert.deepStrictEqual(r.body.processing, { decision: 'manual', offered: 'automatic', choice: 'manual', changedFromOffer: false },
+      'a researcher\'s own choice is not reported as a change')
+    const a = acceptanceOf(r.body.intentId)
+    assert.strictEqual(a.processing_choice, 'manual')
+    assert.strictEqual(a.processing_decision, 'manual')
+    assert.strictEqual(a.ai_processing_terms, null)
+    await upload(r, bytes)
+    const f = await finalize(r)
+    assert.strictEqual(f.body.extraction.mayStart, false)
+    assert.strictEqual(f.body.processing.choice, 'manual')
+    const p = paperOf(r.body.intentId)
+    assert.strictEqual(p.manual_entry_source, 'researcher', 'recorded as the paper was created')
+    assert.ok(p.manual_entry_at)
+    assert.strictEqual(p.submission_extraction_policy, 'manual')
+    assert.deepStrictEqual(json(`select external_ai_permission(${lit(p.id)})`), { permitted: false, reason: 'manual_entry_recorded' })
+    const view = json(`select get_paper_for_confirmation(${lit(f.body.confirmationToken)})`)
+    assert.strictEqual(view.automatic_processing, false)
+    assert.strictEqual(view.manual_entry_source, 'researcher')
+    storage.objects.set(r.body.upload.path, bytes)
+    mockProvider.sent = []
+    const res = await extract(f.body.confirmationToken, 'automatic')
+    assert.strictEqual(res.body.alreadyHandled, true)
+    assert.deepStrictEqual(mockProvider.sent, [], 'no provider call for a manual choice')
+    // Repeated finalization returns the same answer and changes nothing.
+    const again = await finalize(r)
+    assert.strictEqual(again.body.alreadyFinalized, true)
+    assert.strictEqual(again.body.extraction.mayStart, false)
+  })
+
+  await check('0018: when automatic reading was not offered, manual is the server\'s decision, not labelled as the researcher\'s', async () => {
+    setPolicy('manual')
+    const { r, bytes } = await submit()
+    assert.strictEqual(r.body.processing.offered, 'manual')
+    assert.strictEqual(r.body.processing.changedFromOffer, false)
+    await upload(r, bytes)
+    const f = await finalize(r)
+    const p = paperOf(r.body.intentId)
+    assert.strictEqual(p.manual_entry_source, null, 'not recorded as a researcher choice')
+    assert.strictEqual(p.submission_extraction_policy, 'manual')
+    assert.strictEqual(json(`select external_ai_permission(${lit(p.id)})`).reason, 'manual_decision')
+    const res = await extract(f.body.confirmationToken, 'automatic')
+    assert.strictEqual(res.body.restricted, 'submission_policy')
+    assert.strictEqual(paperOf(r.body.intentId).manual_entry_source, 'mode', 'recorded as the server\'s decision')
+    setPolicy('automatic')
+  })
+
+  await check('0018: version 1 (no AI disclosure) never leads to reading, even with everything else automatic', async () => {
+    setPolicy('automatic')
+    activate(true, [V1, 'submission-terms-2026-09-25-ar'])
+    const shown = await handleTerms({ env: ENV('automatic'), supabase, clientKey: nextIp() })
+    assert.strictEqual(shown.body.offer.decision, 'manual')
+    assert.deepStrictEqual(shown.body.processing.choices, ['manual'])
+    const { r, bytes } = await submit({ offerToken: shown.body.offer.token, over: { agreementId: V1 } })
+    assert.strictEqual(r.status, 201, JSON.stringify(r.body))
+    assert.strictEqual(r.body.processing.decision, 'manual')
+    // An automatic choice against that offer is refused, not reinterpreted.
+    const forced = await submit({ offerToken: shown.body.offer.token, over: { agreementId: V1, processingChoice: 'automatic' } })
+    assert.strictEqual(forced.r.status, 400)
+    assert.strictEqual(forced.r.body.reason, 'processing_choice_invalid')
+    // Even a direct database call cannot get automatic from version 1.
+    const direct = json(`select create_submission_intent('${'b'.repeat(64)}',${lit(V1)},'en','77376e5ef87f47395475525dea70a4716b7e9d2a9c4b30003612f2d172e676da',
+      'author','record_abstract','automatic','Direct','d@example.invalid',null,'pdf',10,60,'automatic',now(),'automatic','gemini_api_paid')`)
+    assert.strictEqual(direct.processing_decision, 'manual')
+    sqlOk(`update submission_acceptances set status = 'expired', object_removed_at = now(), upload_authorization_expires_at = now() - interval '1 day' where id = ${lit(direct.id)}`)
+    await upload(r, bytes)
+    await finalize(r)
+    activate(true)
+  })
+
+  await check('0018: without attested paid terms, nothing is offered or recorded as automatic, and nothing is read', async () => {
+    setPolicy('automatic')
+    for (const terms of [undefined, 'unpaid', 'free']) {
+      const env = { ...ENV('automatic') }
+      if (terms === undefined) delete env.GEMINI_DATA_TERMS
+      else env.GEMINI_DATA_TERMS = terms
+      const shown = await handleTerms({ env, supabase, clientKey: nextIp() })
+      assert.strictEqual(shown.body.offer.decision, 'manual', String(terms))
+      const direct = json(`select create_submission_intent('${crypto.randomBytes(32).toString('hex')}',${lit(V2)},'en','468c51eb1e8edb493de94a969415c8fce28344523503bc43f409a2a45f459367',
+        'author','record_abstract','automatic','Direct','d@example.invalid',null,'pdf',10,60,'automatic',now(),'automatic',${terms ? lit(terms) : 'null'})`)
+      // 'unpaid'/'free' are not valid arrangements at all; the decision stays manual.
+      assert.strictEqual(direct.processing_decision, 'manual', String(terms))
+      sqlOk(`update submission_acceptances set status = 'expired', object_removed_at = now(), upload_authorization_expires_at = now() - interval '1 day' where id = ${lit(direct.id)}`)
+    }
+    // Attestation withdrawn between finalization and the extraction request.
+    const { r, bytes } = await submit()
+    await upload(r, bytes)
+    const f = await finalize(r)
+    assert.strictEqual(f.body.extraction.mayStart, true)
+    storage.objects.set(r.body.upload.path, bytes)
+    mockProvider.sent = []
+    const res = await handleExtract({ token: f.body.confirmationToken, env: { EXTRACTION_MODE: 'automatic', AI_PROVIDER: 'mock' }, getSupabaseAdmin: () => supabase, getProvider: () => mockProvider, runExtraction, log: logCapture() })
+    assert.strictEqual(res.body.restricted, 'provider_terms_unattested')
+    assert.deepStrictEqual(mockProvider.sent, [])
+    assert.strictEqual(paperOf(r.body.intentId).manual_entry_source, 'mode')
+  })
+
+  await check('0018: the permission follows the accepted text - a changed agreement row stops reading', async () => {
+    setPolicy('automatic')
+    const { r, bytes } = await submit()
+    await upload(r, bytes)
+    const f = await finalize(r)
+    const p = paperOf(r.body.intentId)
+    assert.strictEqual(json(`select external_ai_permission(${lit(p.id)})`).permitted, true)
+    sqlOk(`update agreement_versions set external_ai_processing = null where id = ${lit(V2)}`)
+    assert.strictEqual(json(`select external_ai_permission(${lit(p.id)})`).reason, 'agreement_not_applicable')
+    assert.strictEqual(json(`select get_paper_for_confirmation(${lit(f.body.confirmationToken)})`).automatic_processing, false)
+    sqlOk(`update agreement_versions set external_ai_processing = 'gemini_api_paid' where id = ${lit(V2)}`)
+    assert.strictEqual(json(`select external_ai_permission(${lit(p.id)})`).permitted, true)
+  })
+
+  await check('0018: nothing new is reachable by browser roles; the old 15-argument function is gone', async () => {
+    for (const sql of [`select external_ai_permission('${happy.p.id}')`]) {
+      assert.ok(psql(`set role anon; ${sql}`).error, sql)
+      assert.ok(psql(`set role authenticated; ${sql}`).error, sql)
+    }
+    assert.strictEqual(count(`select count(*) from pg_proc where proname = 'create_submission_intent'`), 1)
+    assert.strictEqual(count(`select count(*) from pg_proc p where proname = 'create_submission_intent' and pronargs = 17`), 1)
+    for (const fn of ['external_ai_permission', 'create_submission_intent', 'finalize_submission_intent', 'get_paper_for_confirmation', 'stamp_submission_extraction_policy']) {
+      assert.ok(sqlOk(`select array_to_string(proconfig, ',') from pg_proc where proname = ${lit(fn)} limit 1`).includes('search_path='), `${fn} pins search_path`)
+    }
+    // The two version-1 rows are unchanged; version 2 is seeded inactive.
+    const rows = JSON.parse(sqlOk(`select json_agg(json_build_object('id', id, 'ai', external_ai_processing) order by id) from agreement_versions`))
+    assert.deepStrictEqual(rows, [
+      { id: 'submission-terms-2026-09-25-ar', ai: null },
+      { id: 'submission-terms-2026-09-25-en', ai: null },
+      { id: 'submission-terms-2026-10-04-ar', ai: 'gemini_api_paid' },
+      { id: 'submission-terms-2026-10-04-en', ai: 'gemini_api_paid' },
+    ])
+  })
+
+  await check('compatibility: the old submission path still works, is stamped manual whatever the policy, and is never read; legacy rows untouched', async () => {
     setPolicy('automatic')
     const old = json(`set role anon; select submit_paper('Old Path', 'old@example.invalid', 'uuid-old.pdf', true, array['abstract_and_citation'], null)`)
     const p = json(`select to_jsonb(p) from papers p where id = ${lit(old.paper_id)}`)
     assert.strictEqual(p.submission_decision_source, 'database_policy')
-    assert.strictEqual(p.submission_extraction_policy, 'automatic')
+    // 0018: no server acceptance, so no acceptance of an agreement that
+    // allows external AI reading. Manual even under an automatic policy.
+    assert.strictEqual(p.submission_extraction_policy, 'manual')
     assert.strictEqual(p.submission_acceptance_id, null)
+    assert.deepStrictEqual(json(`select external_ai_permission(${lit(p.id)})`), { permitted: false, reason: 'no_applicable_acceptance' })
+    assert.strictEqual(json(`select get_paper_for_confirmation(${lit(old.confirmation_token)})`).automatic_processing, false)
+    mockProvider.sent = []
+    const res = await extract(old.confirmation_token, 'automatic')
+    assert.strictEqual(res.body.restricted, 'submission_policy')
+    assert.deepStrictEqual(mockProvider.sent, [], 'a legacy-form submission is never sent to the provider')
+    // The pre-existing legacy paper: no permission either (it predates any acceptance).
+    assert.strictEqual(json(`select external_ai_permission('00000000-0000-0000-0000-0000000000aa')`).permitted, false)
     const legacyAfter = json(`select to_jsonb(p) from papers p where id = '00000000-0000-0000-0000-0000000000aa'`)
     for (const k of Object.keys(legacyBefore)) assert.deepStrictEqual(legacyAfter[k], legacyBefore[k], k)
     for (const k of ['submission_decision_source', 'submission_extraction_policy', 'submission_acceptance_id', 'file_sha256', 'publication_setting']) {

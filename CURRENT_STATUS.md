@@ -2,7 +2,15 @@
 
 > **Release order and steps live in [`docs/release-runbook.md`](docs/release-runbook.md)** (authoritative since 2026-09-30). This file explains the reasoning; where the two differ, the runbook wins.
 
-**Last updated:** September 26, 2026 (Phase 3, Milestone 0; documentation only). **Phases 1 and 2 are closed. Phase 3 is planned in `PHASE_3_PLAN.md` and not yet started in code.** The 2026-09-26 section below is current. Everything under it is dated history and says so.
+**Last updated:** October 4, 2026 (dated note below); the 2026-09-26 section follows it. **Phases 1 and 2 are closed. Phase 3 is planned in `PHASE_3_PLAN.md` and not yet started in code.** The 2026-09-26 section below is current. Everything under it is dated history and says so.
+
+---
+
+## Update 2026-10-04 (release preparation; the runbook has the detail)
+
+- **Stage A applied to production** (0011–0013, 0015–0017), verified, data unchanged (`docs/release-runbook.md` §7). Production code is still `f45dc690`.
+- **Founder decisions of 2026-10-04:** Gemini reading is the default with "Enter details manually" as the alternative; agreement **version 2** explains the Gemini processing; acceptance of an applicable version is enforced on the server before any Gemini call; the premature thank-you screen is fixed. Built on the release-prep branch with migration **0018** (not applied to production).
+- **Unverified fact:** whether the production Gemini key's project is on Google's paid terms. Production history shows free-tier quota refusals on 2026-09-19/20/21 (`docs/legal/README.md`, "Version 2").
 
 ---
 

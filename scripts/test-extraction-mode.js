@@ -127,6 +127,18 @@ function makeDb({ papers = [], migrationApplied = true } = {}) {
 
   db.client = {
     from: (table) => builder(table),
+    // external_ai_permission (migration 0018). The real rule is SQL and is
+    // tested against Postgres (supabase/tests/submission-postgres.test.js);
+    // here each paper carries the answer that function would give, so the
+    // route's handling of every answer is exercised. failPermission models
+    // a database without 0018.
+    rpc: async (name, args) => {
+      if (name !== 'external_ai_permission') throw new Error(`unexpected rpc ${name}`)
+      db.permissionChecks = (db.permissionChecks || 0) + 1
+      if (db.failPermission) return { data: null, error: { code: '42883', message: 'function external_ai_permission(uuid) does not exist' } }
+      const row = db.papers.find((p) => p.id === args.p_paper_id)
+      return { data: row ? row.ai_permission : { permitted: false, reason: 'paper_not_found' }, error: null }
+    },
     storage: {
       from: () => ({
         download: async (path) => {
@@ -163,6 +175,10 @@ function paperRow(overrides = {}) {
     title: null,
     title_ar: null,
     year: null,
+    // What external_ai_permission answers for this paper: by default, a
+    // paper created from an acceptance of an applicable agreement whose
+    // researcher chose automatic reading. Gate tests override it.
+    ai_permission: { permitted: true, terms: 'gemini_api_paid', agreement_version_id: 'submission-terms-2026-10-04-en' },
     ...overrides,
   }
   delete row.token
@@ -222,7 +238,7 @@ async function syntheticPdf(text) {
 async function main() {
   // --- configuration -----------------------------------------------------------
   await check('mode: only an explicit automatic or manual is honoured; anything else is manual', () => {
-    assert.deepStrictEqual(resolveExtractionMode({ EXTRACTION_MODE: 'automatic' }), { mode: 'automatic', reason: 'configured' })
+    assert.deepStrictEqual(resolveExtractionMode({ EXTRACTION_MODE: 'automatic', GEMINI_DATA_TERMS: 'paid' }), { mode: 'automatic', reason: 'configured' })
     assert.deepStrictEqual(resolveExtractionMode({ EXTRACTION_MODE: 'manual' }), { mode: 'manual', reason: 'configured' })
     assert.deepStrictEqual(resolveExtractionMode({ EXTRACTION_MODE: '  Automatic ' }), { mode: 'automatic', reason: 'configured' })
     assert.deepStrictEqual(resolveExtractionMode({}), { mode: 'manual', reason: 'missing' })
@@ -259,7 +275,7 @@ async function main() {
         assert.strictEqual(db.papers[0].extraction_status, 'pending', 'no extraction attempt is invented or erased')
 
         // Later the deployment is fixed to automatic. The paper stays manual.
-        const later = await call(db, token, { ...GEMINI_ENV, EXTRACTION_MODE: 'automatic' })
+        const later = await call(db, token, { ...GEMINI_ENV, EXTRACTION_MODE: 'automatic', GEMINI_DATA_TERMS: 'paid' })
         assert.strictEqual(later.body.alreadyHandled, true)
         assert.strictEqual(later.spies.extractionRuns + later.spies.providerRequested, 0)
         assert.strictEqual(network.calls.length + db.downloads.length, 0, 'still nothing sent after the switch')
@@ -298,7 +314,7 @@ async function main() {
       // And after a switch back to automatic, none of them is picked up -
       // not the pending one, not the retryable failure, not the stale claim.
       const auto = spies()
-      for (const p of [pending, transientFailed, stale]) await call(db, p.token, { ...GEMINI_ENV, EXTRACTION_MODE: 'automatic' }, auto)
+      for (const p of [pending, transientFailed, stale]) await call(db, p.token, { ...GEMINI_ENV, EXTRACTION_MODE: 'automatic', GEMINI_DATA_TERMS: 'paid' }, auto)
       assert.strictEqual(auto.extractionRuns + auto.providerRequested + network.calls.length + db.downloads.length, 0)
     })
   )
@@ -311,7 +327,7 @@ async function main() {
       const db = makeDb({ papers: papers.map((p) => p.row), migrationApplied: false })
       const before = JSON.stringify(db.papers)
       const s = spies()
-      for (const env of [{ ...GEMINI_ENV, EXTRACTION_MODE: 'manual' }, { ...GEMINI_ENV, EXTRACTION_MODE: 'automatic' }, { ...GEMINI_ENV }]) {
+      for (const env of [{ ...GEMINI_ENV, EXTRACTION_MODE: 'manual' }, { ...GEMINI_ENV, EXTRACTION_MODE: 'automatic', GEMINI_DATA_TERMS: 'paid' }, { ...GEMINI_ENV }]) {
         for (const p of papers) {
           const res = await call(db, p.token, env, s)
           assert.strictEqual(res.status, 503, JSON.stringify(res.body))
@@ -370,7 +386,7 @@ async function main() {
     const miss = await call(db, 'not-the-token', { EXTRACTION_MODE: 'manual' })
     assert.strictEqual(miss.status, 404)
     assert.strictEqual(miss.body.mode, 'manual', 'a bogus token shows the mode, for rollout checks')
-    const missAuto = await call(db, 'not-the-token', { EXTRACTION_MODE: 'automatic', AI_PROVIDER: 'mock' })
+    const missAuto = await call(db, 'not-the-token', { EXTRACTION_MODE: 'automatic', GEMINI_DATA_TERMS: 'paid', AI_PROVIDER: 'mock' })
     assert.strictEqual(missAuto.status, 404)
     assert.strictEqual(missAuto.body.mode, 'automatic')
     assert.strictEqual(missAuto.spies.extractionRuns, 0)
@@ -383,7 +399,7 @@ async function main() {
     resetNetwork()
     const { token, row } = paperRow({ manual_entry_at: new Date().toISOString(), manual_entry_source: 'researcher' })
     const db = makeDb({ papers: [row] })
-    const res = await call(db, token, { EXTRACTION_MODE: 'automatic', AI_PROVIDER: 'mock' })
+    const res = await call(db, token, { EXTRACTION_MODE: 'automatic', GEMINI_DATA_TERMS: 'paid', AI_PROVIDER: 'mock' })
     assert.strictEqual(res.body.alreadyHandled, true)
     assert.strictEqual(res.spies.extractionRuns, 0)
     assert.strictEqual(db.papers[0].extraction_status, 'pending')
@@ -396,7 +412,7 @@ async function main() {
       const { token, row } = paperRow()
       const db = makeDb({ papers: [row] })
       db.files[row.file_path] = await syntheticPdf('Synthetic thesis for tests')
-      const res = await call(db, token, { EXTRACTION_MODE: 'automatic', AI_PROVIDER: 'mock', NODE_ENV: 'production' })
+      const res = await call(db, token, { EXTRACTION_MODE: 'automatic', GEMINI_DATA_TERMS: 'paid', AI_PROVIDER: 'mock', NODE_ENV: 'production' })
       assert.strictEqual(res.status, 200, JSON.stringify(res.body))
       assert.strictEqual(res.body.appliedToPapers, true)
       const p = db.papers[0]
@@ -413,7 +429,7 @@ async function main() {
     resetNetwork()
     const { token, row } = paperRow()
     const db = makeDb({ papers: [row] })
-    const res = await call(db, token, { EXTRACTION_MODE: 'automatic', AI_PROVIDER: 'mock', VERCEL_ENV: 'preview' })
+    const res = await call(db, token, { EXTRACTION_MODE: 'automatic', GEMINI_DATA_TERMS: 'paid', AI_PROVIDER: 'mock', VERCEL_ENV: 'preview' })
     assert.strictEqual(res.status, 503)
     assert.strictEqual(res.body.reason, 'preview_extraction_disabled')
     assert.strictEqual(res.spies.extractionRuns + db.downloads.length, 0)
@@ -427,7 +443,7 @@ async function main() {
       const { token, row } = paperRow()
       const db = makeDb({ papers: [row] })
       db.files[row.file_path] = await syntheticPdf('Synthetic')
-      const res = await call(db, token, { ...GEMINI_ENV, EXTRACTION_MODE: 'automatic' })
+      const res = await call(db, token, { ...GEMINI_ENV, EXTRACTION_MODE: 'automatic', GEMINI_DATA_TERMS: 'paid' })
       assert.strictEqual(res.status, 500)
       assert.strictEqual(db.papers[0].extraction_status, 'failed')
       assert.ok(providerCalls().length >= 1, 'the spy does see a real provider call - so zero elsewhere means zero')
@@ -451,7 +467,7 @@ async function main() {
       const { token, row } = paperRow()
       const db = makeDb({ papers: [row] })
       db.files[row.file_path] = await syntheticPdf('Synthetic')
-      const res = await call(db, token, { ...GEMINI_ENV, GEMINI_TIMEOUT_MS: '40', EXTRACTION_MODE: 'automatic' })
+      const res = await call(db, token, { ...GEMINI_ENV, GEMINI_TIMEOUT_MS: '40', EXTRACTION_MODE: 'automatic', GEMINI_DATA_TERMS: 'paid' })
       assert.strictEqual(res.body.reason, 'timeout')
       assert.strictEqual(db.papers[0].failure_code, 'timeout')
       assert.strictEqual(res.body.status, 'failed')
@@ -485,7 +501,7 @@ async function main() {
         return extractionReturning('Title the model found')
       },
     })
-    const res = await call(db, token, { EXTRACTION_MODE: 'automatic' }, s)
+    const res = await call(db, token, { EXTRACTION_MODE: 'automatic', GEMINI_DATA_TERMS: 'paid' }, s)
     const p = db.papers[0]
     assert.strictEqual(p.title, 'Typed by the researcher')
     assert.strictEqual(p.last_applied_generation_id, null, 'the applied-result pointer did not move')
@@ -507,7 +523,7 @@ async function main() {
           return { ...extractionReturning('x'), documentType: 'not_research' }
         },
       })
-      await call(db, token, { EXTRACTION_MODE: 'automatic' }, s)
+      await call(db, token, { EXTRACTION_MODE: 'automatic', GEMINI_DATA_TERMS: 'paid' }, s)
       assert.strictEqual(db.papers[0].title, 'Mine', outcome)
       assert.strictEqual(db.papers[0].last_applied_generation_id, null, outcome)
     }
@@ -524,7 +540,7 @@ async function main() {
       const { token, row } = paperRow({ ...state, metadata_confirmed_at: confirmedAt, title: 'Confirmed' })
       const db = makeDb({ papers: [row] })
       const before = JSON.stringify(db.papers[0])
-      const res = await call(db, token, { EXTRACTION_MODE: 'automatic', AI_PROVIDER: 'mock' })
+      const res = await call(db, token, { EXTRACTION_MODE: 'automatic', GEMINI_DATA_TERMS: 'paid', AI_PROVIDER: 'mock' })
       assert.strictEqual(res.spies.extractionRuns, 0, state.extraction_status)
       assert.strictEqual(JSON.stringify(db.papers[0]), before, 'the confirmed row is byte-identical')
     }
@@ -556,7 +572,7 @@ async function main() {
         return extractionReturning('Once')
       },
     })
-    const env = { EXTRACTION_MODE: 'automatic' }
+    const env = { EXTRACTION_MODE: 'automatic', GEMINI_DATA_TERMS: 'paid' }
     const results = await Promise.all([call(db, token, env, s), call(db, token, env, s), call(db, token, env, s)])
     assert.strictEqual(s.extractionRuns, 1)
     assert.strictEqual(results.filter((r) => r.body.alreadyHandled).length, 2)
@@ -569,7 +585,7 @@ async function main() {
     const db = makeDb({ papers: [row] })
     db.files[row.file_path] = Buffer.from('%PDF-synthetic')
     const s = spies({ getProvider: () => ({}), runExtraction: async () => extractionReturning('Recovered') })
-    const env = { EXTRACTION_MODE: 'automatic' }
+    const env = { EXTRACTION_MODE: 'automatic', GEMINI_DATA_TERMS: 'paid' }
     await call(db, token, env, s)
     assert.strictEqual(s.extractionRuns, 0, 'a live claim is left alone')
     db.papers[0].extraction_started_at = new Date(Date.now() - 7 * 60_000).toISOString()
@@ -601,7 +617,7 @@ async function main() {
         assert.strictEqual(db.papers[0].manual_entry_at, at)
         // Direct call, retry and stale recovery, in automatic mode.
         const s = spies()
-        for (let i = 0; i < 3; i++) await call(db, token, { ...GEMINI_ENV, EXTRACTION_MODE: 'automatic' }, s)
+        for (let i = 0; i < 3; i++) await call(db, token, { ...GEMINI_ENV, EXTRACTION_MODE: 'automatic', GEMINI_DATA_TERMS: 'paid' }, s)
         assert.strictEqual(s.extractionRuns + s.providerRequested + network.calls.length + db.downloads.length, 0, start.extraction_status)
         // History is untouched: the attempt that happened is still recorded as it was.
         assert.strictEqual(db.papers[0].extraction_status, start.extraction_status)
@@ -623,7 +639,7 @@ async function main() {
         return extractionReturning('Title the model found')
       },
     })
-    const res = await call(db, token, { EXTRACTION_MODE: 'automatic' }, s)
+    const res = await call(db, token, { EXTRACTION_MODE: 'automatic', GEMINI_DATA_TERMS: 'paid' }, s)
     assert.strictEqual(choice.body.recorded, true)
     assert.strictEqual(s.extractionRuns, 1, 'the request already sent finishes')
     assert.strictEqual(res.body.appliedToPapers, false)
@@ -644,7 +660,7 @@ async function main() {
         getProvider: () => ({}),
         runExtraction: async () => { await new Promise((r) => setTimeout(r, 20)); return extractionReturning('Model title') },
       })
-      const env = { EXTRACTION_MODE: 'automatic' }
+      const env = { EXTRACTION_MODE: 'automatic', GEMINI_DATA_TERMS: 'paid' }
       const [a, b] = order === 'choice-first'
         ? [() => choose(db, token), () => call(db, token, env, s)]
         : [() => call(db, token, env, s), () => choose(db, token)]
@@ -694,7 +710,7 @@ async function main() {
     let release
     db.downloadGate = new Promise((r) => { release = r })
     const provider = countingProvider()
-    const running = call(db, token, { EXTRACTION_MODE: 'automatic' }, realOrchestrator(provider))
+    const running = call(db, token, { EXTRACTION_MODE: 'automatic', GEMINI_DATA_TERMS: 'paid' }, realOrchestrator(provider))
     await new Promise((r) => setTimeout(r, 20))
     assert.strictEqual(db.papers[0].extraction_status, 'processing', 'the worker won its claim first')
     assert.strictEqual(db.downloads.length, 1, 'and is inside the download')
@@ -719,7 +735,7 @@ async function main() {
     const db = makeDb({ papers: [row] })
     db.files[row.file_path] = await syntheticPdf('Synthetic')
     const provider = countingProvider({ duringPass: async (pass) => { if (pass === 1) await choose(db, token) } })
-    const res = await call(db, token, { EXTRACTION_MODE: 'automatic' }, realOrchestrator(provider))
+    const res = await call(db, token, { EXTRACTION_MODE: 'automatic', GEMINI_DATA_TERMS: 'paid' }, realOrchestrator(provider))
     assert.deepStrictEqual(provider.sent, [1], 'the already-sent pass 1 completed; pass 2 did not start')
     assert.strictEqual(res.body.status, 'partial')
     assert.strictEqual(res.body.partialReason, 'stopped_before_dispatch')
@@ -736,7 +752,7 @@ async function main() {
     const db = makeDb({ papers: [row] })
     db.files[row.file_path] = await syntheticPdf('Synthetic')
     const provider = countingProvider({ duringPass: async () => { Object.assign(db.papers[0], { title: 'Mine', metadata_confirmed_at: new Date().toISOString() }) } })
-    await call(db, token, { EXTRACTION_MODE: 'automatic' }, realOrchestrator(provider))
+    await call(db, token, { EXTRACTION_MODE: 'automatic', GEMINI_DATA_TERMS: 'paid' }, realOrchestrator(provider))
     assert.deepStrictEqual(provider.sent, [1])
     assert.strictEqual(db.papers[0].title, 'Mine')
   })
@@ -750,7 +766,7 @@ async function main() {
       // The first request gets a 503 (normally retried after a short wait);
       // while it is out, the researcher records manual entry.
       network.respond = async () => { await choose(db, token); return new Response('{"error":{"message":"high demand"}}', { status: 503 }) }
-      const res = await call(db, token, { ...GEMINI_ENV, EXTRACTION_MODE: 'automatic' })
+      const res = await call(db, token, { ...GEMINI_ENV, EXTRACTION_MODE: 'automatic', GEMINI_DATA_TERMS: 'paid' })
       assert.strictEqual(providerCalls().length, 1, 'exactly the one already-sent request; no retry')
       assert.strictEqual(res.body.reason, 'stopped_before_dispatch')
       const gen = db.ai_generations.at(-1)
@@ -774,7 +790,7 @@ async function main() {
       return b
     }
     db.downloadGate = Promise.resolve().then(() => { claimed = true })
-    const res = await call(db, token, { EXTRACTION_MODE: 'automatic' }, realOrchestrator(provider))
+    const res = await call(db, token, { EXTRACTION_MODE: 'automatic', GEMINI_DATA_TERMS: 'paid' }, realOrchestrator(provider))
     assert.deepStrictEqual(provider.sent, [])
     assert.strictEqual(res.body.reason, 'internal', 'a retryable failure, not a silent send')
   })
@@ -796,7 +812,7 @@ async function main() {
     db.failUpdate = null
     const provider = countingProvider()
     const s = realOrchestrator(provider)
-    const later = await call(db, token, { EXTRACTION_MODE: 'automatic' }, s)
+    const later = await call(db, token, { EXTRACTION_MODE: 'automatic', GEMINI_DATA_TERMS: 'paid' }, s)
     assert.strictEqual(later.body.restricted, 'submission_policy')
     assert.deepStrictEqual(provider.sent, [])
     assert.strictEqual(s.extractionRuns + db.downloads.length, 0)
@@ -806,23 +822,131 @@ async function main() {
     const { token: t2, row: r2 } = paperRow({ submission_extraction_policy: 'manual' })
     const db2 = makeDb({ papers: [r2] })
     db2.failUpdate = (patch) => 'manual_entry_at' in patch
-    const refused = await call(db2, t2, { EXTRACTION_MODE: 'automatic' }, realOrchestrator(countingProvider()))
+    const refused = await call(db2, t2, { EXTRACTION_MODE: 'automatic', GEMINI_DATA_TERMS: 'paid' }, realOrchestrator(countingProvider()))
     assert.strictEqual(refused.status, 503)
     assert.strictEqual(refused.body.reason, 'manual_not_recorded')
     assert.strictEqual(refused.spies.extractionRuns, 0)
   })
 
-  await check('existing behaviour: automatic-policy and pre-0011 submissions still extract normally', async () => {
-    for (const stamp of ['automatic', null]) {
-      const { token, row } = paperRow({ submission_extraction_policy: stamp })
+  await check('an automatic-policy submission with an applicable acceptance extracts normally', async () => {
+    const { token, row } = paperRow({ submission_extraction_policy: 'automatic' })
+    const db = makeDb({ papers: [row] })
+    db.files[row.file_path] = await syntheticPdf('Synthetic')
+    const provider = countingProvider()
+    const res = await call(db, token, { EXTRACTION_MODE: 'automatic', GEMINI_DATA_TERMS: 'paid' }, realOrchestrator(provider))
+    assert.strictEqual(res.status, 200)
+    assert.deepStrictEqual(provider.sent, [1, 2])
+    assert.strictEqual(db.papers[0].title, 'From pass 1')
+  })
+
+  // --- the agreement gate (migration 0018, founder decisions 2026-10-04) ---
+  const AUTO = { EXTRACTION_MODE: 'automatic', GEMINI_DATA_TERMS: 'paid' }
+  async function refusedCleanly(db, res, provider, s, reason) {
+    assert.strictEqual(res.status, 200, JSON.stringify(res.body))
+    assert.strictEqual(res.body.restricted, reason)
+    assert.strictEqual(res.body.manualEntry, 'mode')
+    assert.deepStrictEqual(provider.sent, [], 'no provider request')
+    assert.strictEqual(s.extractionRuns, 0, 'no extraction run')
+    assert.strictEqual(db.downloads.length, 0, 'the document is not even read')
+    assert.strictEqual(db.papers[0].manual_entry_source, 'mode', 'recorded, so no later request can read it')
+    assert.strictEqual(db.papers[0].extraction_status, 'pending', 'no attempt is invented')
+  }
+
+  await check('gate: without an attested GEMINI_DATA_TERMS=paid nothing is read, whatever else allows it', async () => {
+    for (const value of [undefined, '', 'unpaid', 'free', 'PAID-ish', 'true']) {
+      const { token, row } = paperRow({ submission_extraction_policy: 'automatic' })
       const db = makeDb({ papers: [row] })
       db.files[row.file_path] = await syntheticPdf('Synthetic')
       const provider = countingProvider()
-      const res = await call(db, token, { EXTRACTION_MODE: 'automatic' }, realOrchestrator(provider))
-      assert.strictEqual(res.status, 200, String(stamp))
-      assert.deepStrictEqual(provider.sent, [1, 2], String(stamp))
-      assert.strictEqual(db.papers[0].title, 'From pass 1', String(stamp))
+      const s = realOrchestrator(provider)
+      const env = { EXTRACTION_MODE: 'automatic' }
+      if (value !== undefined) env.GEMINI_DATA_TERMS = value
+      const res = await call(db, token, env, s)
+      await refusedCleanly(db, res, provider, res.spies, 'provider_terms_unattested')
+      assert.strictEqual(db.permissionChecks || 0, 0, 'decided before the database is even asked')
     }
+  })
+
+  await check('gate: no applicable acceptance (legacy form, pre-0011, pre-0018, old agreement, manual choice) - nothing is read', async () => {
+    for (const permission of [
+      { permitted: false, reason: 'no_applicable_acceptance' },
+      { permitted: false, reason: 'agreement_not_applicable' },
+      { permitted: false, reason: 'researcher_chose_manual' },
+      { permitted: false, reason: 'manual_decision' },
+      null,
+    ]) {
+      for (const stamp of ['automatic', null]) {
+        const { token, row } = paperRow({ submission_extraction_policy: stamp, ai_permission: permission })
+        const db = makeDb({ papers: [row] })
+        db.files[row.file_path] = await syntheticPdf('Synthetic')
+        const provider = countingProvider()
+        const res = await call(db, token, AUTO, realOrchestrator(provider))
+        await refusedCleanly(db, res, provider, res.spies, permission?.reason || 'no_applicable_acceptance')
+      }
+    }
+  })
+
+  await check('gate: an acceptance under different terms than the server attests is refused', async () => {
+    const { token, row } = paperRow({ submission_extraction_policy: 'automatic', ai_permission: { permitted: true, terms: 'some_other_terms' } })
+    const db = makeDb({ papers: [row] })
+    db.files[row.file_path] = await syntheticPdf('Synthetic')
+    const provider = countingProvider()
+    const res = await call(db, token, AUTO, realOrchestrator(provider))
+    await refusedCleanly(db, res, provider, res.spies, 'agreement_not_applicable')
+  })
+
+  await check('gate: retries of a transient failure and stale reclaims are refused too', async () => {
+    const old = new Date(Date.now() - 10 * 60_000).toISOString()
+    for (const state of [
+      { extraction_status: 'failed', failure_code: 'api_error', extraction_started_at: old },
+      { extraction_status: 'processing', extraction_started_at: old },
+    ]) {
+      const { token, row } = paperRow({ ...state, submission_extraction_policy: 'automatic', ai_permission: { permitted: false, reason: 'no_applicable_acceptance' } })
+      const db = makeDb({ papers: [row] })
+      db.files[row.file_path] = await syntheticPdf('Synthetic')
+      const provider = countingProvider()
+      const res = await call(db, token, AUTO, realOrchestrator(provider))
+      assert.strictEqual(res.body.restricted, 'no_applicable_acceptance')
+      assert.deepStrictEqual(provider.sent, [])
+      assert.strictEqual(db.downloads.length, 0)
+      assert.strictEqual(db.papers[0].extraction_status, state.extraction_status, 'history is not relabelled')
+    }
+  })
+
+  await check('gate: if the rule cannot be read (0018 missing), nothing is read and nothing is recorded', async () => {
+    const { token, row } = paperRow({ submission_extraction_policy: 'automatic' })
+    const db = makeDb({ papers: [row] })
+    db.failPermission = true
+    db.files[row.file_path] = await syntheticPdf('Synthetic')
+    const provider = countingProvider()
+    const res = await call(db, token, AUTO, realOrchestrator(provider))
+    assert.strictEqual(res.status, 503)
+    assert.strictEqual(res.body.reason, 'database_not_ready')
+    assert.deepStrictEqual(provider.sent, [])
+    assert.strictEqual(db.downloads.length, 0)
+    assert.strictEqual(db.papers[0].manual_entry_at, null, 'a missing rule is not a decision')
+  })
+
+  await check('gate: a paper stamped manual (legacy form after 0018) is refused before the rule is even asked', async () => {
+    const { token, row } = paperRow({ submission_extraction_policy: 'manual', ai_permission: { permitted: false, reason: 'no_applicable_acceptance' } })
+    const db = makeDb({ papers: [row] })
+    db.files[row.file_path] = await syntheticPdf('Synthetic')
+    const provider = countingProvider()
+    const res = await call(db, token, AUTO, realOrchestrator(provider))
+    assert.strictEqual(res.body.restricted, 'submission_policy')
+    assert.deepStrictEqual(provider.sent, [])
+    assert.strictEqual(db.permissionChecks || 0, 0)
+  })
+
+  await check('gate: the attested terms are read only from the server environment, never the request', async () => {
+    const { token, row } = paperRow({ submission_extraction_policy: 'automatic' })
+    const db = makeDb({ papers: [row] })
+    db.files[row.file_path] = await syntheticPdf('Synthetic')
+    const provider = countingProvider()
+    const s = realOrchestrator(provider)
+    const res = await handleExtract({ token, GEMINI_DATA_TERMS: 'paid', env: { EXTRACTION_MODE: 'automatic' }, getSupabaseAdmin: () => db.client, getProvider: s.getProvider, runExtraction: s.runExtraction, log: quietLog() })
+    assert.strictEqual(res.body.restricted, 'provider_terms_unattested')
+    assert.deepStrictEqual(provider.sent, [])
   })
 
   resetNetwork()

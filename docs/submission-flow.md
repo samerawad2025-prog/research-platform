@@ -39,7 +39,9 @@ The local stack's gateway is a small stand-in for Supabase's hosted gateway (Kon
    - **`offer: { token, decision, expiresAt }`**: a server-signed record of what was shown (see "The processing offer").
 2. **`POST /api/submissions/intent`.** Acceptance and choice. The body may contain only these fields:
 
-   `{ offerToken, agreementId, accepted: true, publicationSetting, claimedRole, fullName, email, whatsapp?, whatsappCountry?, authors?, file: { name, size, type } }`
+   `{ offerToken, agreementId, accepted: true, publicationSetting, claimedRole, processingChoice, fullName, email, whatsapp?, whatsappCountry?, authors?, file: { name, size, type } }`
+
+   `processingChoice` (migration 0018) is the researcher's own choice, made before anything is sent anywhere: `automatic` (Gemini reading, the default) or `manual` ("Enter details manually"; the document is never sent to Gemini). It is always explicit: a missing or unknown value is refused (`400 processing_choice_invalid`), never read as consent, and `automatic` against an offer that only allowed manual entry is refused too.
 
    `authors` (1–50 names, each at most 200 characters) is required for `authorized_depositor` and refused for anyone else.
 
@@ -64,7 +66,7 @@ The local stack's gateway is a small stand-in for Supabase's hosted gateway (Kon
 
    The response gives the browser:
    - `intentId` and `intentToken`. The token is a secret; only its hash is stored.
-   - `processing: { decision, offered, changedFromOffer }`. `decision` is **authoritative**.
+   - `processing: { decision, offered, choice, changedFromOffer }`. `decision` is **authoritative**. `changedFromOffer` compares the decision with what the offer and the researcher's choice allowed together, so a researcher's own manual choice is never reported as a change.
    - an upload authorization for that one path: `upload.path`, `upload.token` and `upload.signedUrl`, created with `upsert: false`.
 3. **Upload.** The browser uploads the file with that authorization, for example with `supabase.storage.from('papers').uploadToSignedUrl(path, token, file)`. The bucket stays private.
 4. **`POST /api/submissions/finalize`** with `{ intentId, intentToken }`. The server:
@@ -80,7 +82,7 @@ The local stack's gateway is a small stand-in for Supabase's hosted gateway (Kon
    - `file_sha256` and `file_size`;
    - the processing decision.
 
-   A repeated or concurrent call returns the same paper and the same confirmation token and creates nothing. The response is `{ confirmationToken, alreadyFinalized, processing: { decision }, extraction: { mayStart } }`.
+   A repeated or concurrent call returns the same paper and the same confirmation token and creates nothing. The response is `{ confirmationToken, alreadyFinalized, processing: { decision, choice }, extraction: { mayStart } }`. When the researcher chose manual entry (and automatic reading had been offered), the paper is created with that decision already recorded (`manual_entry_source = 'researcher'`) in the same transaction, so no request can ever start reading it, and `mayStart` is `false`.
 5. **Extraction.** The browser calls `/api/extract` only when `extraction.mayStart` is true. The route enforces the same rule itself.
    - For these papers it also checks that the stored object still has the accepted SHA-256 before anything can be sent. On a mismatch it fails with `document_mismatch`, and nothing is sent.
    - The existing claim compare-and-swap prevents duplicate extraction jobs.
@@ -149,9 +151,9 @@ The confirmation step (`confirm_researcher_metadata`) sets the final list and or
 
 | Source | Set by | Decision |
 |---|---|---|
-| `server` | the new path | `automatic` only if `EXTRACTION_MODE=automatic` **and** `extraction_policy.mode = 'automatic'` at acceptance **and** the accepted offer said `automatic`. Anything else, including unset, invalid or unknown values, is `manual`. The insert trigger can only **lower** it, if the policy row turned `manual` before finalization. |
+| `server` | the new path | `automatic` only if `EXTRACTION_MODE=automatic` **and** `extraction_policy.mode = 'automatic'` at acceptance **and** the accepted offer said `automatic` **and** the researcher chose automatic reading **and** the accepted agreement version describes the external AI arrangement the server attests to (`GEMINI_DATA_TERMS=paid` ↔ `agreement_versions.external_ai_processing = 'gemini_api_paid'`, migration 0018). Anything else, including unset, invalid or unknown values, is `manual`. The insert trigger can only **lower** it, if the policy row turned `manual` before finalization. |
 | `database_policy` | the old path (`submit_paper`), until it is closed | the policy row alone, as in M1 |
-| `null` | rows older than 0011 | pre-M1 form, with its processing consent; unchanged behaviour |
+| `null` | rows older than 0011 | pre-M1 form, with its processing consent. **Since 0018 never read automatically**: they carry no acceptance of an agreement that describes it (see "The agreement gate"). Their history is not rewritten. |
 
 Automatic extraction additionally needs `EXTRACTION_MODE=automatic` at extraction time. That is the operational switch: it can stop processing later, but it can never broaden what was recorded.
 
@@ -160,6 +162,21 @@ Automatic extraction additionally needs `EXTRACTION_MODE=automatic` at extractio
 - **Old path:** the database cannot see the application's mode, so the stamp comes from the policy row. This residual gap exists only while the old path is open. Until cutover, operate by the rule: when `EXTRACTION_MODE` is `manual`, set the policy row to `manual` too.
 
 **How M1's pieces fit.** The `extraction_policy` row stays as the database-side restriction that both paths respect. The M1 trigger is extended rather than duplicated. After cutover it applies to server-path inserts only; the `database_policy` source then only exists on historical rows.
+
+## The agreement gate (migration 0018)
+
+Founder decisions of 2026-10-04: Gemini reading is the default, manual entry is the researcher's alternative, and no document goes to Gemini unless the researcher accepted an agreement version that explains it. One database function, `external_ai_permission(paper)`, answers whether a paper may be read; the extraction route asks it before any download or provider call, and the confirmation read returns its answer as `automatic_processing`. It allows reading only for a paper created from a **finalized acceptance** whose decision was `automatic`, whose researcher chose automatic reading, and whose agreement version (same text hash) describes the arrangement recorded at acceptance (`ai_processing_terms`). Separately, the route requires the server's own attestation, `GEMINI_DATA_TERMS=paid`, at the time of the request.
+
+| Paper | Read? | Why |
+|---|---|---|
+| New form, version 2 accepted, automatic chosen, everything attested | yes | the only case |
+| New form, manual chosen | never | recorded at creation; the document is never sent |
+| New form, version 1 (2026-09-25) accepted | never | that text does not describe external AI reading |
+| Legacy anonymous form (while it stays open) | never | no acceptance at all; since 0018 it is also stamped `manual` whatever the policy row says |
+| Created before 0011 or before 0018 | never | no applicable acceptance; history unchanged |
+| `GEMINI_DATA_TERMS` missing or anything but `paid` | never | refused before the database is asked; recorded as the server's manual decision |
+
+Every refusal is recorded as a manual decision (`manual_entry_source = 'mode'`), and the confirmation page opens straight into hand entry for a paper that can never be read, instead of waiting on a reading that cannot happen. A failed reading offers "Try again" and "Enter the details yourself"; switching to hand entry keeps the upload and everything already on the paper.
 
 ## The processing offer
 
@@ -192,7 +209,7 @@ What the researcher accepts includes how their document will be processed, so th
    - **Record, abstract and full text**, which readers may read online and download after approval.
 
    The form says nothing is published before review, and that no open (Creative Commons) licence is applied.
-5. **How the document will be processed:** the server's offered decision (automatic, naming Google Gemini, or manual entry). The browser never infers it.
+5. **How the document will be processed:** the server's offered decision. When it is automatic, a short explanation (what is sent to Google's Gemini, that Google does not use it to improve its products but keeps it up to 55 days for abuse monitoring, that suggestions can be wrong) and two choices: **Read my document with Gemini (recommended)**, preselected, and **Enter details manually**, which keeps the document away from Gemini. When it is manual, only the manual explanation. The browser never infers the decision.
 6. **Agreement:**
    - The short summary.
    - An in-page disclosure with the full agreement text as served, in the interface language when that version is offered. Opening it keeps every input and the chosen file, and there is no forced scrolling.

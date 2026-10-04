@@ -119,6 +119,14 @@ function pgClient(files, gate = {}) {
     return b
   }
   return {
+    // Named-argument function calls, as PostgREST makes them (the route
+    // uses this for 0018's external_ai_permission).
+    rpc: async (name, args = {}) => {
+      const named = Object.entries(args).map(([k, v]) => `${k} => ${lit(v)}`).join(', ')
+      const r = psql(`select to_jsonb(${name}(${named}))`)
+      if (r.error) return { data: null, error: r.error }
+      return { data: JSON.parse(r.out), error: null }
+    },
     from: builder,
     storage: { from: () => ({ download: async (p) => {
       if (gate.promise) await gate.promise
@@ -138,10 +146,12 @@ function createPreM1Database() {
   execFileSync('psql', ['-X', '-q', '-v', 'ON_ERROR_STOP=1', '-d', DB, '-f', tmp], { stdio: ['ignore', 'ignore', 'pipe'] })
   sqlOk(`insert into researchers (id, full_name, email) values ('00000000-0000-0000-0000-000000000001', 'Synthetic Submitter', 'synthetic@example.invalid')`)
 }
-// 0011, and on the M2A branch 0012 as well: the route reads columns from
-// both, and this also runs the pre-M1 production route against both.
+// The release's database state for the route: 0011, 0012, 0013 and 0018.
+// The route reads columns from 0011/0012 and asks 0018's
+// external_ai_permission before any provider call; this also runs the
+// pre-M1 production route against that state.
 function applyMigration() {
-  for (const m of ['0011_manual_entry.sql', '0012_submission_acceptance.sql']) {
+  for (const m of ['0011_manual_entry.sql', '0012_submission_acceptance.sql', '0013_linkedin_visibility_declared_authors.sql', '0018_ai_processing_agreement.sql']) {
     const file = path.join(ROOT, 'supabase/migrations', m)
     if (fs.existsSync(file)) execFileSync('psql', ['-X', '-q', '-v', 'ON_ERROR_STOP=1', '-d', DB, '-f', file], { stdio: ['ignore', 'ignore', 'pipe'] })
   }
@@ -159,6 +169,27 @@ function seedPaper(over = {}) {
   const id = sqlOk(`insert into papers (${Object.keys(cols).join(', ')}) values (${Object.values(cols).map((v) => (v && typeof v === 'object' ? lit(JSON.stringify(v)) : lit(v))).join(', ')}) returning id`)
   return { id, token }
 }
+// A paper that may be read automatically (0018): created on the server path
+// under an automatic policy, from a finalized acceptance of agreement
+// version 2 whose researcher chose automatic reading. Inserted directly,
+// as the finalization function would leave it.
+function seedReadable(over = {}) {
+  sqlOk(`update extraction_policy set mode = 'automatic'`)
+  const p = seedPaper({ submission_decision_source: 'server', submission_extraction_policy: 'automatic', ...over })
+  const acc = sqlOk(`insert into submission_acceptances (intent_token_hash, status, expires_at, agreement_version_id, agreement_language, agreement_sha256,
+      claimed_role, publication_setting, processing_decision, processing_offer_decision, offer_issued_at, processing_mode_at_acceptance,
+      processing_policy_at_acceptance, processing_choice, ai_processing_terms, full_name, email, object_path, file_extension, declared_size,
+      finalized_at, paper_id, object_sha256, object_size)
+    values (${lit(crypto.randomBytes(32).toString('hex'))}, 'finalized', now() + interval '30 minutes', 'submission-terms-2026-10-04-en', 'en',
+      '468c51eb1e8edb493de94a969415c8fce28344523503bc43f409a2a45f459367', 'author', 'record_abstract', 'automatic', 'automatic', now(),
+      'automatic', 'automatic', 'automatic', 'gemini_api_paid', 'Synthetic Submitter', 'synthetic@example.invalid',
+      'intents/' || gen_random_uuid() || '/' || substr(md5(random()::text), 1, 24) || '.pdf', 'pdf', 10, now(), ${lit(p.id)}, repeat('a', 64), 10)
+    returning id`)
+  sqlOk(`update papers set submission_acceptance_id = ${lit(acc)} where id = ${lit(p.id)}`)
+  assert.strictEqual(json(`select external_ai_permission(${lit(p.id)})`).permitted, true, 'seeded as readable')
+  return p
+}
+const AUTO = { EXTRACTION_MODE: 'automatic', GEMINI_DATA_TERMS: 'paid' }
 const row = (id) => json(`select to_jsonb(p) from papers p where id = ${lit(id)}`)
 const generations = (id) => Number(sqlOk(`select count(*) from ai_generations where paper_id = ${lit(id)}`))
 
@@ -233,25 +264,29 @@ async function main() {
   })
 
   const historical = seedPaper({ extraction_status: 'completed', metadata_confirmed_at: '2026-09-20T10:00:00Z', title: 'Confirmed thesis', year: 2019 })
+  // A pre-migration paper still waiting: it has no acceptance at all.
+  const historicalPending = seedPaper()
   sqlOk(`insert into ai_generations (paper_id, generation_type, provider, model_used, status, result_data, notes) values (${lit(historical.id)}, 'metadata_extraction', 'gemini', 'synthetic', 'success', '{}', 'Pass 1')`)
   const historicalBefore = row(historical.id)
 
   // ---------------------------------------------------------------- apply 0011
   applyMigration()
 
-  await check('after 0011: the policy starts manual, stamps every insert, is immutable, and leaves old rows null', async () => {
+  await check('after 0011+0018: the policy starts manual, stamps every insert (a legacy insert always manual), is immutable, and leaves old rows null', async () => {
     assert.strictEqual(sqlOk('select mode from extraction_policy'), 'manual')
     assert.strictEqual(row(historical.id).submission_extraction_policy, null, 'pre-migration rows are not rewritten')
     const a = seedPaper({ submission_extraction_policy: 'automatic' })
     assert.strictEqual(row(a.id).submission_extraction_policy, 'manual', 'the inserting code cannot choose the stamp')
     sqlOk(`update extraction_policy set mode = 'automatic', changed_at = now()`)
     const b = seedPaper()
-    assert.strictEqual(row(b.id).submission_extraction_policy, 'automatic')
+    assert.strictEqual(row(b.id).submission_extraction_policy, 'manual', '0018: no server acceptance, never automatic')
+    const server = seedPaper({ submission_decision_source: 'server', submission_extraction_policy: 'automatic' })
+    assert.strictEqual(row(server.id).submission_extraction_policy, 'automatic', 'the server path, under an automatic policy')
     sqlOk(`update papers set submission_extraction_policy = 'automatic' where id = ${lit(a.id)}`)
     assert.strictEqual(row(a.id).submission_extraction_policy, 'manual', 'the stamp cannot be changed afterwards')
     // Through the real anonymous submission RPC, as the live form does it.
     const out = json(`set role anon; select submit_paper('Synthetic Person', 'synthetic2@example.invalid', 'x.pdf', true, array['abstract_and_citation'], null)`)
-    assert.strictEqual(row(out.paper_id).submission_extraction_policy, 'automatic')
+    assert.strictEqual(row(out.paper_id).submission_extraction_policy, 'manual', '0018: the legacy form is never read')
     sqlOk(`update extraction_policy set mode = 'manual', changed_at = now()`)
     const out2 = json(`set role anon; select submit_paper('Synthetic Person', 'synthetic3@example.invalid', 'y.pdf', true, array['abstract_and_citation'], null)`)
     assert.strictEqual(row(out2.paper_id).submission_extraction_policy, 'manual')
@@ -283,14 +318,13 @@ async function main() {
   })
 
   await check('after 0011, gap: manual choice during a paused download - no provider request, honest history', async () => {
-    sqlOk(`update extraction_policy set mode = 'automatic'`)
-    const p = seedPaper()
+    const p = seedReadable()
     let release
     gate.promise = new Promise((r) => { release = r })
     const sent = []
     const provider = { extractMetadata: async ({ pass }) => { sent.push(pass); return { provider: 'fake', model: 'fake', result: { document_type: 'thesis' } } } }
     const s = counted({ getProvider: () => provider, runExtraction })
-    const running = newCall(client, p.token, { EXTRACTION_MODE: 'automatic' }, s)
+    const running = newCall(client, p.token, AUTO, s)
     await new Promise((r) => setTimeout(r, 300))
     assert.strictEqual(row(p.id).extraction_status, 'processing', 'worker claimed first')
     const c = await choose(client, p.token)
@@ -373,7 +407,7 @@ async function main() {
   })
 
   await check('after 0011, race: choice recorded while pass 1 is out - it finishes, is kept, is not applied; pass 2 is not sent', async () => {
-    const p = seedPaper()
+    const p = seedReadable()
     const gensBefore = generations(p.id)
     const sent = []
     // Pass 1 has been dispatched when the choice lands; it cannot be recalled.
@@ -383,7 +417,7 @@ async function main() {
       return { provider: 'fake', model: 'fake', result: { document_type: 'thesis', title: { status: 'found', value: 'Model title' } } }
     } }
     const s = counted({ getProvider: () => provider, runExtraction })
-    const r = await newCall(client, p.token, { EXTRACTION_MODE: 'automatic' }, s)
+    const r = await newCall(client, p.token, AUTO, s)
     assert.strictEqual(r.status, 200, JSON.stringify(r.body))
     assert.deepStrictEqual(sent, [1])
     assert.strictEqual(r.body.appliedToPapers, false)
@@ -392,6 +426,20 @@ async function main() {
     assert.strictEqual(after.last_applied_generation_id, null)
     assert.strictEqual(after.manual_entry_source, 'researcher')
     assert.ok(generations(p.id) > gensBefore, 'the run is in the append-only history')
+  })
+
+  await check('after 0018: with everything attested, a legacy or pre-0018 paper is still never read; a readable one is', async () => {
+    sqlOk(`update extraction_policy set mode = 'automatic'`)
+    for (const p of [seedPaper(), historicalPending]) {
+      const r = await newCall(client, p.token, AUTO)
+      assert.ok(['submission_policy', 'no_applicable_acceptance'].includes(r.body.restricted), JSON.stringify(r.body))
+      assert.strictEqual(r.s.runs + r.s.providers, 0)
+    }
+    const ok = seedReadable()
+    const r = await newCall(client, ok.token, AUTO)
+    assert.strictEqual(r.status, 200, JSON.stringify(r.body))
+    assert.ok(r.s.runs >= 1)
+    assert.strictEqual(row(ok.id).extraction_status, 'completed')
   })
 
   await check('after 0011, a real write failure is reported as not recorded and sends nothing', async () => {
