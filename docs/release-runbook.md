@@ -22,7 +22,7 @@ Test project `qwxfxckrabvuvuzidxuo` (`research-platform-test`, free plan, eu-cen
 
 ### Currently deployed
 - Vercel production serves **`f45dc690`** (the pre-Phase-3 app). No custom domain (`research-platform-5zpu.vercel.app`), Vercel SSO on previews.
-- Supabase `mzpkiuovjppmavqkppem` (the only project): live schema matches `schema.sql` at `f45dc690` exactly. Migrations applied through **0010**; 0011–0017 **not** applied. Legacy anonymous upload + `submit_paper` **open**. 35 papers (5 confirmed), 0 Auth users.
+- Supabase `mzpkiuovjppmavqkppem` (the only project): **Stage A complete 2026-10-04** — 0011, 0012, 0013, 0015, 0016, 0017 applied (0014 **not** applied). 28 public tables. Legacy anonymous upload + `submit_paper` still **open** (by design until stage E). 36 papers, 0 Auth users. Details in §7.
 - No Phase 3 environment variable is set in production.
 - Re-checked read-only on 2026-10-02 15:36–16:10 UTC: Stage A PREFLIGHT (`supabase/release/stage-a-checks.sql`) **PASS**; data fingerprint `ece227369f14ec7f3639362b4c011dbf`; last paper created and last confirmation 2026-09-25.
 
@@ -272,6 +272,7 @@ Full-text checks (H7/H8 document parts) only on synthetic records in the test pr
 | **Stage A rehearsal, production-shaped data** | migrations as in §4 Stage A; schema `f45dc690` | local Postgres 16 + Supabase default grants (`scripts/rehearse-stage-a.sh`) | — | **pass**: PREFLIGHT and every AFTER block PASS; data fingerprint identical before/after; as `anon`: direct reads 0 rows, wrong and bare-UUID tokens refused, correct token reads, `f45dc690`'s exact confirmation payload succeeds (Facebook ignored, `٢٠١٩م` → 2019), legacy `submit_paper` works and is stamped `manual`, new tables denied | 2026-10-02 |
 | **Stage A checks on hosted Postgres 17** | `supabase/release/stage-a-checks.sql` | test project (has 0014 + synthetic activity) | `qwxfxckrabvuvuzidxuo` | **runs and catches deviations**: `AFTER 0017` reports exactly the expected differences there (0014 present, activity rows, test agreements active, old path closed, fewer rows) and no unexpected browser grants | 2026-10-02 |
 | **Production preflight (read-only)** | — | production `mzpkiuovjppmavqkppem` | — | **PREFLIGHT PASS**; data fingerprint `ece227369f14ec7f3639362b4c011dbf` (35 papers, last created/confirmed 2026-09-25) | 2026-10-02 |
+| **Stage A on production** | the six files at `a655171f` (SHA-256 as in §4), run by the founder in the SQL Editor; the connector's `apply_migration` timed out twice (60 s) with nothing reaching the database (no objects, history, session, lock or Postgres log entry), so it was not used | production `mzpkiuovjppmavqkppem` | — | **pass**: PREFLIGHT PASS; every `AFTER` block PASS; final `AFTER 0017` PASS re-run independently (applied `0011 0012 0013 0015 0016 0017`, 28 tables, `extraction_policy`=manual, 0 active agreements, activity tables empty, old anonymous path open, bucket private, no unexpected browser grants); data fingerprint **identical** before and after (`98f41ac36a059f87c83cf3141014ac1c`, 36 papers — one real submission on 2026-10-03 21:14 UTC came before the baseline); 0 existing papers stamped or marked manual; 0 `linkedin_public`; as `anon`: 0 rows from `papers`, wrong token refused, no access to `agreement_versions`/`public_records`/`staff_members`. Migration history recorded by hand per file (name + SHA-256): `manual_entry` 20261004004826, `submission_acceptance` 20261004010011, `linkedin_visibility_declared_authors` 20261004010056, `admin_review` 20261004010137, `public_research` 20261004010216, `activity_metrics` 20261004010253 | 2026-10-04 |
 
 ---
 
@@ -315,8 +316,8 @@ Smallest dependable release: stages A→G with **manual processing**, the **Univ
 | D7 | Authorize a free second Supabase project + branch-scoped preview variables (§2) | Done 2026-09-30/10-02 |
 | D8 | Rotate the exposed production service-role key (§7a) | **Decided 2026-10-02: no rotation; risk accepted (§7a)** |
 
-### Remaining blockers (2026-10-02)
-1. **Approval of stage A** (production migrations 0011–0017, §4). Everything it needs is prepared and the production preflight passes.
+### Remaining blockers (2026-10-04)
+1. Stage A is **done** (§7). Next: **approval of stage B** (§4) — set `EXTRACTION_MODE=manual` and `SUBMISSION_TOKEN_SECRET` in Production, then the merge that deploys (decision D5).
 2. Later stages need their own approvals and founder decisions D2 (agreement), D3 (confidentiality text), D4 (request log), D6 (domain).
 Not blockers: isolated hosted verification (complete, §7), activity counts (fixed by `fra1`, verified), key rotation (founder decision: not rotated; accepted risk in §7a).
 
