@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # The flow-timing browser test (premature thank-you, Gemini default, manual
 # choice, failure and retry, double submit) against the LOCAL Supabase stack
-# (start it first: supabase/tests/local-stack/start.sh, then apply 0018 to
-# it). Builds the app with local keys, then runs the test twice: the
+# (start it first: supabase/tests/local-stack/start.sh, which applies 0018
+# and 0019). Builds the app with local keys, then runs the test twice: the
 # acceptance form (SUBMISSION_ACCEPTANCE_FLOW=enabled) and the legacy form.
 # The AI provider is the in-repository mock; nothing is sent to Gemini.
 #   supabase/tests/run-flow-timing-e2e.sh
@@ -15,7 +15,8 @@ export NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:54321
 export NEXT_PUBLIC_SUPABASE_ANON_KEY="$(key anon)"
 export SUPABASE_SERVICE_ROLE_KEY="$(key service)"
 export SUBMISSION_TOKEN_SECRET="$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")"
-export EXTRACTION_MODE=automatic GEMINI_DATA_TERMS=paid AI_PROVIDER=mock
+# The launch arrangement: Google's unpaid terms, agreement version 3.
+export EXTRACTION_MODE=automatic GEMINI_DATA_TERMS=unpaid AI_PROVIDER=mock
 export MOCK_CONTROL_FILE=${MOCK_CONTROL_FILE:-/var/tmp/mock-control.json}
 echo '{}' > "$MOCK_CONTROL_FILE"
 unset GEMINI_API_KEY VERCEL_ENV || true

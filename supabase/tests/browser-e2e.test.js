@@ -138,10 +138,17 @@ async function noHorizontalScroll(page) {
 
 async function main() {
   browser = await chromium.launch()
-  sql(`update agreement_versions set active = (id like 'submission-terms-2026-10-04-%')`)
+  sql(`update agreement_versions set active = (id like 'submission-terms-2026-10-04-v3-%')`)
   const pdf = await pdfFile('synthetic-thesis.pdf', 'Synthetic thesis for local testing')
   const pdf2 = await pdfFile('بحث-تجريبي.pdf', 'Second synthetic document')
   const docx = await docxFile('synthetic.docx')
+  // Realistic synthetic documents (invented people) for automatic reading
+  // under the free tier, and what the mock provider was sent.
+  const thesisDocx = path.join(__dirname, '../../scripts/fixtures/synthetic/thesis-en.docx')
+  const scannedPdf = path.join(__dirname, '../../scripts/fixtures/synthetic/scanned-cover.pdf')
+  const sentToProvider = () => (process.env.MOCK_RECORD && fs.existsSync(process.env.MOCK_RECORD)
+    ? fs.readFileSync(process.env.MOCK_RECORD, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)) : [])
+  const PERSONAL = [/Amna/i, /Elhassan/i, /Kamal/i, /Yousif/i, /Hassan Ali/i, /Sara Ahmed/i, /@/, /0912345678/]
 
   if (PHASE === 'after-cutover') {
     await check('after cutover: a signed submission still completes in the browser (EN, author, manual processing)', async () => {
@@ -178,7 +185,7 @@ async function main() {
     assert.strictEqual(await page.locator('input[type=file]').count(), 0)
     assert.strictEqual(await page.getByText('Publish the complete paper').count(), 0, 'no legacy form')
     await page.screenshot({ path: `${SHOTS}/unavailable-en-1280.png`, fullPage: true })
-    sql(`update agreement_versions set active = (id like 'submission-terms-2026-10-04-%')`)
+    sql(`update agreement_versions set active = (id like 'submission-terms-2026-10-04-v3-%')`)
     await page.getByRole('button', { name: 'Try again' }).click()
     await page.waitForSelector('form input[type=checkbox]')
     await page.context().close()
@@ -252,7 +259,8 @@ async function main() {
     assert.strictEqual(await page.locator('[data-decision]').getAttribute('data-decision'), 'automatic', 'automatic explanation from the server offer')
     await noHorizontalScroll(page)
     const email = uniq('depositor')
-    await fill(page, { L: AR, name: 'أمينة المكتبة', email, role: 'authorized_depositor', authors: ['فاطمة الأمين', 'Mohammed Adam'], file: docx, setting: 'record_abstract_fulltext' })
+    const sentBefore = sentToProvider().length
+    await fill(page, { L: AR, name: 'أمينة المكتبة', email, role: 'authorized_depositor', authors: ['فاطمة الأمين', 'Mohammed Adam'], file: thesisDocx, setting: 'record_abstract_fulltext' })
     assert.ok(await page.locator('label').getByText('قرأت اتفاقية تقديم البحوث وإيداعها', { exact: false }).isVisible(), 'Arabic acceptance sentence')
     await page.getByText('اقرأ نص الاتفاقية كاملاً').click()
     await noHorizontalScroll(page)
@@ -276,6 +284,36 @@ async function main() {
     assert.ok(!team.some((x) => x.email === email), 'depositor never an author')
     const gens = Number(sql(`select count(*) from ai_generations where paper_id = ${lit(paper.id)} and provider = 'mock'`))
     assert.ok(gens >= 1, 'mock provider ran; no external call')
+    // Free tier: the built server sent one text excerpt, no file, nobody's details.
+    const sent = sentToProvider().slice(sentBefore)
+    assert.strictEqual(sent.length, 1, 'one request')
+    assert.strictEqual(sent[0].type, 'text')
+    assert.strictEqual(sent[0].scope, 'excerpt')
+    assert.strictEqual(sent[0].pdfBytes, null)
+    for (const re of PERSONAL) assert.ok(!re.test(sent[0].content), `${re} would have been sent`)
+    assert.ok(/University of Khartoum/.test(sent[0].content) && /twelve smallholder schemes/.test(sent[0].content), 'the useful part is sent')
+    assert.ok(await page.getByText('هذه الاقتراحات مأخوذة من مقتطف قصير').isVisible(), 'the excerpt note says authors are entered by hand')
+    assert.ok(await page.getByText('اضغط للإضافة.').first().isVisible(), 'the supervisor was not looked for: an invitation, not "not found"')
+    await page.context().close()
+  })
+
+  await check('EN free tier: a scanned PDF is never sent - hand entry with its own explanation, no retry', async () => {
+    setPolicy('automatic')
+    const page = await newPage({ width: 390, height: 844 })
+    await openForm(page)
+    assert.ok(await page.getByText('only a short excerpt').isVisible(), 'the free-tier explanation is shown')
+    const sentBefore = sentToProvider().length
+    const email = uniq('scanned')
+    await fill(page, { name: 'Scanned Thesis', email, file: scannedPdf })
+    await submitAndWaitForConfirm(page)
+    await page.getByRole('heading', { name: 'Add your research details' }).waitFor({ timeout: 30000 })
+    await page.getByText('we could not prepare one from this file', { exact: false }).waitFor()
+    assert.strictEqual(await page.getByRole('button', { name: 'Try again' }).count(), 0, 'no retry that would make the same decision')
+    assert.strictEqual(sentToProvider().length, sentBefore, 'nothing was sent')
+    const paper = paperFor(email)
+    assert.strictEqual(paper.failure_code, 'excerpt_unavailable')
+    await noHorizontalScroll(page)
+    await page.screenshot({ path: `${SHOTS}/confirm-protected-en-390.png`, fullPage: true })
     await page.context().close()
   })
 
@@ -329,7 +367,7 @@ async function main() {
     assert.ok(await page.getByText('The agreement is not available in your language').isVisible())
     assert.strictEqual(await page.locator('form input[type=checkbox]').last().isChecked(), false)
     assert.strictEqual(acceptancesFor(email).length, 0)
-    sql(`update agreement_versions set active = (id like 'submission-terms-2026-10-04-%')`)
+    sql(`update agreement_versions set active = (id like 'submission-terms-2026-10-04-v3-%')`)
     await page.context().close()
   })
 
@@ -483,7 +521,7 @@ async function main() {
 
   await check('server enforces acceptance and the offer even if the browser is bypassed', async () => {
     const terms = await (await fetch(`${APP}/api/submissions/terms`)).json()
-    const body = { offerToken: terms.offer.token, agreementId: 'submission-terms-2026-10-04-en', publicationSetting: 'record_abstract', claimedRole: 'author', processingChoice: 'automatic', fullName: 'Direct', email: uniq('direct'), file: { name: 'a.pdf', size: 100, type: 'application/pdf' } }
+    const body = { offerToken: terms.offer.token, agreementId: 'submission-terms-2026-10-04-v3-en', publicationSetting: 'record_abstract', claimedRole: 'author', processingChoice: 'automatic', fullName: 'Direct', email: uniq('direct'), file: { name: 'a.pdf', size: 100, type: 'application/pdf' } }
     for (const [over, status, reason] of [
       [{ accepted: false }, 400, 'acceptance_required'],
       [{ accepted: true, offerToken: 'forged.offer' }, 400, 'offer_invalid'],

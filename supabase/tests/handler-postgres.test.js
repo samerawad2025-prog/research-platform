@@ -151,7 +151,7 @@ function createPreM1Database() {
 // external_ai_permission before any provider call; this also runs the
 // pre-M1 production route against that state.
 function applyMigration() {
-  for (const m of ['0011_manual_entry.sql', '0012_submission_acceptance.sql', '0013_linkedin_visibility_declared_authors.sql', '0018_ai_processing_agreement.sql']) {
+  for (const m of ['0011_manual_entry.sql', '0012_submission_acceptance.sql', '0013_linkedin_visibility_declared_authors.sql', '0018_ai_processing_agreement.sql', '0019_gemini_free_tier_agreement.sql']) {
     const file = path.join(ROOT, 'supabase/migrations', m)
     if (fs.existsSync(file)) execFileSync('psql', ['-X', '-q', '-v', 'ON_ERROR_STOP=1', '-d', DB, '-f', file], { stdio: ['ignore', 'ignore', 'pipe'] })
   }
@@ -200,7 +200,10 @@ function loadOldRoute(adminClient) {
   src = src
     .replace("import crypto from 'node:crypto'", "const crypto = require('node:crypto')")
     .replace("import { getSupabaseAdmin } from '../../../lib/supabaseAdminClient'", 'const getSupabaseAdmin = () => globalThis.__oldRouteAdmin')
-    .replace("import { runExtraction } from '../../../lib/extraction/orchestrator'", `const { runExtraction } = ${req('lib/extraction/orchestrator')}`)
+    // The deployed old route ships its own orchestrator, which always sends
+    // the document itself (it predates processing scopes, 0019); the current
+    // one requires the scope to be named, so it is named here.
+    .replace("import { runExtraction } from '../../../lib/extraction/orchestrator'", `const runExtraction = (a) => ${req('lib/extraction/orchestrator')}.runExtraction({ scope: 'document', ...a })`)
     .replace("import { decideApplication } from '../../../lib/extraction/applyResult'", `const { decideApplication } = ${req('lib/extraction/applyResult')}`)
     .replace("import { getProvider } from '../../../lib/ai'", `const { getProvider } = ${req('lib/ai')}`)
     .replace("import { extractionAllowed } from '../../../lib/env'", `const { extractionAllowed } = ${req('lib/env')}`)

@@ -2,7 +2,7 @@
 # Release rehearsal on a disposable LOCAL Postgres (never a hosted project).
 # Replays the exact production database sequence from docs/release-runbook.md:
 #   1. the production schema as deployed (schema.sql at the production commit),
-#   2. migrations 0011, 0012, 0013, 0015, 0016, 0017, 0018 in order, each applied
+#   2. migrations 0011, 0012, 0013, 0015, 0016, 0017, 0018, 0019 in order, each applied
 #      twice (idempotence), with the pre-release anonymous submission path
 #      exercised after them (the deployed application must keep working),
 #   3. migration 0014 (the cutover), after which that path must be refused,
@@ -27,7 +27,8 @@ fingerprint() {
     case when to_regclass('public.staff_members') is not null then '0015' end,
     case when to_regclass('public.public_records') is not null then '0016' end,
     case when to_regclass('public.activity_counts') is not null then '0017' end,
-    case when exists(select 1 from information_schema.columns where table_name='agreement_versions' and column_name='external_ai_processing') then '0018' end)"
+    case when exists(select 1 from information_schema.columns where table_name='agreement_versions' and column_name='external_ai_processing') then '0018' end,
+    case when exists(select 1 from pg_constraint where conname='agreement_versions_external_ai_processing_check' and pg_get_constraintdef(oid) like '%gemini_api_unpaid%') then '0019' end)"
 }
 legacy_path() { # prints 'open' if anon can still run submit_paper and insert into storage
   q "$1" "select case when (select bool_or(has_function_privilege('anon', p.oid, 'execute')) from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname='public' and p.proname='submit_paper')
@@ -41,7 +42,7 @@ git show "$PROD_REF:supabase/schema.sql" > "$TMP/prod.sql"; run rel_migrated "$T
 echo "   fingerprint: [$(fingerprint rel_migrated)]  legacy path: $(legacy_path rel_migrated)"
 
 echo "== 2. pre-merge migrations (each twice)"
-for m in 0011_manual_entry 0012_submission_acceptance 0013_linkedin_visibility_declared_authors 0015_admin_review 0016_public_research 0017_activity_metrics 0018_ai_processing_agreement; do
+for m in 0011_manual_entry 0012_submission_acceptance 0013_linkedin_visibility_declared_authors 0015_admin_review 0016_public_research 0017_activity_metrics 0018_ai_processing_agreement 0019_gemini_free_tier_agreement; do
   run rel_migrated "$MIG/$m.sql"; run rel_migrated "$MIG/$m.sql"; echo "   applied $m"
 done
 echo "   fingerprint: [$(fingerprint rel_migrated)]  legacy path: $(legacy_path rel_migrated)"

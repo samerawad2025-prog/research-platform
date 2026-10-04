@@ -440,6 +440,10 @@ export default function AcceptanceSubmissionForm() {
   }
 
   const decision = terms.data.offer.decision === 'automatic' ? 'automatic' : 'manual'
+  // Which of Google's terms automatic reading runs under, so the
+  // explanation matches what is done (an unknown value reads as the more
+  // restrictive free-tier description).
+  const processingTerms = terms.data.processing?.terms || null
   const workingText = phase === 'intent' ? a.working.intent : phase === 'upload' ? a.working.upload : phase === 'finalize' ? a.working.finalize : phase === 'opening' ? a.working.opening : null
   const noticeText = notice ? a.notices[notice] : languageNotice ? a.notices.language : null
 
@@ -623,7 +627,9 @@ export default function AcceptanceSubmissionForm() {
 
       <fieldset className={styles.section}>
         <legend>{a.processingLegend}</legend>
-        <p className={styles.processing} data-decision={decision}>{a.processing[decision]}</p>
+        <p className={styles.processing} data-decision={decision} data-terms={processingTerms || undefined}>
+          {decision === 'automatic' ? a.processing.automaticBy[processingTerms] || a.processing.automaticBy.gemini_api_unpaid : a.processing.manual}
+        </p>
         {decision === 'automatic' &&
           ['automatic', 'manual'].map((choice) => (
             <label key={choice} className={styles.radioOption}>

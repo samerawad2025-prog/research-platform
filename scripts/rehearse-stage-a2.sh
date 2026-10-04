@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Stage A2 rehearsal (migration 0018) on a disposable LOCAL Postgres (never a
+# Stage A2 rehearsal (migrations 0018 and 0019) on a disposable LOCAL Postgres (never a
 # hosted project). Builds production as it is after Stage A (2026-10-04):
 # the production schema, synthetic production-shaped rows, and 0011, 0012,
 # 0013, 0015, 0016, 0017. Then replays docs/release-runbook.md "Stage A2":
 # PREFLIGHT A2, the data fingerprint, 0018 (twice: idempotent), AFTER 0018,
-# the fingerprint again (identical), and the deployed application's browser
-# calls against the result.
+# 0019 (twice), AFTER 0019, the fingerprint again (identical), and the
+# deployed application's browser calls against the result.
 #
 # The Stage A part below is the same as scripts/rehearse-stage-a.sh:
 #   1. Supabase-like setup: the repository's stubs plus Supabase's default
@@ -105,11 +105,14 @@ echo "4. data fingerprint before 0018: $before"
 run "$MIG/0018_ai_processing_agreement.sql"
 run "$MIG/0018_ai_processing_agreement.sql"
 check "AFTER 0018" "$CHECKS2"
+run "$MIG/0019_gemini_free_tier_agreement.sql"
+run "$MIG/0019_gemini_free_tier_agreement.sql"
+check "AFTER 0019" "$CHECKS2"
 after=$(fingerprint)
-echo "5. data fingerprint after 0018:  $after"
+echo "5. data fingerprint after 0019:  $after"
 [ "$before" = "$after" ] || { echo "STOP: existing data changed" >&2; exit 1; }
 
-echo "6. the deployed application's browser calls (role anon), after 0018:"
+echo "6. the deployed application's browser calls (role anon), after 0018 and 0019:"
 out=$(psqlq <<'SQL'
 set role anon;
 select 'direct select on papers returns ' || count(*) || ' rows' from papers;

@@ -218,8 +218,13 @@ export const MESSAGES = {
       processingLegend: 'How your document will be processed',
       processing: {
         // Short, visible AI-processing explanation (agreement section 6 has the detail).
-        automatic:
-          'By default, the first pages of your document (or text from a Word file) are sent to Google’s Gemini AI service to suggest its title, authors and other details. Google does not use them to improve its products, but keeps them for up to 55 days to check for misuse. Suggestions can be wrong: you check and correct every detail before confirming.',
+        // Keyed by the arrangement the server attests (GEMINI_DATA_TERMS).
+        automaticBy: {
+          gemini_api_unpaid:
+            'By default, our server reads your file itself and sends Google’s Gemini AI service (free tier) only a short excerpt — cover-page lines, the likely title and the abstract — with names and contact details removed. Google may use it to improve its products, and people at Google may review it. Removal is automatic and can miss things, so choose manual entry if your title or abstract contains personal or confidential information. Suggestions can be wrong: you add the authors and supervisor yourself and check every detail.',
+          gemini_api_paid:
+            'By default, the first pages of your document (or text from a Word file) are sent to Google’s Gemini AI service to suggest its title, authors and other details. Google does not use them to improve its products, but keeps them for up to 55 days to check for misuse. Suggestions can be wrong: you check and correct every detail before confirming.',
+        },
         manual: 'Your document will not be read automatically. After upload, you will enter its details yourself.',
       },
       processingChoices: {
@@ -229,7 +234,7 @@ export const MESSAGES = {
         },
         manual: {
           label: 'Enter details manually',
-          hint: 'Your document is not sent to Gemini. You type its details yourself after upload.',
+          hint: 'Nothing from your document is sent to Gemini. You type its details yourself after upload.',
         },
       },
       termsLegend: 'Agreement',
@@ -338,6 +343,9 @@ export const MESSAGES = {
       // Before the page knows the submission's state: it must not claim
       // to be reading a document that may never be read (manual choice).
       openingHeading: 'Opening your submission',
+      // Suggestions made from a minimized excerpt (Google's unpaid terms).
+      excerptNote:
+        'These suggestions come from a short excerpt of your document with names and contact details removed. Add the authors and the supervisor yourself, and check every detail.',
       loadingHeading: 'Reading your research',
       readyHeading: 'Here’s what we found',
       loadingSubtitle: 'This usually takes under a minute. The page will fill in on its own.',
@@ -403,6 +411,9 @@ export const MESSAGES = {
           'We couldn’t fill these in from your document this time, so please enter them yourself. What you enter here is what will be saved.',
         // The researcher chose manual entry before submitting.
         chosenNote: 'You chose to enter these details yourself, so your document was not sent for automatic reading.',
+        // No safe excerpt could be prepared (lib/extraction/excerpt.js).
+        protectedNote:
+          'To protect personal information, only a short excerpt of a document, with names and contact details removed, can be sent for automatic reading. We could not prepare one from this file (for example, a scanned PDF without readable text), so nothing was sent. Please enter the details yourself.',
         emptyHint: 'Tap to add.',
         enterYourself: 'Enter the details yourself',
         switching: 'One moment…',
@@ -562,13 +573,23 @@ export const MESSAGES = {
       },
       processingLegend: 'كيف ستتم معالجة مستندك',
       processing: {
-        automatic: (
-          <>
-            افتراضياً، تُرسل الصفحات الأولى من مستندك (أو نص من ملف Word) إلى خدمة الذكاء الاصطناعي <Ltr>Gemini</Ltr> التابعة
-            لشركة <Ltr>Google</Ltr> لاقتراح عنوانه ومؤلفيه وتفاصيل أخرى. لا تستخدمها <Ltr>Google</Ltr> لتحسين منتجاتها، لكنها
-            تحتفظ بها مدة أقصاها 55 يوماً للتحقق من إساءة الاستخدام. قد تكون الاقتراحات خاطئة: تراجع كل تفصيل وتصححه قبل التأكيد.
-          </>
-        ),
+        automaticBy: {
+          gemini_api_unpaid: (
+            <>
+              افتراضياً، يقرأ خادمنا ملفك بنفسه ولا يرسل إلى خدمة الذكاء الاصطناعي <Ltr>Gemini</Ltr> التابعة لشركة <Ltr>Google</Ltr>
+              (الفئة المجانية) إلا مقتطفاً قصيراً، هو أسطر من صفحة الغلاف والعنوان المرجّح والملخص، بعد حذف الأسماء وبيانات الاتصال.
+              وقد تستخدمه <Ltr>Google</Ltr> لتحسين منتجاتها، وقد يراجعه موظفون لديها. والحذف آلي وقد يفوته شيء، فاختر الإدخال اليدوي إذا
+              تضمّن عنوانك أو ملخصك معلومات شخصية أو سرية. وقد تكون الاقتراحات خاطئة: تضيف أنت المؤلفين والمشرف وتراجع كل تفصيل.
+            </>
+          ),
+          gemini_api_paid: (
+            <>
+              افتراضياً، تُرسل الصفحات الأولى من مستندك (أو نص من ملف Word) إلى خدمة الذكاء الاصطناعي <Ltr>Gemini</Ltr> التابعة
+              لشركة <Ltr>Google</Ltr> لاقتراح عنوانه ومؤلفيه وتفاصيل أخرى. لا تستخدمها <Ltr>Google</Ltr> لتحسين منتجاتها، لكنها
+              تحتفظ بها مدة أقصاها 55 يوماً للتحقق من إساءة الاستخدام. قد تكون الاقتراحات خاطئة: تراجع كل تفصيل وتصححه قبل التأكيد.
+            </>
+          ),
+        },
         manual: 'لن تتم قراءة مستندك آلياً. بعد الرفع، ستُدخل تفاصيله بنفسك.',
       },
       processingChoices: {
@@ -578,7 +599,7 @@ export const MESSAGES = {
         },
         manual: {
           label: 'أدخل التفاصيل يدوياً',
-          hint: <>لا يُرسل مستندك إلى <Ltr>Gemini</Ltr>. تكتب تفاصيله بنفسك بعد الرفع.</>,
+          hint: <>لا يُرسل أي شيء من مستندك إلى <Ltr>Gemini</Ltr>. تكتب تفاصيله بنفسك بعد الرفع.</>,
         },
       },
       termsLegend: 'الاتفاقية',
@@ -587,7 +608,7 @@ export const MESSAGES = {
       readTerms: 'اقرأ نص الاتفاقية كاملاً',
       // The registry's labels are English; the date is isolated LTR.
       version: (label, date) =>
-        `${{ 'Initial Version': 'الإصدار الأول', 'Version 2': 'الإصدار الثاني' }[label] || label}، \u2066${date}\u2069`,
+        `${{ 'Initial Version': 'الإصدار الأول', 'Version 2': 'الإصدار الثاني', 'Version 3': 'الإصدار الثالث' }[label] || label}، \u2066${date}\u2069`,
       termsRegion: 'النص الكامل للاتفاقية',
       otherLanguage: 'الاتفاقية غير متاحة بلغتك، لذلك تُعرض باللغة أدناه.',
       submit: 'أوافق وأقدّم البحث',
@@ -686,6 +707,8 @@ export const MESSAGES = {
         body2: 'ما زال طلبك محفوظاً، وسنتابع معك عبر البريد الإلكتروني.',
       },
       openingHeading: 'جارٍ فتح طلبك',
+      excerptNote:
+        'هذه الاقتراحات مأخوذة من مقتطف قصير من مستندك بعد حذف الأسماء وبيانات الاتصال. أضف المؤلفين والمشرف بنفسك، وراجع كل تفصيل.',
       loadingHeading: 'جارٍ قراءة بحثك',
       readyHeading: 'هذه هي التفاصيل التي وجدناها',
       loadingSubtitle: 'يستغرق هذا عادةً أقل من دقيقة. ستظهر التفاصيل في الصفحة تلقائياً.',
@@ -755,6 +778,8 @@ export const MESSAGES = {
         fallbackNote:
           'لم نتمكن هذه المرة من تعبئة هذه التفاصيل من مستندك، لذا يرجى إدخالها بنفسك. ما تُدخله هنا هو ما سيُحفظ.',
         chosenNote: 'اخترت إدخال هذه التفاصيل بنفسك، لذا لم يُرسل مستندك للقراءة الآلية.',
+        protectedNote:
+          'حمايةً للمعلومات الشخصية، لا يمكن أن يُرسل للقراءة الآلية إلا مقتطف قصير من المستند بعد حذف الأسماء وبيانات الاتصال. ولم نتمكن من إعداده من هذا الملف (مثل ملف PDF ممسوح ضوئياً بلا نص قابل للقراءة)، لذا لم يُرسل أي شيء. يُرجى إدخال التفاصيل بنفسك.',
         emptyHint: 'اضغط للإضافة.',
         enterYourself: 'أدخل التفاصيل بنفسك',
         switching: 'لحظة من فضلك…',

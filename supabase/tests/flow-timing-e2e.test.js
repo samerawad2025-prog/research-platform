@@ -24,7 +24,6 @@ const os = require('node:os')
 const path = require('node:path')
 const { execFileSync } = require('node:child_process')
 const { chromium } = require('playwright')
-const { PDFDocument } = require('pdf-lib')
 
 const APP = process.env.E2E_APP_URL || 'http://127.0.0.1:3100'
 const FLOW = process.env.E2E_FLOW || 'acceptance' // or 'legacy'
@@ -52,11 +51,12 @@ async function check(name, fn) {
 }
 
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'timing-docs-'))
+// A realistic synthetic thesis (invented people): under the free tier a
+// near-empty PDF would correctly never be read, and the automatic path
+// would not be exercised.
 async function pdfFile(name) {
-  const d = await PDFDocument.create()
-  d.addPage().drawText('Synthetic thesis for a timing test', { x: 50, y: 700 })
   const p = path.join(TMP, name)
-  fs.writeFileSync(p, Buffer.from(await d.save()))
+  fs.copyFileSync(path.join(__dirname, '../../scripts/fixtures/synthetic/thesis-en.pdf'), p)
   return p
 }
 
@@ -160,7 +160,7 @@ async function main() {
   if (FLOW === 'acceptance') {
     sql(`update extraction_policy set mode = 'automatic', changed_at = now()`)
     // Version 2 only: the version whose text describes Gemini reading.
-    sql(`update agreement_versions set active = (id like 'submission-terms-2026-10-04-%')`)
+    sql(`update agreement_versions set active = (id like 'submission-terms-2026-10-04-v3-%')`)
 
     await check('automatic: submit -> progress -> reading -> review -> thank-you only after Confirm (every hop delayed)', async () => {
       mock({ delayMs: 4000 }) // a slow extraction, so the reading state is long

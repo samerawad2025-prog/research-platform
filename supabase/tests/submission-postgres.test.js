@@ -43,6 +43,12 @@ const SECRET = crypto.randomBytes(32).toString('hex')
 const ENV = (mode) => ({ SUBMISSION_ACCEPTANCE_FLOW: 'enabled', SUBMISSION_TOKEN_SECRET: SECRET, GEMINI_DATA_TERMS: 'paid', ...(mode === undefined ? {} : { EXTRACTION_MODE: mode }) })
 const V1 = 'submission-terms-2026-09-25-en'
 const V2 = 'submission-terms-2026-10-04-en'
+const V3 = 'submission-terms-2026-10-04-v3-en'
+const V3_AR = 'submission-terms-2026-10-04-v3-ar'
+// Google's unpaid (free-tier) terms attested (migration 0019).
+const FREE = (mode) => ({ ...ENV(mode), GEMINI_DATA_TERMS: 'unpaid' })
+const FIXTURE = (name) => fs.readFileSync(path.join(ROOT, 'scripts/fixtures/synthetic', name))
+const PERSONAL = [/Amna/i, /Elhassan/i, /Kamal/i, /Yousif/i, /Nafisa/i, /Fatima/i, /Hassan Ali/i, /Sara Ahmed/i, /Babiker/i, /@/, /912\s?345/, /0412345/]
 
 function logCapture() {
   const lines = []
@@ -71,6 +77,8 @@ function setup() {
   run(path.join(ROOT, 'supabase/migrations/0013_linkedin_visibility_declared_authors.sql')) // idempotent
   run(path.join(ROOT, 'supabase/migrations/0018_ai_processing_agreement.sql'))
   run(path.join(ROOT, 'supabase/migrations/0018_ai_processing_agreement.sql')) // idempotent
+  run(path.join(ROOT, 'supabase/migrations/0019_gemini_free_tier_agreement.sql'))
+  run(path.join(ROOT, 'supabase/migrations/0019_gemini_free_tier_agreement.sql')) // idempotent
 }
 
 async function pdfBytes(text = 'Synthetic thesis') {
@@ -251,7 +259,7 @@ async function main() {
     const view = json(`select get_paper_for_confirmation(${lit(f.body.confirmationToken)})`)
     assert.strictEqual(view.paper_id, p.id)
     assert.strictEqual(view.automatic_processing, true)
-    assert.deepStrictEqual(json(`select external_ai_permission(${lit(p.id)})`), { permitted: true, terms: 'gemini_api_paid', agreement_version_id: V2 })
+    assert.deepStrictEqual(json(`select external_ai_permission(${lit(p.id)})`), { permitted: true, terms: 'gemini_api_paid', agreement_version_id: V2, known_names: ['Synthetic Researcher'] })
     assert.strictEqual(p.manual_entry_at, null)
     assert.strictEqual(json(`select get_paper_for_confirmation(${lit(p.id)})`), null)
     happy = { r, f, bytes, p, log }
@@ -938,7 +946,115 @@ async function main() {
       { id: 'submission-terms-2026-09-25-en', ai: null },
       { id: 'submission-terms-2026-10-04-ar', ai: 'gemini_api_paid' },
       { id: 'submission-terms-2026-10-04-en', ai: 'gemini_api_paid' },
+      { id: 'submission-terms-2026-10-04-v3-ar', ai: 'gemini_api_unpaid' },
+      { id: 'submission-terms-2026-10-04-v3-en', ai: 'gemini_api_unpaid' },
     ])
+  })
+
+  // ------------------------------------------------------------ 0019: free tier, minimized excerpt only
+  async function freeSubmission(fileName = 'thesis-en.pdf', fullName = 'Amna Osman Elhassan') {
+    const bytes = FIXTURE(fileName)
+    const shown = await handleTerms({ env: FREE('automatic'), supabase, clientKey: nextIp() })
+    const type = fileName.endsWith('.pdf') ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+    const r = await handleCreateIntent({
+      body: body({ offerToken: shown.body.offer.token, agreementId: V3, processingChoice: 'automatic', fullName, file: { name: fileName, size: bytes.length, type } }),
+      env: FREE('automatic'), supabase, storage, clientKey: nextIp(),
+    })
+    assert.strictEqual(r.status, 201, JSON.stringify(r.body))
+    await upload(r, bytes)
+    const f = await finalize(r, FREE('automatic'))
+    storage.objects.set(r.body.upload.path, bytes)
+    return { shown, r, f, bytes }
+  }
+  function recorder() {
+    const p = { documents: [] }
+    p.extractMetadata = async ({ document }) => {
+      p.documents.push(document)
+      return { provider: 'fake', model: 'fake', result: { document_type: 'thesis', title: { status: 'found', value: 'From the excerpt' }, year: { status: 'found', value: '2021' }, supervisor_name: { status: 'found', value: 'Dr. Volunteered' } } }
+    }
+    return p
+  }
+  const extractUnder = (token, terms, provider) =>
+    handleExtract({ token, env: { EXTRACTION_MODE: 'automatic', GEMINI_DATA_TERMS: terms, AI_PROVIDER: 'mock' }, getSupabaseAdmin: () => supabase, getProvider: () => provider, runExtraction, log: logCapture() })
+
+  await check('0019: version 3 under unpaid terms - offered, recorded with its arrangement, and only an excerpt without people is sent', async () => {
+    setPolicy('automatic')
+    activate(true, [V3, V3_AR])
+    const { shown, r, f } = await freeSubmission()
+    assert.strictEqual(shown.body.offer.decision, 'automatic')
+    assert.strictEqual(shown.body.processing.terms, 'gemini_api_unpaid')
+    assert.strictEqual(r.body.processing.decision, 'automatic')
+    assert.strictEqual(f.body.extraction.mayStart, true)
+    const a = acceptanceOf(r.body.intentId)
+    assert.strictEqual(a.agreement_version_id, V3)
+    assert.strictEqual(a.ai_processing_terms, 'gemini_api_unpaid')
+    const p = paperOf(r.body.intentId)
+    assert.deepStrictEqual(json(`select external_ai_permission(${lit(p.id)})`),
+      { permitted: true, terms: 'gemini_api_unpaid', agreement_version_id: V3, known_names: ['Amna Osman Elhassan'] })
+    const provider = recorder()
+    const res = await extractUnder(f.body.confirmationToken, 'unpaid', provider)
+    assert.strictEqual(res.status, 200, JSON.stringify(res.body))
+    assert.strictEqual(provider.documents.length, 1, 'one request')
+    const doc = provider.documents[0]
+    assert.strictEqual(doc.type, 'text')
+    assert.strictEqual(doc.scope, 'excerpt')
+    for (const re of PERSONAL) assert.ok(!re.test(doc.content), `${re} would have been sent`)
+    const after = paperOf(r.body.intentId)
+    assert.strictEqual(after.title, 'From the excerpt')
+    assert.strictEqual(after.supervisor_name, null, 'a volunteered supervisor is never kept')
+    const view = json(`select get_paper_for_confirmation(${lit(f.body.confirmationToken)})`)
+    assert.strictEqual(view.extraction_detail._scope, 'excerpt')
+    assert.ok(!('_diagnostics' in view.extraction_detail), 'the excerpt record is not served to the browser')
+    const pass1 = json(`select result_data from ai_generations where paper_id = ${lit(p.id)} and notes = 'Pass 1'`)
+    assert.strictEqual(pass1._diagnostics.excerpt.text, doc.content, 'what left the server is on record')
+  })
+
+  await check('0019: a scan is never sent; the paper goes to hand entry with its own reason', async () => {
+    const { r, f } = await freeSubmission('scanned-cover.pdf')
+    const provider = recorder()
+    const res = await extractUnder(f.body.confirmationToken, 'unpaid', provider)
+    assert.strictEqual(res.status, 200)
+    assert.strictEqual(res.body.reason, 'excerpt_unavailable')
+    assert.deepStrictEqual(provider.documents, [])
+    assert.strictEqual(paperOf(r.body.intentId).failure_code, 'excerpt_unavailable')
+    const gen = json(`select to_jsonb(g) from ai_generations g where paper_id = ${lit(paperOf(r.body.intentId).id)} order by created_at desc limit 1`)
+    assert.strictEqual(gen.provider, 'none')
+    assert.strictEqual(gen.result_data._diagnostics.reason, 'no_text_layer')
+  })
+
+  await check('0019: the arrangement must match - version 3 is never read under paid terms, version 2 never under unpaid', async () => {
+    const v3 = await freeSubmission()
+    const provider = recorder()
+    const asPaid = await extractUnder(v3.f.body.confirmationToken, 'paid', provider)
+    assert.strictEqual(asPaid.body.restricted, 'agreement_not_applicable')
+    assert.strictEqual(paperOf(v3.r.body.intentId).manual_entry_source, 'mode')
+    activate(true)
+    const { r, bytes } = await submit()
+    await upload(r, bytes)
+    const f = await finalize(r)
+    storage.objects.set(r.body.upload.path, bytes)
+    assert.strictEqual(acceptanceOf(r.body.intentId).ai_processing_terms, 'gemini_api_paid')
+    const asFree = await extractUnder(f.body.confirmationToken, 'unpaid', provider)
+    assert.strictEqual(asFree.body.restricted, 'agreement_not_applicable')
+    assert.deepStrictEqual(provider.documents, [], 'nothing sent either way')
+    // Offers follow the same rule: version 2 is never offered automatic reading on a free-tier server.
+    assert.strictEqual((await handleTerms({ env: FREE('automatic'), supabase, clientKey: nextIp() })).body.offer.decision, 'manual')
+  })
+
+  await check('0019: re-running changes nothing; earlier acceptances keep their arrangement; values are constrained; browser roles have no access', async () => {
+    const snapshot = () => sqlOk(`select md5(string_agg(t, '|' order by t)) from (
+      select to_jsonb(a)::text t from agreement_versions a union all select to_jsonb(s)::text from submission_acceptances s
+      union all select (to_jsonb(p) - 'updated_at')::text from papers p) x`)
+    const before = snapshot()
+    execFileSync('psql', ['-X', '-q', '-v', 'ON_ERROR_STOP=1', '-d', DB, '-f', path.join(ROOT, 'supabase/migrations/0019_gemini_free_tier_agreement.sql')], { stdio: ['ignore', 'ignore', 'pipe'] })
+    assert.strictEqual(snapshot(), before)
+    assert.strictEqual(count(`select count(*) from submission_acceptances where ai_processing_terms = 'gemini_api_unpaid' and agreement_version_id not like 'submission-terms-2026-10-04-v3-%'`), 0)
+    assert.ok(psql(`update submission_acceptances set ai_processing_terms = 'gemini_api_other' where id = (select id from submission_acceptances limit 1)`).error, 'unknown arrangement refused')
+    assert.ok(psql(`update agreement_versions set external_ai_processing = 'gemini_free' where id = ${lit(V1)}`).error)
+    for (const role of ['anon', 'authenticated']) {
+      assert.ok(psql(`set role ${role}; select external_ai_permission('${paperOf(happy.r.body.intentId).id}')`).error, role)
+    }
+    activate(true)
   })
 
   await check('compatibility: the old submission path still works, is stamped manual whatever the policy, and is never read; legacy rows untouched', async () => {

@@ -31,6 +31,7 @@ async function check(name, fn) {
 const ROOT = path.join(__dirname, '..')
 const migration = fs.readFileSync(path.join(ROOT, 'supabase/migrations/0012_submission_acceptance.sql'), 'utf8')
 const migration18 = fs.readFileSync(path.join(ROOT, 'supabase/migrations/0018_ai_processing_agreement.sql'), 'utf8')
+const migration19 = fs.readFileSync(path.join(ROOT, 'supabase/migrations/0019_gemini_free_tier_agreement.sql'), 'utf8')
 
 // A database stand-in that fails the test if it is touched at all.
 const untouchable = new Proxy({}, { get: () => { throw new Error('the database was reached') } })
@@ -60,11 +61,11 @@ async function main() {
     }
   })
 
-  await check('registry: migrations 0012 and 0018 seed the same ids, languages, hashes and AI arrangement, all inactive', () => {
+  await check('registry: migrations 0012, 0018 and 0019 seed the same ids, languages, hashes and AI arrangement, all inactive', () => {
     for (const a of AGREEMENTS) {
       if (a.externalAi) {
         const re = new RegExp(`\\('${a.id}', '${a.key}', '${a.language}', '${a.versionLabel}', '${a.versionDate}',\\s*'${a.sha256}', false, '${a.externalAi}'\\)`)
-        assert.ok(re.test(migration18), a.id)
+        assert.ok(re.test(a.externalAi === 'gemini_api_unpaid' ? migration19 : migration18), a.id)
       } else {
         const re = new RegExp(`\\('${a.id}', '${a.key}', '${a.language}', '${a.versionLabel}', '${a.versionDate}',\\s*'${a.sha256}', false\\)`)
         assert.ok(re.test(migration), a.id)
@@ -74,11 +75,13 @@ async function main() {
     assert.ok(!/,\s*true,\s*'[a-z_]+'\)/.test(migration18), 'no agreement is seeded active')
     // 0018 never touches the existing rows: no update of agreement_versions at all.
     assert.ok(!/update\s+agreement_versions/i.test(migration18), 'existing agreement rows are not modified')
+    assert.ok(!/,\s*true,\s*'[a-z_]+'\)/.test(migration19), 'version 3 is not seeded active')
+    assert.ok(!/update\s+(agreement_versions|submission_acceptances|papers)\b/i.test(migration19), '0019 modifies no existing row')
   })
 
-  await check('registry: only version 2 describes external AI reading; both languages of it say so', () => {
+  await check('registry: version 2 describes paid Gemini terms; both languages of it say so', () => {
     const v1 = AGREEMENTS.filter((a) => a.versionDate === '2026-09-25')
-    const v2 = AGREEMENTS.filter((a) => a.versionDate === '2026-10-04')
+    const v2 = AGREEMENTS.filter((a) => a.versionLabel === 'Version 2')
     assert.strictEqual(v1.length, 2)
     assert.strictEqual(v2.length, 2)
     for (const a of v1) assert.strictEqual(a.externalAi, null, a.id)
@@ -95,6 +98,37 @@ async function main() {
     }
   })
 
+  await check('registry: version 3 describes the free tier as it is, in both languages, without the paid promises', () => {
+    const v3 = AGREEMENTS.filter((a) => a.versionLabel === 'Version 3')
+    assert.strictEqual(v3.length, 2)
+    for (const a of v3) {
+      assert.strictEqual(a.externalAi, 'gemini_api_unpaid', a.id)
+      const text = fs.readFileSync(path.join(ROOT, a.file), 'utf8')
+      const must = a.language === 'en'
+        ? ['We do not send your document to Gemini', 'short excerpt', '"By", "Supervisor"', 'never asked for the names', 'nothing is sent', 'not guaranteed to remove every name', 'Enter details manually',
+           'unpaid services (the free tier)', 'improve and develop Google', 'machine-learning technologies', 'Human reviewers may read', 'disconnecting the data', '55 days', 'any country',
+           'do not state a period', 'does not delete anything Google holds', 'cannot authorize the use of anyone else', 'Google asks that sensitive, confidential or personal information not be submitted', 'can be wrong',
+           'minimized excerpt of my document to Google Gemini']
+        : ['لا نرسل مستندك إلى Gemini', 'مقتطفاً قصيراً', '"إعداد" و"إشراف"', 'لا يُطلب من Gemini أبداً', 'لا يُرسل أي شيء', 'لا يُضمن أن يحذف كل اسم', 'أدخل التفاصيل يدوياً',
+           'للخدمات غير المدفوعة (الفئة المجانية)', 'وتحسينها وتطويرها', 'تعلّم الآلة', 'مراجعين بشريين', 'فصل البيانات', '55 يوماً', 'أي بلد',
+           'لا تحدد شروط Google مدة', 'لا يؤدي سحب إيداعك', 'لا يمكنها أن تجيز استخدام المعلومات الشخصية', 'تطلب Google عدم إرسال معلومات حساسة أو سرية أو شخصية', 'خاطئة',
+           'مقتطف مختصر من مستندي إلى Google Gemini']
+      for (const phrase of must) assert.ok(text.includes(phrase), `${a.id}: ${phrase}`)
+      // Nothing from the paid version that would be untrue on the free tier.
+      const mustNot = a.language === 'en'
+        ? ['does not use the prompts', 'We use the Gemini API only under Google', 'We will not send documents to Gemini under terms', 'we do not permit their use for general-purpose AI model training', 'first 10 pages']
+        : ['لا تستخدم الطلبات والمستندات', 'لا نستخدم واجهة Gemini البرمجية إلا بموجب', 'ولن نرسل المستندات إلى Gemini', 'ولا نسمح باستخدامها لتدريب', 'أول 10 صفحات']
+      for (const phrase of mustNot) assert.ok(!text.includes(phrase), `${a.id} still says: ${phrase}`)
+    }
+    // Sections 1-5, 8 and 9 are word for word those of version 2.
+    for (const lang of ['en', 'ar']) {
+      const strip = (t) => t.replace(/\n### 6\.[\s\S]*?\n### 8\./, '\n### 8.').replace(/^\*\*(Version|الإصدار):\*\*.*$/m, '').replace(/\n### (Acceptance|الموافقة)[\s\S]*$/, '')
+      const v2 = fs.readFileSync(path.join(ROOT, `docs/legal/submission-terms.v2.${lang}.md`), 'utf8')
+      const v3t = fs.readFileSync(path.join(ROOT, `docs/legal/submission-terms.v3.${lang}.md`), 'utf8')
+      assert.strictEqual(strip(v3t), strip(v2), `${lang}: only sections 6, 7 and the acceptance sentence differ`)
+    }
+  })
+
   await check('validation: the processing choice is explicit, and only automatic or manual', () => {
     for (const processingChoice of [undefined, null, '', 'Automatic', 'gemini', true, 1]) {
       assert.strictEqual(validateIntentBody({ ...good(), processingChoice }).error, 'processing_choice_invalid', String(processingChoice))
@@ -102,14 +136,20 @@ async function main() {
     assert.strictEqual(validateIntentBody({ ...good(), processingChoice: 'manual' }).value.processingChoice, 'manual')
   })
 
-  await check('offer: automatic only with the mode, the policy, attested paid terms AND agreements that describe them', () => {
-    const v2 = AGREEMENTS.filter((a) => a.externalAi)
+  await check('offer: automatic only with the mode, the policy, attested terms AND agreements that describe exactly those terms', () => {
+    const v2 = AGREEMENTS.filter((a) => a.externalAi === 'gemini_api_paid')
+    const v3 = AGREEMENTS.filter((a) => a.externalAi === 'gemini_api_unpaid')
     const v1 = AGREEMENTS.filter((a) => !a.externalAi)
     const full = { EXTRACTION_MODE: 'automatic', GEMINI_DATA_TERMS: 'paid' }
+    const free = { EXTRACTION_MODE: 'automatic', GEMINI_DATA_TERMS: 'unpaid' }
+    assert.strictEqual(previewDecision(free, 'automatic', v3), 'automatic', 'the launch arrangement')
+    assert.strictEqual(previewDecision(free, 'automatic', v2), 'manual', 'paid text never offered on a free-tier server')
+    assert.strictEqual(previewDecision(full, 'automatic', v3), 'manual', 'free-tier text never offered under paid attestation')
+    assert.strictEqual(previewDecision(free, 'automatic', [...v3, v2[0]]), 'manual', 'mixed versions')
     assert.strictEqual(previewDecision(full, 'automatic', v2), 'automatic')
     assert.strictEqual(previewDecision(full, 'manual', v2), 'manual', 'policy row')
     assert.strictEqual(previewDecision({ ...full, EXTRACTION_MODE: 'manual' }, 'automatic', v2), 'manual', 'mode')
-    for (const t of [undefined, '', 'unpaid', 'free', 'yes']) {
+    for (const t of [undefined, '', 'free', 'yes', 'unpaid-ish']) {
       assert.strictEqual(previewDecision({ EXTRACTION_MODE: 'automatic', GEMINI_DATA_TERMS: t }, 'automatic', v2), 'manual', `terms ${t}`)
     }
     assert.strictEqual(previewDecision(full, 'automatic', v1), 'manual', 'an agreement without AI disclosure never leads to reading')
