@@ -208,7 +208,11 @@ Effect: the legacy form is still served, **and its submissions are no longer rea
 Verify: deployment commit = merged head; a legacy submission completes with that sequence and no thank-you before Confirm; no `ai_generations` row for it; `/api/extract` for it answers `restricted: "submission_policy"`; `/admin` and `/research` 404.
 Rollback: Vercel → promote the previous deployment (`f45dc690`). Stages A and A2 stay. (Promoting `f45dc690` back also restores its unconditional Gemini reading.)
 
-**Keep the B→D window short.** It is the only period in which nobody gets automatic reading. If the billing fact and the version 2 approval are already settled, B and D can run in one session.
+**Sequence change (2026-10-04, after review): B and D run together, and not before the Gemini arrangement is settled.** Stage B on its own would turn automatic reading *off* for every new submission (the legacy form carries no applicable acceptance), which contradicts the founder's requirement that Gemini reading stays the default. So:
+- **Until the arrangement is settled, production stays on `f45dc690`** (it keeps reading every paper, as today). Stage A2 (0018) can still be applied: it changes nothing that code does.
+- **When the key's project is confirmed paid:** one session — stage B settings plus `GEMINI_DATA_TERMS=paid`, the merge, then stage D steps 1–4 immediately (activate version 2, policy `automatic`, `SUBMISSION_ACCEPTANCE_FLOW=enabled`, redeploy). Between the merge's deploy and the flag redeploy, legacy submissions get manual entry; keep that to minutes, or set the flag before the merge so the first production build already serves the new form.
+- **If the founder decides to stay on unpaid terms:** version 2 does not describe that arrangement and must not be activated. It needs a separately approved agreement text (Google may use inputs to improve its products, with human review, and asks that personal information not be sent; consent cannot override that) and a forward migration adding that arrangement value. Neither exists; both are founder/legal decisions.
+- `GEMINI_DATA_TERMS=paid` on the Preview is a **mock-test configuration only** (`AI_PROVIDER=mock`; nothing reaches Google). It is not evidence of the production arrangement.
 
 ### Stage D — agreement version 2, the new form, and Gemini reading (founder decisions)
 Preconditions: stage 0 passed (H1–H6, and H12 for this change); the founder approved agreement **version 2** (EN + AR; D2); the **billing fact** is established (`docs/legal/README.md`, "The fact still missing").
@@ -361,7 +365,7 @@ Smallest dependable release (revised 2026-10-04): stages A→A2→G with **Gemin
 | D8 | Rotate the exposed production service-role key (§7a) | **Decided 2026-10-02: no rotation; risk accepted (§7a)** |
 
 ### Remaining blockers (2026-10-04)
-1. Stage A is **done** (§7). Next: **approval of Stage A2** (migration 0018, §4), then **stage B** (set `EXTRACTION_MODE=automatic` and `SUBMISSION_TOKEN_SECRET` in Production, leave `GEMINI_DATA_TERMS` unset, then the merge that deploys; decision D5).
+1. Stage A is **done** (§7). Next: **approval of Stage A2** (migration 0018, §4). **Stage B waits for the Gemini arrangement (D1)** and then runs together with stage D (see "Sequence change" in §4); running B alone would stop automatic reading in production.
 2. **The billing fact (D1)** before any Gemini reading in production; approval of **agreement version 2 (D2)** before stage D.
 3. Later stages need their own approvals and founder decisions D3 (confidentiality text), D4 (request log), D6 (domain).
 Not blockers: isolated hosted verification (complete, §7), activity counts (fixed by `fra1`, verified), key rotation (founder decision: not rotated; accepted risk in §7a).
