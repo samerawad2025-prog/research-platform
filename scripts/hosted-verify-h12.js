@@ -83,7 +83,7 @@ async function main() {
     return `completed in ${x.body.passesRun} pass(es); researchers found; supervisor ${v.extraction_detail.supervisor_name?.status}`
   })
 
-  await check('H12 automatic, Word file: one excerpt read', async () => {
+  await check('H12 automatic, Word file: read', async () => {
     await submit('docx', fs.readFileSync(path.join(FIX, 'thesis-en.docx')), 'docx', 'automatic')
     const x = await api('/api/extract', { token: state.papers.docx })
     assert.strictEqual(x.status, 200, `extract ${x.status}`)
