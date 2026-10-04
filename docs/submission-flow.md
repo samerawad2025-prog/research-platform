@@ -151,7 +151,7 @@ The confirmation step (`confirm_researcher_metadata`) sets the final list and or
 
 | Source | Set by | Decision |
 |---|---|---|
-| `server` | the new path | `automatic` only if `EXTRACTION_MODE=automatic` **and** `extraction_policy.mode = 'automatic'` at acceptance **and** the accepted offer said `automatic` **and** the researcher chose automatic reading **and** the accepted agreement version describes the external AI arrangement the server attests to (`GEMINI_DATA_TERMS=paid` ↔ `agreement_versions.external_ai_processing = 'gemini_api_paid'`, migration 0018). Anything else, including unset, invalid or unknown values, is `manual`. The insert trigger can only **lower** it, if the policy row turned `manual` before finalization. |
+| `server` | the new path | `automatic` only if `EXTRACTION_MODE=automatic` **and** `extraction_policy.mode = 'automatic'` at acceptance **and** the accepted offer said `automatic` **and** the researcher chose automatic reading **and** the accepted agreement version describes the external AI arrangement the server attests to (`GEMINI_DATA_TERMS=unpaid` ↔ `agreement_versions.external_ai_processing = 'gemini_api_unpaid'`, version 3, migration 0019 — the launch arrangement; or `paid` ↔ `gemini_api_paid`, version 2, superseded). Anything else, including unset, invalid or unknown values, is `manual`. The insert trigger can only **lower** it, if the policy row turned `manual` before finalization. |
 | `database_policy` | the old path (`submit_paper`), until it is closed | the policy row alone, as in M1 |
 | `null` | rows older than 0011 | pre-M1 form, with its processing consent. **Since 0018 never read automatically**: they carry no acceptance of an agreement that describes it (see "The agreement gate"). Their history is not rewritten. |
 
@@ -163,18 +163,20 @@ Automatic extraction additionally needs `EXTRACTION_MODE=automatic` at extractio
 
 **How M1's pieces fit.** The `extraction_policy` row stays as the database-side restriction that both paths respect. The M1 trigger is extended rather than duplicated. After cutover it applies to server-path inserts only; the `database_policy` source then only exists on historical rows.
 
-## The agreement gate (migration 0018)
+## The agreement gate (migrations 0018 and 0019)
 
-Founder decisions of 2026-10-04: Gemini reading is the default, manual entry is the researcher's alternative, and no document goes to Gemini unless the researcher accepted an agreement version that explains it. One database function, `external_ai_permission(paper)`, answers whether a paper may be read; the extraction route asks it before any download or provider call, and the confirmation read returns its answer as `automatic_processing`. It allows reading only for a paper created from a **finalized acceptance** whose decision was `automatic`, whose researcher chose automatic reading, and whose agreement version (same text hash) describes the arrangement recorded at acceptance (`ai_processing_terms`). Separately, the route requires the server's own attestation, `GEMINI_DATA_TERMS=paid`, at the time of the request.
+Founder decisions of 2026-10-04: Gemini reading is the default, manual entry is the researcher's alternative, and no document goes to Gemini unless the researcher accepted an agreement version that explains it. One database function, `external_ai_permission(paper)`, answers whether a paper may be read; the extraction route asks it before any download or provider call, and the confirmation read returns its answer as `automatic_processing`. It allows reading only for a paper created from a **finalized acceptance** whose decision was `automatic`, whose researcher chose automatic reading, and whose agreement version (same text hash) describes the arrangement recorded at acceptance (`ai_processing_terms`). Separately, the route requires the server's own attestation, `GEMINI_DATA_TERMS`, at the time of the request, naming the same arrangement. The arrangement also decides **what** is sent: under `unpaid` (version 3) only a minimized excerpt built on the server, with the names `external_ai_permission` returns as a deny-list (0019); see `docs/extraction-pipeline.md`.
 
 | Paper | Read? | Why |
 |---|---|---|
-| New form, version 2 accepted, automatic chosen, everything attested | yes | the only case |
+| New form, version 3 accepted, automatic chosen, `GEMINI_DATA_TERMS=unpaid` | yes, **a minimized excerpt only** | the launch case; nothing at all when no safe excerpt can be made (`excerpt_unavailable`, hand entry) |
+| New form, version 2 accepted, automatic chosen, `GEMINI_DATA_TERMS=paid` | yes (front pages) | superseded; not used for this project |
+| New form, version 2 accepted, server attests `unpaid` (or version 3 and `paid`) | never | `agreement_not_applicable`: the arrangement accepted is not the one in force |
 | New form, manual chosen | never | recorded at creation; the document is never sent |
 | New form, version 1 (2026-09-25) accepted | never | that text does not describe external AI reading |
 | Legacy anonymous form (while it stays open) | never | no acceptance at all; since 0018 it is also stamped `manual` whatever the policy row says |
 | Created before 0011 or before 0018 | never | no applicable acceptance; history unchanged |
-| `GEMINI_DATA_TERMS` missing or anything but `paid` | never | refused before the database is asked; recorded as the server's manual decision |
+| `GEMINI_DATA_TERMS` missing or anything but `unpaid`/`paid` | never | refused before the database is asked; recorded as the server's manual decision |
 
 Every refusal is recorded as a manual decision (`manual_entry_source = 'mode'`), and the confirmation page opens straight into hand entry for a paper that can never be read, instead of waiting on a reading that cannot happen. A failed reading offers "Try again" and "Enter the details yourself"; switching to hand entry keeps the upload and everything already on the paper.
 

@@ -9,8 +9,9 @@
 ## Update 2026-10-04 (release preparation; the runbook has the detail)
 
 - **Stage A applied to production** (0011–0013, 0015–0017), verified, data unchanged (`docs/release-runbook.md` §7). Production code is still `f45dc690`.
-- **Founder decisions of 2026-10-04:** Gemini reading is the default with "Enter details manually" as the alternative; agreement **version 2** explains the Gemini processing; acceptance of an applicable version is enforced on the server before any Gemini call; the premature thank-you screen is fixed. Built on the release-prep branch with migration **0018** (not applied to production).
-- **Unverified fact:** whether the production Gemini key's project is on Google's paid terms. Production history shows free-tier quota refusals on 2026-09-19/20/21 (`docs/legal/README.md`, "Version 2").
+- **Founder decisions of 2026-10-04:** Gemini reading is the default with "Enter details manually" as the alternative; acceptance of the applicable agreement version and the researcher's choice are enforced on the server before any Gemini call; the premature thank-you screen is fixed.
+- **The Gemini API project is confirmed free tier** (no billing; paid Gemini is not the launch arrangement). Under Google's unpaid terms the document is never sent: the server reads it and sends only a **minimized excerpt** (cover-page institution/degree/date lines, likely title, abstract) with names, contact details and IDs removed; nobody's name is requested; a scan or an unsafe excerpt means nothing is sent and hand entry. Agreement **version 3** (EN/AR) describes this; version 2 (paid) is superseded. Built on the release-prep branch with migrations **0018 + 0019** (not applied to production). `docs/legal/README.md` ("Version 3"), `docs/extraction-pipeline.md`.
+- **Until the release, production (`f45dc690`) still sends whole front pages of every new paper to Gemini under the free tier** and asks for names; the release session ends this (`docs/release-runbook.md` §4, §8).
 
 ---
 

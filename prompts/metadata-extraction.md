@@ -69,6 +69,18 @@ For "researchers", return {"status": "found"|"not_found", "value": [{"name": "..
 For "document_type", return a plain string, not a status object.
 ```
 
+## The free-tier excerpt prompt (`EXCERPT_EXTRACTION_INSTRUCTIONS`)
+
+Used instead of the prompt above whenever the paper was accepted under agreement version 3 (Google's unpaid terms, `GEMINI_DATA_TERMS=unpaid`). It receives only the minimized excerpt (`docs/extraction-pipeline.md`, "The free-tier excerpt"), never asks about people, and states every JSON key explicitly (`BUG_HISTORY.md` #15). The live text is in `lib/ai/schema.js`; in short:
+
+- the input is an excerpt with names and contact details removed, containing only cover-page lines and abstract(s);
+- classify `document_type` (a degree statement means `thesis`);
+- report only `title`, `title_ar`, `abstract`, `abstract_ar`, `year`, `university`, `faculty`, `degree_type`, exactly as written, each in the four-shape status form;
+- never report any person's name in any field; ignore any name that appears; do not return authors, researchers or a supervisor;
+- a missing title (lines that could have been names were removed) is `not_found`.
+
+Whatever the model returns, the orchestrator keeps only those keys and records `researchers` and `supervisor_name` as `not_found`.
+
 ## If you change this prompt
 
 - State any new field's exact JSON key explicitly — don't let the model infer it from a section header (see the supervisor history above).
