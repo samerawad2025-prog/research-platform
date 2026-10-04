@@ -31,6 +31,7 @@ begin
   select count(*) into n from agreement_versions where agreement_key = 'submission-terms'
      and id not in ('submission-terms-2026-09-25-en', 'submission-terms-2026-09-25-ar',
                     'submission-terms-2026-10-04-en', 'submission-terms-2026-10-04-ar',
+                    'submission-terms-2026-10-04-v3-en', 'submission-terms-2026-10-04-v3-ar',
                     'submission-terms-2026-10-04-v4-en', 'submission-terms-2026-10-04-v4-ar');
   if n <> 0 then raise exception 'STOP: % unexpected submission-terms row(s)', n; end if;
   -- 4. Not production: 0014 is applied on the test project, never yet on production.
