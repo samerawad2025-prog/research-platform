@@ -25,8 +25,8 @@ begin
   -- 2. Both Version 3 rows exist exactly as 0019 seeds them.
   select count(*) into n from agreement_versions
    where (id, agreement_key, language, version_label, content_sha256, external_ai_processing) in (
-     ('submission-terms-2026-10-04-v3-en', 'submission-terms', 'en', 'Version 3', '54e064c2880d3b67d44fd632bacff70bf6a8f2d05ab28f9e2f05214dab03b988', 'gemini_api_unpaid'),
-     ('submission-terms-2026-10-04-v3-ar', 'submission-terms', 'ar', 'Version 3', '54af258c7255ebad22b50fbfc7a74c7dc2b3b390bc77068813211ee8b232e2e0', 'gemini_api_unpaid'));
+     ('submission-terms-2026-10-04-v3-en', 'submission-terms', 'en', 'Version 3', '503bcdc52968ed8712fd29446bdfbbe2003365cb4449588296df772e983abb99', 'gemini_api_unpaid'),
+     ('submission-terms-2026-10-04-v3-ar', 'submission-terms', 'ar', 'Version 3', 'aef0ced4846f195615b8970d3537e7494045f467921d0950e9d3b9fa0069efdc', 'gemini_api_unpaid'));
   if n <> 2 then raise exception 'STOP: expected both Version 3 rows with their exact hashes, found %', n; end if;
   -- 3. No unexpected submission-terms row would be switched off.
   select count(*) into n from agreement_versions where agreement_key = 'submission-terms'

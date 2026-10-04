@@ -1041,6 +1041,33 @@ async function main() {
     assert.strictEqual((await handleTerms({ env: FREE('automatic'), supabase, clientKey: nextIp() })).body.offer.decision, 'manual')
   })
 
+  await check('0019: an unaccepted draft version 3 row converges to the reviewed text; an accepted one is never changed', async () => {
+    const reviewed = sqlOk(`select content_sha256 from agreement_versions where id = ${lit(V3)}`)
+    const db2 = `${DB}_draft`
+    execFileSync('dropdb', ['--if-exists', db2])
+    execFileSync('createdb', [db2])
+    const run2 = (f) => execFileSync('psql', ['-X', '-q', '-v', 'ON_ERROR_STOP=1', '-d', db2, '-f', f], { stdio: ['ignore', 'ignore', 'pipe'] })
+    const q2 = (sql) => execFileSync('psql', ['-X', '-q', '-At', '-v', 'ON_ERROR_STOP=1', '-d', db2, '-c', sql], { encoding: 'utf8' }).trim()
+    try {
+      run2(path.join(__dirname, 'supabase-stubs.sql'))
+      run2(path.join(ROOT, 'supabase/schema.sql'))
+      // A draft row nobody accepted (as on the test project): takes the reviewed text, keeps its active flag.
+      q2(`update agreement_versions set content_sha256 = repeat('0', 64), active = true where id = ${lit(V3)}`)
+      run2(path.join(ROOT, 'supabase/migrations/0019_gemini_free_tier_agreement.sql'))
+      assert.strictEqual(q2(`select content_sha256 || ':' || active from agreement_versions where id = ${lit(V3)}`), `${reviewed}:true`)
+      // Once accepted, a row is evidence: re-running leaves it exactly as accepted.
+      q2(`update agreement_versions set content_sha256 = repeat('1', 64) where id = ${lit(V3)}`)
+      q2(`insert into submission_acceptances (intent_token_hash, expires_at, agreement_version_id, agreement_language, agreement_sha256, claimed_role, publication_setting,
+            processing_decision, processing_mode_at_acceptance, processing_policy_at_acceptance, processing_offer_decision, offer_issued_at, full_name, email, object_path, file_extension, declared_size)
+          values (repeat('c', 64), now() + interval '1 hour', ${lit(V3)}, 'en', repeat('1', 64), 'author', 'record_abstract',
+            'manual', 'manual', 'manual', 'manual', now(), 'Synthetic', 'synthetic@example.invalid', 'intents/00000000-0000-4000-8000-000000000019/' || repeat('a', 24) || '.pdf', 'pdf', 10)`)
+      run2(path.join(ROOT, 'supabase/migrations/0019_gemini_free_tier_agreement.sql'))
+      assert.strictEqual(q2(`select content_sha256 from agreement_versions where id = ${lit(V3)}`), '1'.repeat(64), 'an accepted version is never rewritten')
+    } finally {
+      execFileSync('dropdb', ['--if-exists', db2])
+    }
+  })
+
   await check('0019: re-running changes nothing; earlier acceptances keep their arrangement; values are constrained; browser roles have no access', async () => {
     const snapshot = () => sqlOk(`select md5(string_agg(t, '|' order by t)) from (
       select to_jsonb(a)::text t from agreement_versions a union all select to_jsonb(s)::text from submission_acceptances s

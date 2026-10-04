@@ -76,7 +76,12 @@ async function main() {
     // 0018 never touches the existing rows: no update of agreement_versions at all.
     assert.ok(!/update\s+agreement_versions/i.test(migration18), 'existing agreement rows are not modified')
     assert.ok(!/,\s*true,\s*'[a-z_]+'\)/.test(migration19), 'version 3 is not seeded active')
-    assert.ok(!/update\s+(agreement_versions|submission_acceptances|papers)\b/i.test(migration19), '0019 modifies no existing row')
+    assert.ok(!/update\s+(agreement_versions|submission_acceptances|papers)\b/i.test(migration19), '0019 runs no UPDATE statement')
+    // Its one conflict clause can only bring an unaccepted draft version 3 to the reviewed text, and never touches the active flag.
+    const at = migration19.indexOf('on conflict (id) do update')
+    const clause = migration19.slice(at, migration19.indexOf(';', at))
+    assert.ok(at > 0 && /not exists \(select 1 from submission_acceptances a where a\.agreement_version_id = agreement_versions\.id\)/.test(clause), 'guarded by "no acceptance"')
+    assert.ok(!/\bactive\b/.test(clause), 'never changes the active flag')
   })
 
   await check('registry: version 2 describes paid Gemini terms; both languages of it say so', () => {
@@ -105,19 +110,26 @@ async function main() {
       assert.strictEqual(a.externalAi, 'gemini_api_unpaid', a.id)
       const text = fs.readFileSync(path.join(ROOT, a.file), 'utf8')
       const must = a.language === 'en'
-        ? ['We do not send your document to Gemini', 'short excerpt', '"By", "Supervisor"', 'never asked for the names', 'nothing is sent', 'not guaranteed to remove every name', 'Enter details manually',
-           'unpaid services (the free tier)', 'improve and develop Google', 'machine-learning technologies', 'Human reviewers may read', 'disconnecting the data', '55 days', 'any country',
-           'do not state a period', 'does not delete anything Google holds', 'cannot authorize the use of anyone else', 'Google asks that sensitive, confidential or personal information not be submitted', 'can be wrong',
+        ? ['We do not send your document to Gemini', 'short excerpt', '"By", "Supervisor"', 'never asked for the names', 'nothing is sent', 'not guaranteed to find every name', 'Enter details manually',
+           'unpaid services (the free tier)', 'improve and develop Google', 'machine-learning technologies', 'Human reviewers may read', 'disconnecting the data',
+           "do not state how long content used in these ways is kept", 'abuse-monitoring policy for the Gemini API', '55 days', 'abuse-monitoring records only, not to content used to improve',
+           'servers located outside the country where you live', 'Our record of what was sent', 'deleted with them', 'title or abstract may name a person', 'cannot be told apart from a name',
+           'last updated 28 April 2026', 'last updated 9 June 2026', 'effective 1 October 2026', 'does not delete anything Google holds', 'cannot authorize the use of anyone else', 'Google asks that sensitive, confidential or personal information not be submitted', 'can be wrong',
            'minimized excerpt of my document to Google Gemini']
-        : ['لا نرسل مستندك إلى Gemini', 'مقتطفاً قصيراً', '"إعداد" و"إشراف"', 'لا يُطلب من Gemini أبداً', 'لا يُرسل أي شيء', 'لا يُضمن أن يحذف كل اسم', 'أدخل التفاصيل يدوياً',
-           'للخدمات غير المدفوعة (الفئة المجانية)', 'وتحسينها وتطويرها', 'تعلّم الآلة', 'مراجعين بشريين', 'فصل البيانات', '55 يوماً', 'أي بلد',
-           'لا تحدد شروط Google مدة', 'لا يؤدي سحب إيداعك', 'لا يمكنها أن تجيز استخدام المعلومات الشخصية', 'تطلب Google عدم إرسال معلومات حساسة أو سرية أو شخصية', 'خاطئة',
+        : ['لا نرسل مستندك إلى Gemini', 'مقتطفاً قصيراً', '"إعداد" و"إشراف"', 'لا يُطلب من Gemini أبداً', 'لا يُرسل أي شيء', 'لا يُضمن أن يكتشف كل اسم', 'أدخل التفاصيل يدوياً',
+           'للخدمات غير المدفوعة (الفئة المجانية)', 'وتحسينها وتطويرها', 'تعلّم الآلة', 'مراجعين بشريين', 'فصل البيانات',
+           'لا تحدد شروط Google مدة الاحتفاظ', 'سياسة رصد إساءة الاستخدام الخاصة بواجهة Gemini', '55 يوماً', 'تخص سجلات رصد إساءة الاستخدام هذه وحدها',
+           'خارج البلد الذي تقيم فيه', 'سجلّنا لما أُرسل', 'ويُحذف معها', 'قد يتضمن اسم شخص', 'لا يمكن تمييزها من الأسماء',
+           'آخر تحديث 28 أبريل 2026', 'آخر تحديث 9 يونيو 2026', 'سارية من 1 أكتوبر 2026', 'لا يؤدي سحب إيداعك', 'لا يمكنها أن تجيز استخدام المعلومات الشخصية', 'تطلب Google عدم إرسال معلومات حساسة أو سرية أو شخصية', 'خاطئة',
            'مقتطف مختصر من مستندي إلى Google Gemini']
       for (const phrase of must) assert.ok(text.includes(phrase), `${a.id}: ${phrase}`)
       // Nothing from the paid version that would be untrue on the free tier.
       const mustNot = a.language === 'en'
-        ? ['does not use the prompts', 'We use the Gemini API only under Google', 'We will not send documents to Gemini under terms', 'we do not permit their use for general-purpose AI model training', 'first 10 pages']
-        : ['لا تستخدم الطلبات والمستندات', 'لا نستخدم واجهة Gemini البرمجية إلا بموجب', 'ولن نرسل المستندات إلى Gemini', 'ولا نسمح باستخدامها لتدريب', 'أول 10 صفحات']
+        ? ['does not use the prompts', 'We use the Gemini API only under Google', 'We will not send documents to Gemini under terms', 'we do not permit their use for general-purpose AI model training', 'first 10 pages',
+           // Stated by Google only for PAID-service logs (re-verified 2026-10-04):
+           'stored transiently or cached', 'Google or its agents maintain facilities']
+        : ['لا تستخدم الطلبات والمستندات', 'لا نستخدم واجهة Gemini البرمجية إلا بموجب', 'ولن نرسل المستندات إلى Gemini', 'ولا نسمح باستخدامها لتدريب', 'أول 10 صفحات',
+           'تخزيناً مؤقتاً', 'وكلاؤها منشآت']
       for (const phrase of mustNot) assert.ok(!text.includes(phrase), `${a.id} still says: ${phrase}`)
     }
     // Sections 1-5, 8 and 9 are word for word those of version 2.

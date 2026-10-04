@@ -109,7 +109,7 @@ with g as (
     case when tables = 28 then null else 'public tables '||tables||', expected 28 (0019 adds no table)' end,
     case when agreements = 'submission-terms-2026-09-25-ar:false:-:54a78f84 submission-terms-2026-09-25-en:false:-:77376e5e '
                          || 'submission-terms-2026-10-04-ar:false:gemini_api_paid:3bcfe8c2 submission-terms-2026-10-04-en:false:gemini_api_paid:468c51eb '
-                         || 'submission-terms-2026-10-04-v3-ar:false:gemini_api_unpaid:54af258c submission-terms-2026-10-04-v3-en:false:gemini_api_unpaid:54e064c2'
+                         || 'submission-terms-2026-10-04-v3-ar:false:gemini_api_unpaid:aef0ced4 submission-terms-2026-10-04-v3-en:false:gemini_api_unpaid:503bcdc5'
          then null else 'agreement rows differ: '||agreements end,
     case when active_agreements = 0 then null else active_agreements||' agreement(s) active, expected 0' end,
     case when intent_functions = 1 and intent_17 = 1 then null else 'create_submission_intent: '||intent_functions||' function(s), '||intent_17||' with 17 arguments' end,

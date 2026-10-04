@@ -230,7 +230,7 @@ export const MESSAGES = {
       processingChoices: {
         automatic: {
           label: 'Read my document with Gemini (recommended)',
-          hint: 'The details are filled in for you to check and correct.',
+          hint: 'Title, abstract, institution, degree and year are suggested for you to check. You add the authors and supervisor. A scanned PDF, or a title or abstract that may name a person, is entered by hand.',
         },
         manual: {
           label: 'Enter details manually',
@@ -413,7 +413,7 @@ export const MESSAGES = {
         chosenNote: 'You chose to enter these details yourself, so your document was not sent for automatic reading.',
         // No safe excerpt could be prepared (lib/extraction/excerpt.js).
         protectedNote:
-          'To protect personal information, only a short excerpt of a document, with names and contact details removed, can be sent for automatic reading. We could not prepare one from this file (for example, a scanned PDF without readable text), so nothing was sent. Please enter the details yourself.',
+          'To protect personal information, only a short excerpt of a document, with names and contact details removed, can be sent for automatic reading. We could not prepare one from this file (for example, a scanned PDF without readable text, or a title or abstract that may name a person), so nothing was sent. Please enter the details yourself; anything already on this page is kept.',
         emptyHint: 'Tap to add.',
         enterYourself: 'Enter the details yourself',
         switching: 'One moment…',
@@ -595,7 +595,7 @@ export const MESSAGES = {
       processingChoices: {
         automatic: {
           label: <>اقرأ مستندي باستخدام <Ltr>Gemini</Ltr> (موصى به)</>,
-          hint: 'تُعبّأ التفاصيل لتراجعها وتصححها.',
+          hint: 'تُقترح عليك تفاصيل العنوان والملخص والمؤسسة والدرجة العلمية والسنة لتراجعها. وتضيف أنت المؤلفين والمشرف. أما ملف PDF الممسوح ضوئياً، أو العنوان أو الملخص الذي قد يتضمن اسم شخص، فتُدخل تفاصيله يدوياً.',
         },
         manual: {
           label: 'أدخل التفاصيل يدوياً',
@@ -779,7 +779,7 @@ export const MESSAGES = {
           'لم نتمكن هذه المرة من تعبئة هذه التفاصيل من مستندك، لذا يرجى إدخالها بنفسك. ما تُدخله هنا هو ما سيُحفظ.',
         chosenNote: 'اخترت إدخال هذه التفاصيل بنفسك، لذا لم يُرسل مستندك للقراءة الآلية.',
         protectedNote:
-          'حمايةً للمعلومات الشخصية، لا يمكن أن يُرسل للقراءة الآلية إلا مقتطف قصير من المستند بعد حذف الأسماء وبيانات الاتصال. ولم نتمكن من إعداده من هذا الملف (مثل ملف PDF ممسوح ضوئياً بلا نص قابل للقراءة)، لذا لم يُرسل أي شيء. يُرجى إدخال التفاصيل بنفسك.',
+          'حمايةً للمعلومات الشخصية، لا يمكن أن يُرسل للقراءة الآلية إلا مقتطف قصير من المستند بعد حذف الأسماء وبيانات الاتصال. ولم نتمكن من إعداده من هذا الملف (مثل ملف PDF ممسوح ضوئياً بلا نص قابل للقراءة، أو عنوان أو ملخص قد يتضمن اسم شخص)، لذا لم يُرسل أي شيء. يُرجى إدخال التفاصيل بنفسك، مع الاحتفاظ بكل ما هو موجود في هذه الصفحة.',
         emptyHint: 'اضغط للإضافة.',
         enterYourself: 'أدخل التفاصيل بنفسك',
         switching: 'لحظة من فضلك…',

@@ -4752,10 +4752,23 @@ alter table submission_acceptances add constraint submission_acceptances_ai_proc
 insert into agreement_versions (id, agreement_key, language, version_label, version_date, content_sha256, active, external_ai_processing)
 values
   ('submission-terms-2026-10-04-v3-en', 'submission-terms', 'en', 'Version 3', '2026-10-04',
-   '54e064c2880d3b67d44fd632bacff70bf6a8f2d05ab28f9e2f05214dab03b988', false, 'gemini_api_unpaid'),
+   '503bcdc52968ed8712fd29446bdfbbe2003365cb4449588296df772e983abb99', false, 'gemini_api_unpaid'),
   ('submission-terms-2026-10-04-v3-ar', 'submission-terms', 'ar', 'Version 3', '2026-10-04',
-   '54af258c7255ebad22b50fbfc7a74c7dc2b3b390bc77068813211ee8b232e2e0', false, 'gemini_api_unpaid')
-on conflict (id) do nothing;
+   'aef0ced4846f195615b8970d3537e7494045f467921d0950e9d3b9fa0069efdc', false, 'gemini_api_unpaid')
+-- Version 3's wording was corrected before release (Google's statements
+-- re-verified on 2026-10-04). A database that received an earlier draft of
+-- this file (only the isolated test project) converges to the reviewed text,
+-- but ONLY while nobody has accepted that version: an accepted version is
+-- evidence and is never changed. On a database without these rows (every
+-- production database) this is a plain insert. The active flag is never
+-- touched here.
+on conflict (id) do update
+  set content_sha256 = excluded.content_sha256,
+      version_label = excluded.version_label,
+      version_date = excluded.version_date,
+      external_ai_processing = excluded.external_ai_processing
+  where agreement_versions.content_sha256 is distinct from excluded.content_sha256
+    and not exists (select 1 from submission_acceptances a where a.agreement_version_id = agreement_versions.id);
 
 -- 3. The permission rule, as in 0018, plus the names held for the paper.
 create or replace function external_ai_permission(p_paper_id uuid)

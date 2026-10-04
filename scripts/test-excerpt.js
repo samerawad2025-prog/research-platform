@@ -6,8 +6,8 @@
 // (every person, email, phone and ID in them is invented) and against
 // small hand-written cover pages for the individual rules.
 //
-// One check below records a KNOWN LIMITATION on purpose: the rules are not
-// an anonymizer, and agreement version 3 says so.
+// One check below records the misses on purpose: the rules are not an
+// anonymizer, and agreement version 3 says so.
 
 const assert = require('node:assert')
 const fs = require('node:fs')
@@ -17,6 +17,7 @@ const { prepareExcerpt } = require('../lib/extraction/orchestrator')
 const {
   buildExcerpt, hasContact, hasHonorific, looksLikePersonList, isTitleLike, assessText,
 } = require('../lib/extraction/excerpt')
+const { possiblePersonName } = require('../lib/extraction/names')
 
 const FIX = path.join(__dirname, 'fixtures', 'synthetic')
 const NAMES = ['Amna Osman Elhassan']
@@ -133,10 +134,37 @@ async function main() {
     for (const want of ['جامعة الخرطوم', 'بحث مقدم لنيل درجة الماجستير', 'مارس 2022م', 'أثر الري بالتنقيط على إنتاجية القمح في ولاية الجزيرة']) assert.ok(r.text.includes(want), want)
   })
 
-  await check('KNOWN LIMITATION (disclosed in agreement v3 section 6): an unlabelled name inside a title-like line, not held by the platform, is not removed', () => {
+  await check('an unlabelled name inside a title-like line is a refusal: nothing is sent, the researcher enters the details', () => {
     const r = buildExcerpt({ pages: [['University of Khartoum', 'Poems of Hawa Eltaib in the Oral Tradition of Kordofan', 'Abstract', ABSTRACT]], knownNames: NAMES })
-    assert.ok(r.eligible)
-    assert.ok(r.text.includes('Hawa Eltaib'), 'if this ever starts failing, the rules improved: update agreement section 6 only after review')
+    assert.strictEqual(r.eligible, false)
+    assert.strictEqual(r.reason, 'possible_personal_name')
+    assert.ok(!('text' in r), 'no excerpt is produced at all')
+    assert.ok(!JSON.stringify(r.stats).includes('Hawa'), 'the diagnostics name the rule, never the person')
+  })
+
+  await check('a possible name in an abstract sentence, English or Arabic, is also a refusal', () => {
+    for (const sentence of ['The study draws on interviews with Mohamed Elfaitori and other poets.', 'وتستند الدراسة إلى مقابلات مع الشاعرة حواء الطقطاقة.']) {
+      const r = buildExcerpt({ pages: [['University of Khartoum', 'A Study of Oral Poetry in Kordofan', 'Abstract', `${ABSTRACT} ${sentence}`]], knownNames: NAMES })
+      assert.strictEqual(r.reason, 'possible_personal_name', sentence)
+    }
+  })
+
+  await check('name detection generalizes beyond the fixture (two evaluation sets, written separately from the lists)', () => {
+    const corpus = require('./fixtures/name-corpus')
+    for (const [named, clean, label] of [[corpus.ROUND_1_NAMED, corpus.ROUND_1_CLEAN, 'round 1'], [corpus.ROUND_2_NAMED, corpus.ROUND_2_CLEAN, 'round 2']]) {
+      const missed = named.filter((t) => !possiblePersonName(t))
+      const refused = clean.filter((t) => possiblePersonName(t))
+      assert.deepStrictEqual(missed, [], `${label}: names not detected`)
+      assert.deepStrictEqual(refused, [], `${label}: clean text refused`)
+      console.log(`       ${label}: ${named.length}/${named.length} named lines detected, 0/${clean.length} clean lines refused`)
+    }
+  })
+
+  await check('RECORDED MISSES (stated as a limitation in agreement v3 section 6): names the rules have never seen still pass', () => {
+    const corpus = require('./fixtures/name-corpus')
+    for (const t of corpus.KNOWN_MISSES) {
+      assert.strictEqual(possiblePersonName(t), null, `"${t}" is now detected: move it to a NAMED set`)
+    }
   })
 
   if (failed) {
