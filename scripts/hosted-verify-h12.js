@@ -29,10 +29,16 @@ if (!SB || SB.includes(PROD_REF)) throw new Error('HV_SUPABASE_URL must be the t
 const FIX = path.join(__dirname, 'fixtures', 'synthetic')
 const RUN = Date.now().toString(36)
 const state = { run: RUN, papers: {} }
+// HV_SKIP: comma-separated check keys to leave out (pdf, docx, manual, scan,
+// browser). For a real-provider run, `HV_SKIP=pdf` saves Gemini quota: the
+// browser check submits the same text PDF and reports its authors and
+// supervisor itself.
+const SKIP = new Set((process.env.HV_SKIP || '').split(',').map((x) => x.trim()).filter(Boolean))
 let failed = 0
 let passed = 0
 const scrub = (m) => String(m).split(BYPASS).join('<bypass>').replace(/[0-9a-f]{64}/g, '<token>')
-async function check(name, fn) {
+async function check(name, fn, key) {
+  if (key && SKIP.has(key)) { console.log(`SKIP  ${name}`); return }
   try { const note = await fn(); passed++; console.log(`PASS  ${name}${note ? ` — ${note}` : ''}`) } catch (e) { failed++; console.log(`FAIL  ${name} — ${scrub(e.message)}`) }
 }
 const H = { 'x-vercel-protection-bypass': BYPASS }
@@ -81,7 +87,7 @@ async function main() {
     const v = await read(state.papers.pdf)
     assert.strictEqual(v.extraction_detail.researchers.status, 'found', 'authors are read')
     return `completed in ${x.body.passesRun} pass(es); researchers found; supervisor ${v.extraction_detail.supervisor_name?.status}`
-  })
+  }, 'pdf')
 
   await check('H12 automatic, Word file: read', async () => {
     await submit('docx', fs.readFileSync(path.join(FIX, 'thesis-en.docx')), 'docx', 'automatic')
@@ -89,7 +95,7 @@ async function main() {
     assert.strictEqual(x.status, 200, `extract ${x.status}`)
     assert.strictEqual(x.body.status, 'completed')
     return `completed in ${x.body.passesRun} pass(es)`
-  })
+  }, 'docx')
 
   await check('H12 manual chosen: recorded with the paper; the extraction route sends nothing', async () => {
     const { fin } = await submit('manual', fs.readFileSync(path.join(FIX, 'thesis-en.pdf')), 'pdf', 'manual')
@@ -99,14 +105,14 @@ async function main() {
     const v = await read(state.papers.manual)
     assert.strictEqual(v.manual_entry_source, 'researcher'); assert.strictEqual(v.automatic_processing, false)
     return 'manual_entry_source=researcher, automatic_processing=false, extract alreadyHandled'
-  })
+  }, 'manual')
 
   await check('H12 scanned PDF: read like any other PDF', async () => {
     await submit('scan', fs.readFileSync(path.join(FIX, 'scanned-cover.pdf')), 'pdf', 'automatic')
     const x = await api('/api/extract', { token: state.papers.scan })
     assert.strictEqual(x.status, 200, `extract ${x.status}`); assert.strictEqual(x.body.status, 'completed')
     return 'completed'
-  })
+  }, 'scan')
 
   await check('H12 browser: submit -> progress -> review -> Confirm -> thank-you, never a thank-you earlier', async () => {
     const { chromium } = require('playwright')
@@ -139,15 +145,18 @@ async function main() {
       })()
       await page.getByRole('button', { name: 'Accept and submit' }).click()
       await page.waitForURL(/\/confirm\/[0-9a-f]{64}$/, { timeout: 60000 })
-      await page.getByRole('heading', { name: 'Here’s what we found' }).waitFor({ timeout: 60000 })
+      await page.getByRole('heading', { name: 'Here’s what we found' }).waitFor({ timeout: 180000 })
       const beforeConfirm = seen.filter((s) => s.thanks)
+      state.papers.browser = page.url().split('/').pop()
+      const v = await read(state.papers.browser)
+      const found = `researchers ${v.extraction_detail?.researchers?.status}; supervisor ${v.extraction_detail?.supervisor_name?.status}`
       await page.getByRole('button', { name: 'Confirm these details' }).click()
       await page.getByRole('heading', { name: 'Thank you for confirming' }).waitFor({ timeout: 30000 })
       stop = true; await sampler
       assert.strictEqual(beforeConfirm.length, 0, `a thank-you was visible before Confirm at ${beforeConfirm[0]?.t} ms`)
-      return `${seen.length} samples over ${seen.at(-1)?.t} ms; no thank-you before Confirm; thank-you after Confirm`
+      return `${found}; ${seen.length} samples over ${seen.at(-1)?.t} ms; no thank-you before Confirm; thank-you after Confirm`
     } finally { await browser.close() }
-  })
+  }, 'browser')
 
   fs.writeFileSync(STATE, JSON.stringify(state), { mode: 0o600 })
   console.log(`\n${passed} passed, ${failed} failed; deployment ${D}`)
