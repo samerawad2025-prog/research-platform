@@ -33,7 +33,7 @@ Browser (student)
 | Database | Supabase (Postgres 17) | Free tier, RLS built in, generous enough for a pilot |
 | Hosting | Vercel, Hobby plan | Free tier, integrates directly with the Postgres/Next.js combination |
 | AI | Google Gemini, called via raw `fetch()` | No SDK dependency — deliberate, since the model landscape here has changed names and calling conventions multiple times across this project's history, and a plain REST call is one less moving dependency to go stale alongside it |
-| PDF handling | `pdf-lib` for page slicing (paid-terms `document` scope); `unpdf` for local text extraction (free-tier `excerpt` scope, 2026-10-04) | `pdf-parse` was removed after a confirmed Node/Vercel runtime crash (`DOMMatrix is not defined`, `BUG_HISTORY.md` #2). Under Google's free-tier terms the PDF itself must not be sent, so its text is read on the server: `unpdf` (MIT, no dependencies, ~2 MB, free) ships a serverless pdf.js build that polyfills the one browser global it touches, and is loaded lazily only on the excerpt path (`lib/extraction/pdfText.js`). Verified inside the built Next.js server by `supabase/tests/run-browser-e2e.sh` |
+| PDF handling | `pdf-lib` for page slicing only, no text extraction | `pdf-parse` was removed entirely after a confirmed Node/Vercel runtime crash (`DOMMatrix is not defined`); PDFs are sent to Gemini as native document input instead — see `BUG_HISTORY.md` #2 |
 | DOCX handling | `mammoth` for body text, `jszip` for headers | `mammoth.extractRawText()` never reads header/footer XML at all — confirmed by direct inspection of a real production thesis; see `BUG_HISTORY.md` #16 |
 
 ## Security model

@@ -73,5 +73,6 @@ $PSQL < supabase/migrations/0016_public_research.sql
 $PSQL < supabase/migrations/0017_activity_metrics.sql
 $PSQL < supabase/migrations/0018_ai_processing_agreement.sql
 $PSQL < supabase/migrations/0019_gemini_free_tier_agreement.sql
+$PSQL < supabase/migrations/0020_free_tier_full_document_agreement.sql
 $PSQL -c "notify pgrst, 'reload schema'"
 echo "local Supabase stack ready at http://127.0.0.1:54321 (keys in $SB_DIR)"

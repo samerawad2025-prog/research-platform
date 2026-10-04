@@ -32,7 +32,7 @@ function setup() {
   const tmp = path.join(os.tmpdir(), 'm5-pre-schema.sql')
   fs.writeFileSync(tmp, execFileSync('git', ['show', `${BASE_REF}:supabase/schema.sql`], { cwd: ROOT, encoding: 'utf8' }))
   run(tmp)
-  for (const m of ['0011_manual_entry', '0012_submission_acceptance', '0013_linkedin_visibility_declared_authors', '0015_admin_review', '0016_public_research', '0016_public_research', '0017_activity_metrics', '0017_activity_metrics', '0018_ai_processing_agreement', '0019_gemini_free_tier_agreement']) {
+  for (const m of ['0011_manual_entry', '0012_submission_acceptance', '0013_linkedin_visibility_declared_authors', '0015_admin_review', '0016_public_research', '0016_public_research', '0017_activity_metrics', '0017_activity_metrics', '0018_ai_processing_agreement', '0019_gemini_free_tier_agreement', '0020_free_tier_full_document_agreement']) {
     run(path.join(ROOT, 'supabase/migrations', `${m}.sql`))
   }
 }

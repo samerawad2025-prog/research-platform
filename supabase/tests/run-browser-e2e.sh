@@ -17,7 +17,7 @@ export SUBMISSION_ACCEPTANCE_FLOW=enabled
 export SUBMISSION_TOKEN_SECRET="$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")"
 export EXTRACTION_MODE=automatic
 # The launch arrangement: Google's unpaid (free-tier) terms, agreement
-# version 3, minimized excerpt only (migration 0019). The provider is still
+# version 4 (migration 0020): the document itself is read. The provider is still
 # the mock; it appends every request it receives to MOCK_RECORD so the test
 # can check exactly what would have left the server.
 export GEMINI_DATA_TERMS=unpaid

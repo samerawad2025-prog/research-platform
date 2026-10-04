@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Release verification H12 (docs/release-runbook.md §6), hosted, MOCK
-// PROVIDER: Gemini by default on a minimized excerpt, manual choice, the
-// refusals (scan, possible name), and no thank-you before Confirm, against
+// PROVIDER: Gemini by default on the document itself (agreement version 4,
+// free tier), manual choice, scans, and no thank-you before Confirm, against
 // an ISOLATED preview + test project. Proves our code paths only; it says
 // nothing about how the real Gemini behaves (that is R1).
 //
@@ -17,7 +17,6 @@ const assert = require('node:assert')
 const fs = require('node:fs')
 const path = require('node:path')
 const { createClient } = require('@supabase/supabase-js')
-const { PDFDocument, StandardFonts } = require('pdf-lib')
 
 const D = process.env.HV_DEPLOYMENT
 const BYPASS = fs.readFileSync(process.env.HV_BYPASS_FILE, 'utf8').trim()
@@ -52,7 +51,7 @@ async function submit(label, bytes, ext, choice) {
   assert.strictEqual(terms.body.offer.decision, 'automatic', 'automatic reading offered')
   assert.strictEqual(terms.body.processing.terms, 'gemini_api_unpaid', 'the free-tier arrangement')
   const ag = terms.body.agreements.find((a) => a.language === 'en')
-  assert.strictEqual(ag.versionLabel, 'Version 3')
+  assert.strictEqual(ag.versionLabel, 'Version 4')
   const it = await api('/api/submissions/intent', {
     offerToken: terms.body.offer.token, agreementId: ag.id, accepted: true, publicationSetting: 'record_abstract', claimedRole: 'author',
     processingChoice: choice, fullName: 'Amna Osman Elhassan', email: `h12-${label}-${RUN}@example.test`,
@@ -72,35 +71,16 @@ const read = async (token) => {
   return r.data
 }
 
-// A synthetic thesis whose title names a person (invented poet) and whose
-// cover otherwise passes every other rule.
-async function nameInTitlePdf() {
-  const d = await PDFDocument.create()
-  const font = await d.embedFont(StandardFonts.Helvetica)
-  const p1 = d.addPage()
-  const lines = ['University of Khartoum', 'Faculty of Arts', 'Poems of Hawa Eltaib in the Oral Tradition of Kordofan',
-    'A thesis submitted in partial fulfillment of the requirements for the degree of Master of Arts', 'October 2021']
-  lines.forEach((t, i) => p1.drawText(t, { x: 40, y: 760 - i * 30, size: 11, font }))
-  const p2 = d.addPage()
-  const abs = ['Abstract', 'This study examined oral poetry collected in twelve villages of North Kordofan over two seasons.',
-    'Recordings were transcribed and analysed for themes of drought, migration and community memory.',
-    'The study recommends a public archive of recordings and further work with local schools.']
-  abs.forEach((t, i) => p2.drawText(t, { x: 40, y: 760 - i * 24, size: 10, font }))
-  return Buffer.from(await d.save())
-}
-
 async function main() {
-  await check('H12 automatic, text PDF: one excerpt read, review offered, no people requested', async () => {
+  await check('H12 automatic, text PDF: read, review offered with authors and supervisor', async () => {
     const { fin } = await submit('pdf', fs.readFileSync(path.join(FIX, 'thesis-en.pdf')), 'pdf', 'automatic')
     assert.strictEqual(fin.processing.decision, 'automatic'); assert.strictEqual(fin.extraction.mayStart, true)
     const x = await api('/api/extract', { token: state.papers.pdf })
     assert.strictEqual(x.status, 200, `extract ${x.status} ${x.body?.reason || ''}`)
-    assert.strictEqual(x.body.status, 'completed'); assert.strictEqual(x.body.passesRun, 1)
+    assert.strictEqual(x.body.status, 'completed')
     const v = await read(state.papers.pdf)
-    assert.strictEqual(v.extraction_detail._scope, 'excerpt')
-    assert.ok(!('_diagnostics' in v.extraction_detail), 'the stored excerpt is not served to the browser')
-    assert.deepStrictEqual(v.extraction_detail.supervisor_name, { status: 'not_found' })
-    return `completed in 1 pass; confirmation read shows excerpt-scope suggestions; title "${v.title || '(none)'}"`
+    assert.strictEqual(v.extraction_detail.researchers.status, 'found', 'authors are read')
+    return `completed in ${x.body.passesRun} pass(es); researchers found; supervisor ${v.extraction_detail.supervisor_name?.status}`
   })
 
   await check('H12 automatic, Word file: one excerpt read', async () => {
@@ -108,7 +88,7 @@ async function main() {
     const x = await api('/api/extract', { token: state.papers.docx })
     assert.strictEqual(x.status, 200, `extract ${x.status}`)
     assert.strictEqual(x.body.status, 'completed')
-    return 'completed in 1 pass'
+    return `completed in ${x.body.passesRun} pass(es)`
   })
 
   await check('H12 manual chosen: recorded with the paper; the extraction route sends nothing', async () => {
@@ -121,20 +101,11 @@ async function main() {
     return 'manual_entry_source=researcher, automatic_processing=false, extract alreadyHandled'
   })
 
-  await check('H12 scanned PDF: nothing sent, hand entry (excerpt_unavailable)', async () => {
+  await check('H12 scanned PDF: read like any other PDF', async () => {
     await submit('scan', fs.readFileSync(path.join(FIX, 'scanned-cover.pdf')), 'pdf', 'automatic')
     const x = await api('/api/extract', { token: state.papers.scan })
-    assert.strictEqual(x.status, 200, `extract ${x.status}`); assert.strictEqual(x.body.reason, 'excerpt_unavailable')
-    const v = await read(state.papers.scan)
-    assert.strictEqual(v.failure_code, 'excerpt_unavailable')
-    return '200 excerpt_unavailable; failure_code recorded'
-  })
-
-  await check('H12 title that names a person: nothing sent, hand entry (excerpt_unavailable)', async () => {
-    await submit('name', await nameInTitlePdf(), 'pdf', 'automatic')
-    const x = await api('/api/extract', { token: state.papers.name })
-    assert.strictEqual(x.status, 200, `extract ${x.status}`); assert.strictEqual(x.body.reason, 'excerpt_unavailable')
-    return '200 excerpt_unavailable (reason in the stored diagnostics, checked in the database)'
+    assert.strictEqual(x.status, 200, `extract ${x.status}`); assert.strictEqual(x.body.status, 'completed')
+    return 'completed'
   })
 
   await check('H12 browser: submit -> progress -> review -> Confirm -> thank-you, never a thank-you earlier', async () => {
@@ -147,7 +118,7 @@ async function main() {
       const nav = await page.goto(`${D}/submit?x-vercel-protection-bypass=${BYPASS}&x-vercel-set-bypass-cookie=true`)
       assert.strictEqual(nav.status(), 200, `submit page ${nav.status()}`)
       await page.waitForSelector('form input[type=checkbox]', { timeout: 30000 })
-      assert.ok(await page.getByText('only a short excerpt').first().isVisible(), 'free-tier explanation shown')
+      assert.ok(await page.getByText('free tier').first().isVisible(), 'free-tier explanation shown')
       await page.getByLabel('Full name', { exact: true }).fill('Amna Osman Elhassan')
       await page.getByLabel('Email', { exact: true }).fill(`h12-browser-${RUN}@example.test`)
       await page.locator('input[name=role][value=author]').check()

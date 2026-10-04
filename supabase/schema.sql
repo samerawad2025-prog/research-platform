@@ -4827,3 +4827,16 @@ end;
 $fn$;
 revoke all on function external_ai_permission(uuid) from public, anon, authenticated;
 grant execute on function external_ai_permission(uuid) to service_role;
+
+-- ============================================================
+-- Migration 0020 (supabase/migrations/0020_free_tier_full_document_agreement.sql):
+-- agreement version 4 (Gemini reads the document under Google's free-tier
+-- terms), inactive. Same statement as the migration.
+-- ============================================================
+insert into agreement_versions (id, agreement_key, language, version_label, version_date, content_sha256, active, external_ai_processing)
+values
+  ('submission-terms-2026-10-04-v4-en', 'submission-terms', 'en', 'Version 4', '2026-10-04',
+   'fce461b4b47389de736e1d30bee44df48c3f3dd15fd6d3f14d7959059fc184c7', false, 'gemini_api_unpaid'),
+  ('submission-terms-2026-10-04-v4-ar', 'submission-terms', 'ar', 'Version 4', '2026-10-04',
+   '8b3c313eab99789b36226fb246f04628fd21f970777dee7e470cf06b92511231', false, 'gemini_api_unpaid')
+on conflict (id) do nothing;

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Stage A2 rehearsal (migrations 0018 and 0019) on a disposable LOCAL Postgres (never a
+# Stage A2 rehearsal (migrations 0018, 0019 and 0020) on a disposable LOCAL Postgres (never a
 # hosted project). Builds production as it is after Stage A (2026-10-04):
 # the production schema, synthetic production-shaped rows, and 0011, 0012,
 # 0013, 0015, 0016, 0017. Then replays docs/release-runbook.md "Stage A2":
@@ -108,11 +108,14 @@ check "AFTER 0018" "$CHECKS2"
 run "$MIG/0019_gemini_free_tier_agreement.sql"
 run "$MIG/0019_gemini_free_tier_agreement.sql"
 check "AFTER 0019" "$CHECKS2"
+run "$MIG/0020_free_tier_full_document_agreement.sql"
+run "$MIG/0020_free_tier_full_document_agreement.sql"
+check "AFTER 0020" "$CHECKS2"
 after=$(fingerprint)
-echo "5. data fingerprint after 0019:  $after"
+echo "5. data fingerprint after 0020:  $after"
 [ "$before" = "$after" ] || { echo "STOP: existing data changed" >&2; exit 1; }
 
-echo "6. the deployed application's browser calls (role anon), after 0018 and 0019:"
+echo "6. the deployed application's browser calls (role anon), after 0018, 0019 and 0020:"
 out=$(psqlq <<'SQL'
 set role anon;
 select 'direct select on papers returns ' || count(*) || ' rows' from papers;

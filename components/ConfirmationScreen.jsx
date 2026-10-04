@@ -750,10 +750,6 @@ export default function ConfirmationScreen({ token, manualMode = false }) {
   const manualCopy = manual || (!paper && effectiveManualMode)
   const showFallbackNote = manual && screen.reason === 'fallback' && !paper?.metadata_confirmed_at
   const showChosenNote = manual && screen.reason === 'chosen' && !paper?.metadata_confirmed_at
-  // Unpaid Gemini terms: no safe excerpt could be made, nothing was sent.
-  const showProtectedNote = manual && screen.reason === 'protected' && !paper?.metadata_confirmed_at
-  // Suggestions made from a minimized excerpt never include people.
-  const showExcerptNote = !manual && !extracting && paper?.extraction_detail?._scope === 'excerpt' && !paper?.metadata_confirmed_at
 
   // Offered wherever automatic reading did not produce a result. The
   // primary style only where it is the one way forward; next to "Try
@@ -849,16 +845,11 @@ export default function ConfirmationScreen({ token, manualMode = false }) {
     const partner = pairPartner(key)
     return Boolean(partner) && !needsAttention(detail[partner])
   }
-  // Suggestions from a minimized excerpt (Google's unpaid terms) never
-  // look for people: the supervisor was not "not found", it was never
-  // asked about, so it is neither flagged nor described as missing.
-  const notLookedFor = (key) => detail._scope === 'excerpt' && key === 'supervisor_name'
   const attentionCount = extracting || manual
     ? 0
     : METADATA_FIELDS.filter(
         (f) =>
           isFieldVisible(f, values) &&
-          !notLookedFor(f.key) &&
           needsAttention(detail[f.key]) &&
           !satisfiedByPartner(f.key)
       ).length
@@ -883,8 +874,6 @@ export default function ConfirmationScreen({ token, manualMode = false }) {
         ) : null}
         {showFallbackNote && <p className={styles.attentionBanner}>{t.manual.fallbackNote}</p>}
         {showChosenNote && <p className={styles.subtitle}>{t.manual.chosenNote}</p>}
-        {showProtectedNote && <p className={styles.attentionBanner}>{t.manual.protectedNote}</p>}
-        {showExcerptNote && <p className={styles.subtitle}>{t.excerptNote}</p>}
         {!extracting && attentionCount > 0 && (
           <p className={styles.attentionBanner}>{t.attention(attentionCount)}</p>
         )}
@@ -944,13 +933,13 @@ export default function ConfirmationScreen({ token, manualMode = false }) {
             value={values[f.key] || ''}
             // Hand entry shows no extraction notes: there is no result
             // to annotate, and a failure record has no field entries.
-            entry={manual || notLookedFor(f.key) ? undefined : satisfiedByPartner(f.key) ? { status: 'found' } : detail[f.key]}
+            entry={manual ? undefined : satisfiedByPartner(f.key) ? { status: 'found' } : detail[f.key]}
             manual={manual}
             multiline={f.multiline}
             dir={valueDir(f, needsLanguageLabel(f, values))}
             disabled={extracting}
             emptyHint={
-              manual || notLookedFor(f.key)
+              manual
                 ? t.manual.emptyHint
                 : // Only the language wording when the OTHER language is
                   // also on screen; a lone box is just "we didn't find it".

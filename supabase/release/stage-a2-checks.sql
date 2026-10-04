@@ -1,13 +1,13 @@
 -- ============================================================
--- Stage A2 checks: migrations 0018 and 0019 on the production database
+-- Stage A2 checks: migrations 0018, 0019 and 0020 on the production database
 -- (docs/release-runbook.md, "Stage A2"). Read-only. Paste ONE block at a
 -- time into the SQL Editor; each returns one row whose first column is
 -- PASS, or STOP: followed by the reasons.
 --   * PREFLIGHT A2 before 0018.
 --   * The DATA FINGERPRINT block of stage-a-checks.sql before 0018 and
---     after 0019: neither changes an existing value, so the two must be
+--     after 0020: none changes an existing value, so the two must be
 --     identical unless a real submission or confirmation happened between.
---   * AFTER 0018 right after the 0018 file; AFTER 0019 right after 0019.
+--   * AFTER 0018, AFTER 0019 and AFTER 0020, each right after its file.
 -- ============================================================
 
 -- ===================== PREFLIGHT A2 =====================
@@ -117,6 +117,31 @@ with g as (
     case when confirmation_read_open then null else 'get_paper_for_confirmation is no longer callable by the browser (the live confirmation page needs it)' end,
     case when legacy_rpc and legacy_upload then null else 'old anonymous path not in its expected open state' end,
     case when acceptances_with_ai_terms = 0 then null else acceptances_with_ai_terms||' acceptance(s) record an AI arrangement; expected none before any version is active' end,
+    case when readable_papers = 0 then null else readable_papers||' existing paper(s) became readable; expected none' end
+  ], null) as reasons from g
+)
+select case when cardinality(reasons) = 0 then 'PASS' else 'STOP: '||array_to_string(reasons, '; ') end as result,
+       tables, active_agreements, readable_papers, policy from r;
+
+-- ===================== AFTER 0020 =====================
+with g as (
+  select
+    (select coalesce(string_agg(id || ':' || active || ':' || coalesce(external_ai_processing, '-') || ':' || left(content_sha256, 8), ' ' order by id), '') from agreement_versions) as agreements,
+    (select count(*) from agreement_versions where active) as active_agreements,
+    (select count(*) from pg_tables where schemaname='public') as tables,
+    (select count(*) from submission_acceptances where ai_processing_terms is not null) as acceptances_with_ai_terms,
+    (select count(*) from papers where (external_ai_permission(id) ->> 'permitted')::boolean) as readable_papers,
+    (select string_agg(mode, ',') from extraction_policy) as policy
+), r as (
+  select g.*, array_remove(array[
+    case when agreements = 'submission-terms-2026-09-25-ar:false:-:54a78f84 submission-terms-2026-09-25-en:false:-:77376e5e '
+                         || 'submission-terms-2026-10-04-ar:false:gemini_api_paid:3bcfe8c2 submission-terms-2026-10-04-en:false:gemini_api_paid:468c51eb '
+                         || 'submission-terms-2026-10-04-v3-ar:false:gemini_api_unpaid:aef0ced4 submission-terms-2026-10-04-v3-en:false:gemini_api_unpaid:503bcdc5 '
+                         || 'submission-terms-2026-10-04-v4-ar:false:gemini_api_unpaid:8b3c313e submission-terms-2026-10-04-v4-en:false:gemini_api_unpaid:fce461b4'
+         then null else 'agreement rows differ: '||agreements end,
+    case when active_agreements = 0 then null else active_agreements||' agreement(s) active, expected 0' end,
+    case when tables = 28 then null else 'public tables '||tables||', expected 28' end,
+    case when acceptances_with_ai_terms = 0 then null else acceptances_with_ai_terms||' acceptance(s) record an AI arrangement' end,
     case when readable_papers = 0 then null else readable_papers||' existing paper(s) became readable; expected none' end
   ], null) as reasons from g
 )

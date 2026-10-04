@@ -14,8 +14,6 @@
 
 const assert = require('node:assert')
 const crypto = require('node:crypto')
-const fs = require('node:fs')
-const path = require('node:path')
 const { PDFDocument } = require('pdf-lib')
 
 const { handleExtract, handleManualChoice } = require('../lib/extraction/extractHandler')
@@ -854,7 +852,7 @@ async function main() {
     assert.strictEqual(db.papers[0].extraction_status, 'pending', 'no attempt is invented')
   }
 
-  await check('gate: without an attested GEMINI_DATA_TERMS (paid or unpaid) nothing is read, whatever else allows it', async () => {
+  await check('gate: without an attested GEMINI_DATA_TERMS (unpaid or paid) nothing is read, whatever else allows it', async () => {
     for (const value of [undefined, '', 'free', 'free-tier', 'PAID-ish', 'unpaid-ish', 'true']) {
       const { token, row } = paperRow({ submission_extraction_policy: 'automatic' })
       const db = makeDb({ papers: [row] })
@@ -951,121 +949,45 @@ async function main() {
     assert.deepStrictEqual(provider.sent, [])
   })
 
-  // --- Google's UNPAID (free-tier) terms: the minimized excerpt (0019) ---------------
-  // The real orchestrator and excerpt builder, the synthetic fixtures in
-  // scripts/fixtures/synthetic/ (invented people), and a provider stand-in
-  // that records exactly what it would have been sent.
-  const FIXTURES = path.join(__dirname, 'fixtures', 'synthetic')
-  const FREE = { EXTRACTION_MODE: 'automatic', GEMINI_DATA_TERMS: 'unpaid' }
-  const V3 = { permitted: true, terms: 'gemini_api_unpaid', agreement_version_id: 'submission-terms-2026-10-04-v3-en', known_names: ['Amna Osman Elhassan'] }
-  const PERSONAL = [/Amna/i, /Elhassan/i, /Kamal/i, /Yousif/i, /Nafisa/i, /Fatima/i, /Hassan Ali/i, /Sara Ahmed/i, /Babiker/i, /@/, /912\s?345/, /0412345/, /آمنة/, /كمال/, /فاطمة/, /سارة/]
-  function recordingProvider(answer) {
+  // --- Google's free tier (agreement version 4, migration 0020): the document itself ---
+  const V4 = { permitted: true, terms: 'gemini_api_unpaid', agreement_version_id: 'submission-terms-2026-10-04-v4-en' }
+  const FIX = require('node:path').join(__dirname, 'fixtures', 'synthetic')
+  function recordingProvider() {
     const p = { requests: [] }
     p.extractMetadata = async (req) => {
       p.requests.push(req)
-      return { provider: 'fake', model: 'fake', result: answer || {
-        document_type: 'thesis',
-        title: { status: 'found', value: 'Assessment of Solar-Powered Irrigation Pumps in Gezira State, Sudan' },
-        year: { status: 'found', value: '2021' },
-        // Volunteered despite the instructions: must never be kept.
-        researchers: { status: 'found', value: [{ name: 'Volunteered Name', author_order: 1 }] },
-        supervisor_name: { status: 'found', value: 'Dr. Volunteered' },
-      } }
+      return { provider: 'fake', model: 'fake', result: req.pass === 1
+        ? { document_type: 'thesis', title: { status: 'found', value: 'T' }, year: { status: 'found', value: '2021' }, researchers: { status: 'found', value: [{ name: 'Amna Osman Elhassan', author_order: 1 }] }, supervisor_name: { status: 'found', value: 'Dr. Kamal Eldin Yousif' } }
+        : {} }
     }
     return p
   }
-  async function freeRun(file, permission = V3, answer) {
-    const { token, row } = paperRow({ submission_extraction_policy: 'automatic', file_path: `free-${seq + 1}.${path.extname(file).slice(1)}`, ai_permission: permission })
-    const db = makeDb({ papers: [row] })
-    db.files[row.file_path] = fs.readFileSync(path.join(FIXTURES, file))
-    const provider = recordingProvider(answer)
-    const res = await call(db, token, FREE, realOrchestrator(provider))
-    return { db, res, provider }
-  }
-
-  await check('free tier: a thesis PDF is never sent; one text excerpt without people or contact details is, and no names are asked for', async () => {
-    for (const file of ['thesis-en.pdf', 'thesis-ar.pdf', 'article-en.pdf', 'thesis-en.docx']) {
-      const { db, res, provider } = await freeRun(file)
-      assert.strictEqual(res.status, 200, file)
-      assert.strictEqual(provider.requests.length, 1, `${file}: exactly one request`)
-      const doc = provider.requests[0].document
-      assert.strictEqual(doc.type, 'text', `${file}: text, never a PDF`)
-      assert.strictEqual(doc.scope, 'excerpt')
-      assert.ok(!('base64' in doc), 'no file bytes')
-      for (const re of PERSONAL) assert.ok(!re.test(doc.content), `${file}: ${re} reached the request`)
-      assert.ok(/Khartoum|الخرطوم/.test(doc.content), `${file}: the institution is kept`)
-      assert.ok(/twelve smallholder schemes|اثني عشر مشروعا/.test(doc.content), `${file}: the abstract is kept`)
-      assert.ok(!/Declaration|Acknowledg|Dedication|الإهداء|الشكر/.test(doc.content), `${file}: no front matter about people`)
-      // The answer: people are recorded as not looked for, nothing volunteered is kept.
-      const merged = db.ai_generations.find((g) => String(g.notes).startsWith('Merged'))
-      assert.strictEqual(merged.result_data._scope, 'excerpt')
-      assert.deepStrictEqual(merged.result_data.researchers, { status: 'not_found' })
-      assert.deepStrictEqual(merged.result_data.supervisor_name, { status: 'not_found' })
-      assert.strictEqual(db.papers[0].supervisor_name, undefined, 'no supervisor written')
-      assert.strictEqual(db.papers[0].year, 2021)
-      // What left the server is on record, with the run, for an operator.
-      const pass1 = db.ai_generations.find((g) => g.notes === 'Pass 1')
-      assert.strictEqual(pass1.result_data._diagnostics.excerpt.text, doc.content)
-      assert.strictEqual(pass1.result_data._diagnostics.excerpt.sha256, hash(doc.content))
-    }
-  })
-
-  await check('free tier: a scanned PDF, or no names to check against, sends nothing and goes to hand entry with its own reason', async () => {
-    for (const [file, permission, reason] of [
-      ['scanned-cover.pdf', V3, 'no_text_layer'],
-      ['thesis-en.pdf', { ...V3, known_names: [] }, 'names_unavailable'],
-      ['thesis-en.pdf', { ...V3, known_names: undefined }, 'names_unavailable'],
-    ]) {
-      const { db, res, provider } = await freeRun(file, permission)
-      assert.deepStrictEqual(provider.requests, [], `${file}/${reason}: nothing sent`)
-      assert.strictEqual(res.status, 200, 'a protective refusal is not a server error')
-      assert.strictEqual(res.body.reason, 'excerpt_unavailable')
-      assert.strictEqual(db.papers[0].failure_code, 'excerpt_unavailable')
-      const gen = db.ai_generations.at(-1)
-      assert.strictEqual(gen.provider, 'none', 'history does not claim a provider was reached')
-      assert.strictEqual(gen.result_data._diagnostics.reason, reason)
-      assert.ok(!JSON.stringify(gen.result_data).includes('Amna'), 'the refusal record holds no document text')
-    }
-  })
-
-  await check('free tier: the arrangement must match on both sides - a paid acceptance is never read under unpaid terms, nor the reverse', async () => {
-    const paidAcceptance = { permitted: true, terms: 'gemini_api_paid', agreement_version_id: 'submission-terms-2026-10-04-en', known_names: ['Amna Osman Elhassan'] }
-    const a = await freeRun('thesis-en.pdf', paidAcceptance)
-    assert.strictEqual(a.res.body.restricted, 'agreement_not_applicable')
-    assert.deepStrictEqual(a.provider.requests, [])
-    // A version 3 acceptance on a server attesting paid terms.
-    const { token, row } = paperRow({ submission_extraction_policy: 'automatic', ai_permission: V3 })
-    const db = makeDb({ papers: [row] })
-    db.files[row.file_path] = fs.readFileSync(path.join(FIXTURES, 'thesis-en.pdf'))
-    const provider = recordingProvider()
-    const res = await call(db, token, { EXTRACTION_MODE: 'automatic', GEMINI_DATA_TERMS: 'paid' }, realOrchestrator(provider))
-    assert.strictEqual(res.body.restricted, 'agreement_not_applicable')
-    assert.deepStrictEqual(provider.requests, [])
-  })
-
-  await check('free tier: the real Gemini provider gets the excerpt instructions and the excerpt as text only', () =>
-    withProcessEnv(GEMINI_ENV, async () => {
-      resetNetwork()
-      const bodies = []
-      network.respond = (url, init) => {
-        bodies.push(JSON.parse(init.body))
-        return new Response(JSON.stringify({ candidates: [{ finishReason: 'STOP', content: { parts: [{ text: JSON.stringify({ document_type: 'thesis', title: { status: 'found', value: 'T' } }) }] } }] }), { status: 200 })
-      }
-      const { token, row } = paperRow({ submission_extraction_policy: 'automatic', ai_permission: V3 })
+  await check('free tier: a version 4 acceptance under GEMINI_DATA_TERMS=unpaid sends the PDF itself (scans included) and keeps authors and supervisor', async () => {
+    for (const file of ['thesis-en.pdf', 'scanned-cover.pdf']) {
+      const { token, row } = paperRow({ submission_extraction_policy: 'automatic', ai_permission: V4 })
       const db = makeDb({ papers: [row] })
-      db.files[row.file_path] = fs.readFileSync(path.join(FIXTURES, 'thesis-en.pdf'))
-      const res = await call(db, token, { ...GEMINI_ENV, ...FREE })
-      assert.strictEqual(res.status, 200)
-      assert.strictEqual(providerCalls().length, 1, 'one request')
-      const parts = bodies[0].contents[0].parts
-      assert.strictEqual(parts.length, 2)
-      assert.ok(parts[0].text.startsWith('You are given a short EXCERPT'), 'excerpt instructions')
-      assert.ok(/Never report any person's name/.test(parts[0].text))
-      assert.ok(!/RESEARCHERS:|SUPERVISOR \(use/.test(parts[0].text), 'the people-finding instructions are not sent')
-      assert.ok(parts.every((pt) => !pt.inline_data), 'no file part')
-      for (const re of PERSONAL) assert.ok(!re.test(parts[1].text), `${re} reached Google`)
-    })
-  )
+      db.files[row.file_path] = require('node:fs').readFileSync(require('node:path').join(FIX, file))
+      const provider = recordingProvider()
+      const res = await call(db, token, { EXTRACTION_MODE: 'automatic', GEMINI_DATA_TERMS: 'unpaid' }, realOrchestrator(provider))
+      assert.strictEqual(res.status, 200, file)
+      assert.strictEqual(provider.requests[0].document.type, 'pdf', `${file}: the pages themselves`)
+      assert.ok(provider.requests.length <= 2, 'never more than two calls')
+      assert.strictEqual(db.papers[0].supervisor_name, 'Dr. Kamal Eldin Yousif')
+      const merged = db.ai_generations.find((g) => String(g.notes).startsWith('Merged'))
+      assert.strictEqual(merged.result_data.researchers.value[0].name, 'Amna Osman Elhassan')
+    }
+  })
+  await check('free tier: the arrangement must match - version 4 is never read under paid terms, version 2 never under unpaid', async () => {
+    for (const [permission, terms] of [[V4, 'paid'], [{ permitted: true, terms: 'gemini_api_paid', agreement_version_id: 'submission-terms-2026-10-04-en' }, 'unpaid']]) {
+      const { token, row } = paperRow({ submission_extraction_policy: 'automatic', ai_permission: permission })
+      const db = makeDb({ papers: [row] })
+      db.files[row.file_path] = await syntheticPdf('Synthetic')
+      const provider = recordingProvider()
+      const res = await call(db, token, { EXTRACTION_MODE: 'automatic', GEMINI_DATA_TERMS: terms }, realOrchestrator(provider))
+      assert.strictEqual(res.body.restricted, 'agreement_not_applicable')
+      assert.deepStrictEqual(provider.requests, [])
+    }
+  })
 
   resetNetwork()
   if (failed) {

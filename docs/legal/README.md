@@ -10,6 +10,8 @@
 | `submission-terms.v2.ar.md` | Version 2 in Arabic (الإصدار الثاني), dated 4 أكتوبر 2026, with the same changes. Not an official translation; for the founder to review. |
 | `submission-terms.v3.en.md` | **Version 3**, dated 4 OCT 2026: Gemini reading by default under Google's **unpaid (free-tier)** terms, sending only a minimized excerpt with names and contact details removed, with manual entry as the alternative (founder decision of 2026-10-04: the project is free tier). Sections 1–5, 8 and 9 are word for word those of versions 1 and 2; section 6 is rewritten; section 7's provider sentence and the acceptance sentence are updated. **Supersedes version 2 for launch.** |
 | `submission-terms.v3.ar.md` | Version 3 in Arabic (الإصدار الثالث), with the same changes. Not an official translation; for the founder to review. |
+| `submission-terms.v4.en.md` | **Version 4**, dated 4 OCT 2026, **the launch text**: Gemini reads the document itself (first pages, or Word text) under Google's free-tier terms; names are included and nothing is removed; manual entry sends nothing. Sections 1–5, 8 and 9 as in versions 1–3; §6, §7's provider sentence and the acceptance sentence rewritten. Supersedes versions 2 and 3. |
+| `submission-terms.v4.ar.md` | Version 4 in Arabic (الإصدار الرابع). Not an official translation; for the founder to review. |
 
 These two files are the **single source of truth** for the agreement text. Any rendered terms page and the acceptance sentence shown beside the checkbox must be produced from these files, not retyped into components. The wording, version label and date are exactly as supplied by the founder; do not edit them in place. A wording change is a new version (a new file or a clearly versioned revision), never a silent edit, because every acceptance must be traceable to the exact text that was shown.
 
@@ -22,9 +24,23 @@ Integrity reference at the time of adding (2026-09-26):
 3bcfe8c27a1046835423b38dc59e7f17d5b4deae94a28cf8273208ea5a71faf0  submission-terms.v2.ar.md   (added 2026-10-04)
 503bcdc52968ed8712fd29446bdfbbe2003365cb4449588296df772e983abb99  submission-terms.v3.en.md   (added 2026-10-04)
 aef0ced4846f195615b8970d3537e7494045f467921d0950e9d3b9fa0069efdc  submission-terms.v3.ar.md   (added 2026-10-04)
+fce461b4b47389de736e1d30bee44df48c3f3dd15fd6d3f14d7959059fc184c7  submission-terms.v4.en.md   (added 2026-10-04)
+8b3c313eab99789b36226fb246f04628fd21f970777dee7e470cf06b92511231  submission-terms.v4.ar.md   (added 2026-10-04)
 ```
 
-## Version 3 (2026-10-04, free tier): what changed and why
+## Version 4 (2026-10-04, free tier, full document): the launch text
+
+Later on 2026-10-04 the founder withdrew the excerpt-only design (version 3) and restored full-document Gemini extraction: the first 10 pages of a PDF (25 on a second pass), scans included, or a Word file's text, with authors and supervisor extracted, using the working Production model. Version 4 describes exactly that, in English and Arabic:
+- **what is sent and why**, and that it includes names and any other personal information printed in those pages, with **nothing removed**;
+- **Google's free-tier terms** (re-verified 2026-10-04 against the official pages quoted under Version 3 below): use of inputs and responses to provide, improve and develop Google's products and machine-learning technologies; human review after disconnection from the account, key and project; **no stated retention** for that use; the separate **55-day abuse-monitoring** records; processing on servers outside the user's country (Privacy Policy); withdrawal from the Platform deletes nothing at Google;
+- that **Google asks that personal information not be submitted**, that the pages will usually contain names, that **acceptance does not change Google's terms** and is not consent on behalf of others, and that **manual entry sends nothing**;
+- that suggestions can be wrong and must be checked; and what the Platform keeps (the suggestions, with the submission's records).
+
+It makes **no** anonymization promise, **no** no-training promise (Google may train on free-tier inputs), and **no** deletion period beyond what Google states. Seeded inactive by **migration 0020**; migrations 0018 and 0019 are unchanged (0019 is already applied to the test project). The server reads a paper only when `GEMINI_DATA_TERMS=unpaid` and the paper's own acceptance is of a version describing `gemini_api_unpaid` (versions 3 and 4 both do; only version 4 is ever to be activated).
+
+## Version 3 (2026-10-04, free tier, excerpt-only): withdrawn the same day, never activated
+
+*Kept as the record of the excerpt-only design and of the source check below, which version 4 reuses. Its §6 describes a pipeline that no longer exists; it must never be activated.*
 
 The founder confirmed on 2026-10-04 that the Gemini API project is on Google's **free tier** (no billing), approved revising the agreement to describe that arrangement accurately, and kept Gemini reading as the preferred option with manual entry as the alternative. Paid Gemini is not the launch arrangement, so version 2 (written for paid terms) is superseded before ever being activated.
 
@@ -83,9 +99,9 @@ Evidence that it was **not** paid recently: production's own extraction history 
 
 To check (founder, with the Google account that owns the key): Google AI Studio → API keys → the key's project shows its plan or tier (a paid tier means billing is linked); or Google Cloud console → Billing → Account management → linked projects. If it is not paid, the choices are to link a billing account (a per-use charge; check current Gemini pricing first) or to keep automatic reading off. Either way, `GEMINI_DATA_TERMS=paid` must not be set until the answer is "paid".
 
-## Status: NOT ACTIVE (all three versions)
+## Status: NOT ACTIVE (all four versions)
 
-The agreement is **written but not in effect**, in any version. Version 2 is seeded inactive by migration 0018 and version 3 by migration 0019, alongside the Initial Version rows (unchanged). **Version 3 is the one to activate** (release session, `docs/release-runbook.md`); version 2 is never to be activated for this project. Only one version should be active at a time: the offer is automatic only when **every** active agreement describes the attested arrangement, so activating another version alongside version 3 turns automatic reading off. The live submission form (as of production commit `f45dc690`) still shows the Phase 1/2 processing-consent checkbox and the three legacy publication checkboxes. Nobody has accepted this agreement, and no acceptance may be recorded, inferred or backdated for any existing submission. The date in the agreement is its version date, not an acceptance date; an acceptance timestamp is always the server's time at the moment of acceptance.
+The agreement is **written but not in effect**, in any version. Version 2 is seeded inactive by migration 0018, version 3 by 0019 and version 4 by 0020, alongside the Initial Version rows (unchanged). **Version 4 is the one to activate** (release session, `docs/release-runbook.md`); versions 2 and 3 are never to be activated. Only one version should be active at a time. The live submission form (as of production commit `f45dc690`) still shows the Phase 1/2 processing-consent checkbox and the three legacy publication checkboxes. Nobody has accepted this agreement, and no acceptance may be recorded, inferred or backdated for any existing submission. The date in the agreement is its version date, not an acceptance date; an acceptance timestamp is always the server's time at the moment of acceptance.
 
 Completed wording does not mean the software already does what the agreement says. The agreement may only be activated (shown and accepted in the live form) when every commitment below is true of the running system. Each maps to a milestone in `PHASE_3_PLAN.md`. A completed milestone is not enough on its own: the commitment must actually be supported and verified in production.
 
@@ -93,7 +109,8 @@ Completed wording does not mean the software already does what the agreement say
 
 | Agreement commitment | Required before activation | Plan milestone | Status |
 |---|---|---|---|
-| §6 (version 3): Gemini reading by default under Google's free-tier terms, sending only a minimized excerpt; nothing sent when one cannot be made; manual entry sends nothing | `GEMINI_DATA_TERMS=unpaid` in Production (the confirmed arrangement); migrations 0018 and 0019; the excerpt path verified with the mock on the Preview (H12) and **with real Gemini on synthetic documents (R1)**; the founder's approval of the text and its limitations | Release session (`docs/release-runbook.md` §4) | **Built and tested locally** (unit, real-Postgres and browser suites; the built server sent only a name-free excerpt). Not deployed; not yet tested against the real Gemini API (needs the separate free-tier test key described in the runbook, R1). |
+| §6 (version 4): Gemini reads the document by default under Google's free-tier terms; manual entry sends nothing | `GEMINI_DATA_TERMS=unpaid` in Production; migrations 0018–0020; H12 on the Preview (mock) and **R1 with real Gemini**; the founder's approval of the text | Release session (`docs/release-runbook.md` §4) | **Built and tested locally** (unit, real-Postgres, browser and timing suites). Not deployed; not yet tested against the real Gemini API (R1). |
+| §6 (version 3): excerpt only | — | — | **Withdrawn 2026-10-04; never to be activated.** |
 | §6 (version 2): paid terms | — | — | **Superseded; never to be activated** (the project is free tier). |
 | §4, §3: one publication setting chosen from two; permissions bound to the submission | Server-side acceptance record binding the submission, agreement version and language, setting, file and server timestamp; direct uploads/RPC calls without it rejected | M2 (B) | **Built and tested locally, not deployed** (PR #18 and the stacked M2B PR; `docs/submission-flow.md`). **Not met in production:** storage still allows anonymous inserts into the `papers` bucket, and `submit_paper` is still granted to `anon`, until migration 0014 is applied at cutover (after activation, by design, since the legacy form needs that path until the new form is live). |
 | §7: optional LinkedIn link public only if the person chooses; no other social profile collected | Facebook collection removed from the flow; LinkedIn display is an explicit, independent choice | M3 (C) | **Built and tested locally, not deployed** (migration 0013). Production still collects Facebook links on the confirmation screen until this release is deployed. |

@@ -10,8 +10,8 @@
 
 - **Stage A applied to production** (0011–0013, 0015–0017), verified, data unchanged (`docs/release-runbook.md` §7). Production code is still `f45dc690`.
 - **Founder decisions of 2026-10-04:** Gemini reading is the default with "Enter details manually" as the alternative; acceptance of the applicable agreement version and the researcher's choice are enforced on the server before any Gemini call; the premature thank-you screen is fixed.
-- **The Gemini API project is confirmed free tier** (no billing; paid Gemini is not the launch arrangement). Under Google's unpaid terms the document is never sent: the server reads it and sends only a **minimized excerpt** (cover-page institution/degree/date lines, likely title, abstract) with names, contact details and IDs removed; nobody's name is requested; a scan or an unsafe excerpt means nothing is sent and hand entry. Agreement **version 3** (EN/AR) describes this; version 2 (paid) is superseded. Built on the release-prep branch with migrations **0018 + 0019** (not applied to production). `docs/legal/README.md` ("Version 3"), `docs/extraction-pipeline.md`.
-- **Until the release, production (`f45dc690`) still sends whole front pages of every new paper to Gemini under the free tier** and asks for names; the release session ends this (`docs/release-runbook.md` §4, §8).
+- **The Gemini API project is confirmed free tier.** Gemini reads the document itself (first pages or Word text, scans included; authors and supervisor extracted; working Production model `gemini-3.5-flash-lite`). Agreement **version 4** (EN/AR) says what is sent and that Google may use it to improve its products, with human review; manual entry sends nothing. An excerpt-only design (version 3) was withdrawn the same day. Built on the release-prep branch with migrations **0018 + 0019 + 0020** (not applied to production).
+- **Until the release, production (`f45dc690`) sends every new paper's front pages to Gemini under the free tier without an agreement that says so**; the release session puts version 4 in front of every automatic reading (`docs/release-runbook.md` §4, §8).
 
 ---
 

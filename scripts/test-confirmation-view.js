@@ -105,7 +105,6 @@ check('completed and partial results are reviewed, not hand-entered', () => {
 // lib/i18n.jsx is JSX and cannot be required here, so the two `manual`
 // blocks are read from the source. Crude, but it checks what matters:
 // both languages carry every key, and neither leaks configuration.
-const screenSrc = fs.readFileSync(path.join(__dirname, '../components/ConfirmationScreen.jsx'), 'utf8')
 const i18n = fs.readFileSync(path.join(__dirname, '../lib/i18n.jsx'), 'utf8')
 function manualBlocks() {
   const blocks = []
@@ -120,7 +119,7 @@ check('hand-entry wording exists in English and Arabic with the same keys', () =
   const blocks = manualBlocks()
   assert.strictEqual(blocks.length, 2, 'one manual block per language')
   assert.deepStrictEqual(keysOf(blocks[0]), keysOf(blocks[1]))
-  assert.deepStrictEqual(keysOf(blocks[0]), ['chosenNote', 'emptyHint', 'enterYourself', 'fallbackNote', 'heading', 'orEnter', 'protectedNote', 'subtitle', 'switching', 'unavailable'])
+  assert.deepStrictEqual(keysOf(blocks[0]), ['chosenNote', 'emptyHint', 'enterYourself', 'fallbackNote', 'heading', 'orEnter', 'subtitle', 'switching', 'unavailable'])
   assert.strictEqual((i18n.match(/manualChoice:/g) || []).length, 2, 'the choice-not-recorded message in both languages')
   assert.ok(/[؀-ۿ]/.test(blocks[1]), 'the second block is Arabic')
   // The hand-off line between a stored submission and the next page: one in
@@ -137,16 +136,6 @@ check('hand-entry wording never exposes configuration or provider names', () => 
   for (const word of ['EXTRACTION_MODE', 'Gemini', 'Google', 'mode', 'config', 'AI', 'provider', 'preview']) {
     assert.ok(!new RegExp(`\\b${word}\\b`).test(text), `"${word}" appears in user-facing wording`)
   }
-})
-
-check('free tier: no safe excerpt could be made - hand entry with its own note, never a retry, and the wording names nobody', () => {
-  assert.deepStrictEqual(view(paper('failed', { failure_code: 'excerpt_unavailable' })), { view: 'form', manual: true, reason: 'protected' })
-  // A decision recorded later still wins, and a confirmed record is the researcher's own.
-  assert.strictEqual(view(paper('failed', { failure_code: 'excerpt_unavailable', manual_entry_source: 'researcher' })).reason, 'fallback')
-  assert.strictEqual(view(paper('failed', { failure_code: 'excerpt_unavailable', metadata_confirmed_at: '2026-10-04T00:00:00Z' })).view, 'form')
-  assert.strictEqual((i18n.match(/protectedNote:/g) || []).length, 2, 'English and Arabic')
-  assert.strictEqual((i18n.match(/excerptNote:/g) || []).length, 2, 'English and Arabic')
-  assert.ok(/showProtectedNote/.test(screenSrc) && /showExcerptNote/.test(screenSrc), 'the screen shows both notes')
 })
 
 check('a paper that can never be read (automatic_processing false) never waits, and is not offered a refused retry', () => {

@@ -11,11 +11,11 @@ Prepared 2026-09-30 against candidate commit `f433a37` (PR #22 head) plus the re
 ### Founder decisions of 2026-10-04 (supersede the manual-only launch plan)
 1. **Gemini reading is the default** submission experience, with a clear secondary **"Enter details manually"** choice before anything is sent, and manual entry also offered when reading fails (no new upload). A manual choice prevents every Gemini call for that submission.
 2. **The Gemini API project is confirmed free tier (unpaid).** Billing is not enabled, and paid Gemini is **not** the launch arrangement. Under Google's unpaid terms, submitted content and responses are used to improve Google's products and machine-learning technologies, human reviewers may read them, and Google asks that no sensitive, confidential or personal information be submitted.
-3. **The agreement matches actual processing:** agreement **version 3** (`docs/legal/submission-terms.v3.*.md`, `gemini_api_unpaid`) describes exactly that. Version 2 (paid terms) is superseded and is **never** to be activated for this project. Acceptance of the applicable version and the researcher's choice are enforced on the server before any Gemini call, on every route; nothing broader applies to existing papers.
-4. **Respecting the unpaid-service restriction:** the document is never sent. The server reads it locally and sends only a **minimized excerpt** (allow-listed cover-page lines, likely title lines, the abstract) with names, contact details and IDs removed; the model is never asked about people. Where no safe excerpt can be made (a scan, unreadable text, too little left), nothing is sent and the researcher enters the details. `docs/extraction-pipeline.md` ("The free-tier excerpt").
+3. **The agreement matches actual processing:** agreement **version 4** (`docs/legal/submission-terms.v4.*.md`, `gemini_api_unpaid`, migration **0020**) says that the first pages of the document (or Word text) are sent to Google, names included and nothing removed; that Google may use inputs and outputs to improve its products and machine-learning technologies; that human reviewers may process them; and that manual entry sends nothing. No anonymization, no-training or unsupported deletion promise; acceptance is not presented as overriding Google's restrictions. Version 2 (paid) and version 3 (excerpt-only, withdrawn) are never to be activated. Acceptance of the applicable version and the researcher's choice are enforced on the server before any Gemini call; nothing broader applies to existing papers.
+4. **Full-document extraction restored (founder decision, later on 2026-10-04):** the excerpt-only pipeline was removed; Gemini reads the document as before (first 10 pages, up to 25 on a second pass; Word text), including authors, supervisor and scanned PDFs, with the working Production model.
 5. **The premature thank-you screen is fixed** (the legacy form showed "Thank you…" while the next page loaded).
 
-Built on the release-prep branch, with migrations **0018** and **0019** as **Stage A2**. Limitations researchers see (`docs/legal/README.md`, "Version 3"; also stated beside the choice on the form): they always enter the authors and the supervisor; a scanned PDF, or a title or abstract that may name a person, means hand entry for the whole document; some titles cannot be told apart from a name and are typed by hand; anything already entered is kept. The rules are a heuristic, not anonymization or proof of compliance, and the agreement says so.
+Built on the release-prep branch, with migrations **0018**, **0019** and **0020** as **Stage A2**. (0019 seeds the withdrawn version 3 and is already applied to the test project, so it is kept unchanged; 0020 adds version 4.)
 
 ### Built and tested locally
 Everything in PRs #16–#22 (M0 docs, M1 manual path, M2A acceptance, M2B/M3 new form + LinkedIn, M4 review, M5 public site, M6 citations/metrics). Local Postgres 16 and a local Supabase stack with real GoTrue; CI (`test`) green on every head.
@@ -38,8 +38,8 @@ Test project `qwxfxckrabvuvuzidxuo` (`research-platform-test`, free plan, eu-cen
 ### Blocked or unverified
 | Item | Blocked on |
 |---|---|
-| Stage A2 (0018 + 0019 on production) | Founder approval |
-| Gemini reading under the new code (§4, release session) | Founder approval of agreement **version 3** (EN + AR); H12 on the Preview (mock); **R1, a real Gemini test of the excerpt path**, which needs a separate free-tier test key (§6) |
+| Stage A2 (0018 + 0019 + 0020 on production) | Founder approval |
+| Gemini reading under the new code (§4, release session) | Founder approval of agreement **version 4** (EN + AR); H12 on the Preview (mock); **R1, a real Gemini test**, which needs a branch-scoped Preview key (§6) |
 | 0014 cutover | Agreement activation + a real signed submission |
 | Volunteers opening submissions | Founder approval of the confidentiality draft |
 | Public site | First admin, reviewed/approved UofK records, domain decision |
@@ -86,7 +86,7 @@ It prints project refs only, fails with `NOT ISOLATED` if the URL or either key 
 
 ## 3. Migrations: what is applied, and never both ways
 
-**`schema.sql` is for an empty database only.** It already contains 0011–0013 and 0015–0019; it deliberately does **not** contain 0014 (the cutover is applied last on production; a fresh install that should match post-cutover production runs `schema.sql` then 0014). **Never run `schema.sql` against production**, and never run migrations on a database built from the current `schema.sql` except 0014.
+**`schema.sql` is for an empty database only.** It already contains 0011–0013 and 0015–0020; it deliberately does **not** contain 0014 (the cutover is applied last on production; a fresh install that should match post-cutover production runs `schema.sql` then 0014). **Never run `schema.sql` against production**, and never run migrations on a database built from the current `schema.sql` except 0014.
 
 **The tracking table is not evidence.** `supabase_migrations.schema_migrations` lists only 0008–0010 because earlier files were run by hand. Identify state by fingerprint (read-only, safe on production):
 ```sql
@@ -99,11 +99,12 @@ select concat_ws(' ',
   case when to_regclass('public.public_records') is not null then '0016' end,
   case when to_regclass('public.activity_counts') is not null then '0017' end,
   case when exists(select 1 from information_schema.columns where table_name='agreement_versions' and column_name='external_ai_processing') then '0018' end,
-  case when exists(select 1 from pg_constraint where conname='agreement_versions_external_ai_processing_check' and pg_get_constraintdef(oid) like '%gemini_api_unpaid%') then '0019' end) as applied;
+  case when exists(select 1 from pg_constraint where conname='agreement_versions_external_ai_processing_check' and pg_get_constraintdef(oid) like '%gemini_api_unpaid%') then '0019' end,
+  case when exists(select 1 from agreement_versions where id='submission-terms-2026-10-04-v4-en') then '0020' end) as applied;
 ```
 Production returned an empty string before Stage A, and `0011 0012 0013 0015 0016 0017` after it (2026-10-04). All of 0011–0017 are idempotent, so re-running one already applied is harmless; skipping one is not. Only 0014 checks its prerequisites explicitly; the others fail on their first reference to a missing object and roll back (each file is one `begin … commit` transaction). The Stage A checks below are the guard: each confirms the exact fingerprint before the next file is run.
 
-**Dependencies:** 0012 ← 0011; 0013 ← 0012; 0015 ← 0012, 0013, Auth; 0016 ← 0015; 0017 ← 0016; 0018 ← 0011, 0012, 0013 and 0019 ← 0018 (Stage A2, before the release session: the release code calls their functions); 0014 ← 0012, 0013 and a live new form. Numbers are not order: **0014 is last.**
+**Dependencies:** 0012 ← 0011; 0013 ← 0012; 0015 ← 0012, 0013, Auth; 0016 ← 0015; 0017 ← 0016; 0018 ← 0011, 0012, 0013 and 0019 ← 0018 and 0020 ← 0019 (Stage A2, before the release session: the release code calls their functions); 0014 ← 0012, 0013 and a live new form. Numbers are not order: **0014 is last.**
 
 Before running any migration on production, re-run `scripts/rehearse-release.sh` locally from the exact candidate commit; it must print `Release rehearsal passed`.
 
@@ -172,15 +173,15 @@ Do **not** run any rollback block from the files, and do not re-run a file, with
 
 **Done when:** `AFTER 0017` is `PASS`, the data fingerprint is unchanged, and the result is recorded in §7.
 
-### Stage A2 — migrations 0018 and 0019 on production, before any merge (exact procedure)
+### Stage A2 — migrations 0018, 0019 and 0020 on production, before any merge (exact procedure)
 
 Precondition: Stage A done (2026-10-04). **Needs its own founder approval.** Required before the release session: the release code calls 0018's `create_submission_intent` (17 arguments) and `external_ai_permission` (0019's version, which also returns the names held for the paper); without them the extraction route refuses everything (`503 database_not_ready`, nothing sent) and the new form reports submissions unavailable.
 
-**What it changes.** Additive (`supabase/migrations/README.md`, 0018 and 0019; 0019's only conflict clause can bring an unaccepted draft version 3 row to the reviewed text, which matters only on the test project — on production the rows do not exist and it is a plain insert): one column on `agreement_versions`, two on `submission_acceptances`, agreement versions 2 (paid, superseded) and 3 (free tier) seeded **inactive**, the acceptance functions replaced, one new service-role function, the confirmation read gains `automatic_processing`, a paper inserted by the legacy anonymous path is stamped `manual`, and the arrangement constraints allow `gemini_api_unpaid`. **No existing row is changed** (the data fingerprint stays identical), nothing becomes active, `extraction_policy` is untouched, and the deployed app (`f45dc690`) keeps working unchanged (it ignores the stamp and the new key).
+**What it changes.** Additive (`supabase/migrations/README.md`, 0018, 0019 and 0020; 0019 seeds version 3 inactive — withdrawn, never activated — and 0020 seeds version 4 inactive; on production both are plain inserts): one column on `agreement_versions`, two on `submission_acceptances`, agreement versions 2 (paid, superseded) and 3 (free tier) seeded **inactive**, the acceptance functions replaced, one new service-role function, the confirmation read gains `automatic_processing`, a paper inserted by the legacy anonymous path is stamped `manual`, and the arrangement constraints allow `gemini_api_unpaid`. **No existing row is changed** (the data fingerprint stays identical), nothing becomes active, `extraction_policy` is untouched, and the deployed app (`f45dc690`) keeps working unchanged (it ignores the stamp and the new key).
 
-**Evidence it is safe (2026-10-04, local).** `scripts/rehearse-stage-a2.sh` (production schema `f45dc690` + synthetic production-shaped rows + Stage A, then 0018 twice and 0019 twice): PREFLIGHT A2, AFTER 0018 and AFTER 0019 **PASS**, fingerprint identical, f45dc690's browser calls (confirmation read, confirm, legacy `submit_paper`) work, a legacy paper is stamped `manual` even under an automatic policy, no existing paper becomes readable. `scripts/rehearse-release.sh`: migrated (0011–0019, then 0014) = fresh install. Postgres suites (`supabase/tests/run-0012.sh`) and browser suites pass. Hosted: §7.
+**Evidence it is safe (2026-10-04, local).** `scripts/rehearse-stage-a2.sh` (production schema `f45dc690` + synthetic production-shaped rows + Stage A, then 0018, 0019 and 0020, each twice): PREFLIGHT A2, AFTER 0018, AFTER 0019 and AFTER 0020 **PASS**, fingerprint identical, f45dc690's browser calls (confirmation read, confirm, legacy `submit_paper`) work, a legacy paper is stamped `manual` even under an automatic policy, no existing paper becomes readable. `scripts/rehearse-release.sh`: migrated (0011–0020, then 0014) = fresh install. Postgres suites (`supabase/tests/run-0012.sh`) and browser suites pass. Hosted: §7.
 
-**Files:** `0018_ai_processing_agreement.sql` and `0019_gemini_free_tier_agreement.sql`; SHA-256 and line counts in §7 at the commit that is approved.
+**Files:** `0018_ai_processing_agreement.sql`, `0019_gemini_free_tier_agreement.sql` and `0020_free_tier_full_document_agreement.sql`; SHA-256 and line counts in §7 at the commit that is approved.
 
 **Procedure** (SQL Editor on the **production** project `mzpkiuovjppmavqkppem`, one block per query, as in Stage A):
 1. `PREFLIGHT A2` from `supabase/release/stage-a2-checks.sql` → `PASS`.
@@ -189,6 +190,7 @@ Precondition: Stage A done (2026-10-04). **Needs its own founder approval.** Req
 4. `AFTER 0018` → `PASS`.
 5. The raw 0019 file (line count must match). Expected: success, no rows.
 6. `AFTER 0019` → `PASS`.
+6a. The raw 0020 file. Expected: success, no rows. Then `AFTER 0020` → `PASS`.
 7. Record both in the migration history (same pattern as Stage A, run only after step 6 passed):
    ```sql
    insert into supabase_migrations.schema_migrations (version, name, statements)
@@ -207,15 +209,16 @@ Precondition: Stage A done (2026-10-04). **Needs its own founder approval.** Req
      and not exists (select 1 from supabase_migrations.schema_migrations where name = 'gemini_free_tier_agreement')
    returning version, name;
    ```
+   and likewise `'free_tier_full_document_agreement'` for 0020, guarded by `exists (select 1 from agreement_versions where id = 'submission-terms-2026-10-04-v4-en')`.
 8. `DATA FINGERPRINT` again → identical to step 2 (if not, check `max_created` / `max_confirmed` for a real submission in between).
 
-Stop conditions are those of Stage A. **Rollback:** not expected; the commented blocks at the bottom of 0019, then 0018, only with their application reverted.
+Stop conditions are those of Stage A. **Rollback:** not expected; the rollback notes of 0020, then 0019, then 0018, only with their application reverted.
 
 ### Stages B + D — the release session (one session; replaces the separate stages B and D)
 
-**Why one session.** The release code reads only papers whose acceptance covers the arrangement the server attests (0018/0019). Deploying it while the legacy form is still served, or before version 3 is active, would give **every** new submission manual entry: Gemini reading would be switched off, against the founder's requirement. Activating version 3 while the old code is live would show nobody anything (the old code never reads agreements), so the order below never disables reading and never presents terms that do not describe what is done.
+**Why one session.** The release code reads only papers whose acceptance covers the arrangement the server attests (0018–0020). Deploying it while the legacy form is still served, or before version 4 is active, would give **every** new submission manual entry: Gemini reading would be switched off, against the founder's requirement. Activating version 3 while the old code is live would show nobody anything (the old code never reads agreements), so the order below never disables reading and never presents terms that do not describe what is done.
 
-**Preconditions:** Stage A2 done; H12 passed on the Preview (mock provider); **R1 passed** (a real Gemini test of the excerpt path, §6) or the founder explicitly accepts that step 5 below is the first real test; the founder approved agreement **version 3** (EN + AR; D2); the free-tier limitations in `docs/legal/README.md` ("Version 3") accepted (D1).
+**Preconditions:** Stage A2 done; H12 passed on the Preview (mock provider); **R1 passed** (a real Gemini test, §6) or the founder explicitly accepts that step 5 below is the first real test; the founder approved agreement **version 4** (EN + AR; D2); the free-tier limitations in `docs/legal/README.md` ("Version 4") accepted (D1).
 
 1. **Production environment** (Vercel → Production scope; takes effect only at the next deploy, `f45dc690` ignores all of them):
    `EXTRACTION_MODE=automatic`, `GEMINI_DATA_TERMS=unpaid` (the confirmed arrangement), `SUBMISSION_TOKEN_SECRET=<random 32+ bytes>`, `SUBMISSION_ACCEPTANCE_FLOW=enabled`.
@@ -224,26 +227,26 @@ Stop conditions are those of Stage A. **Rollback:** not expected; the commented 
 2. **Database, immediately before the merge** (SQL Editor, production):
    ```sql
    begin;
-   update agreement_versions set active = (id in ('submission-terms-2026-10-04-v3-en', 'submission-terms-2026-10-04-v3-ar'))
+   update agreement_versions set active = (id in ('submission-terms-2026-10-04-v4-en', 'submission-terms-2026-10-04-v4-ar'))
     where agreement_key = 'submission-terms';
    update extraction_policy set mode = 'automatic', changed_at = now();
    commit;
    select id, active, external_ai_processing from agreement_versions order by id;
    ```
-   Expected: only the two `-v3-` rows active; the Initial Version and version 2 inactive (inactive rows are evidence). Harmless to `f45dc690`, which reads neither table.
-3. **Merge** (decision D5; recommended: one final production deploy). The first production build serves the new form with version 3.
+   Expected: only the two `-v4-` rows active; the Initial Version and versions 2 and 3 inactive (inactive rows are evidence). Harmless to `f45dc690`, which reads neither table.
+3. **Merge** (decision D5; recommended: one final production deploy). The first production build serves the new form with version 4.
 4. **Verify the deployment**: deployment commit = merged head; `/submit` shows one unchecked acceptance box, "Read my document with Gemini (recommended)" selected, "Enter details manually" as the alternative, and the free-tier explanation; `/admin` and `/research` 404.
 5. **Three real submissions with the founder's own synthetic test documents** (invented names; never a real person's document):
-   (a) Gemini chosen, a text PDF → "Reading your research" → review with the excerpt note ("Add the authors and the supervisor yourself") → Confirm → thank-you; in `ai_generations`, the `Pass 1` row's `result_data->'_diagnostics'->'excerpt'->>'text'` contains no person's name, email, phone or ID, and its `provider` is `gemini`;
+   (a) Gemini chosen, a text PDF → "Reading your research" → review with authors and supervisor suggested → Confirm → thank-you; `ai_generations` rows with `provider = 'gemini'` and the Production model;
    (b) "Enter details manually" chosen → no `/api/extract` work and **no** `ai_generations` row; its acceptance shows `processing_choice = 'manual'`;
-   (c) a scanned PDF → "nothing was sent" note, hand entry, an `ai_generations` row with `provider = 'none'` and `failure_code = 'excerpt_unavailable'`.
+   (c) a scanned PDF → read like any other PDF → review → Confirm.
 6. Stage E follows (keep the D→E window short).
 
 **In flight at the switch:** a paper submitted on the old form just before the deploy and opened just after it is stamped `manual` (0018) and gets hand entry; nothing is sent for it. Between steps 2 and 3 the old code still reads every new paper as it does today (whole pages, under the free tier); doing 2 and 3 back to back keeps that to minutes.
 
 **Rollback, by speed:** `update extraction_policy set mode = 'manual', changed_at = now();` (immediate, new submissions); unset `GEMINI_DATA_TERMS` and redeploy (nothing is sent to Gemini at all; everyone gets hand entry); unset `SUBMISSION_ACCEPTANCE_FLOW` and redeploy (legacy form, hand entry). Promoting `f45dc690` back restores its **whole-document** free-tier reading, so it is the last resort, not the first. Deactivating the agreement stops new offers; acceptances already recorded stay.
 
-**Superseded (kept for the record):** the paid-only plan (activate version 2 and set `GEMINI_DATA_TERMS=paid` once billing was verified) and the paid-only test-project activation script. The project is free tier; neither is to be used.
+**Superseded and removed:** the paid-only plan (version 2, `GEMINI_DATA_TERMS=paid`) and the excerpt-only plan (version 3, minimized excerpt, test-project script `test-project-activate-v3.sql`). Neither is to be used.
 
 ### Stage E — cutover: 0014
 Right after D verifies (keep the D→E window short; acceptance is not enforced until E). Apply `0014_close_legacy_submission_path.sql`; it aborts with a named reason unless safe.
@@ -271,8 +274,8 @@ Rollback: unset `PUBLIC_RESEARCH`, redeploy (everything 404s); withdraw individu
 
 | Variable | Stage | Takes effect | Unset means |
 |---|---|---|---|
-| `EXTRACTION_MODE` | release session (`automatic`) | next deploy; necessary, not sufficient: a paper is read only with an applicable acceptance (0018/0019) under the attested arrangement | manual (logged `extraction_mode_defaulted`) |
-| `GEMINI_DATA_TERMS` | release session (`unpaid`, the confirmed arrangement) | next deploy; `unpaid` sends only the minimized excerpt, for version 3 acceptances. `paid` is **not** to be set for this key | nothing is sent to Gemini (`provider_terms_unattested`) |
+| `EXTRACTION_MODE` | release session (`automatic`) | next deploy; necessary, not sufficient: a paper is read only with an applicable acceptance (0018–0020) under the attested arrangement | manual (logged `extraction_mode_defaulted`) |
+| `GEMINI_DATA_TERMS` | release session (`unpaid`, the confirmed arrangement) | next deploy; papers accepted under version 4 are read (the document itself). `paid` is **not** to be set for this key | nothing is sent to Gemini (`provider_terms_unattested`) |
 | `SUBMISSION_TOKEN_SECRET` | release session | next deploy | new endpoints refuse to issue offers |
 | `SUBMISSION_ACCEPTANCE_FLOW` | release session (`enabled`, set before the merge) | next deploy | legacy form, endpoints 404 |
 | `ADMIN_REVIEW` | F | next deploy | `/admin` 404 |
@@ -300,8 +303,8 @@ Each runs against the §2 deployment `$PREVIEW` with `-H "x-vercel-protection-by
 | H8 | Withdrawal and download expiry | withdraw the approved record; reuse a download link issued before | page/search/sitemap drop it; old link refused after expiry |
 | H9 | Hosted cache | `curl -I` public page and API before/after withdrawal | `Cache-Control` as documented; withdrawn content not served from cache |
 | H10 | Trusted client address | send `x-forwarded-for: 1.2.3.4` repeatedly past the limit | Vercel's value wins (limit applies to the real address); if not, fix `lib/submission/routeHelpers.js` to prefer `x-vercel-forwarded-for` before release |
-| H12 | **Mock provider.** Gemini default, manual choice, agreement gate, free-tier excerpt (including the possible-name refusal), no premature thank-you (2026-10-04) | preview with 0018 + 0019 on the test project, **version 3** active, policy automatic, `EXTRACTION_MODE=automatic`, `GEMINI_DATA_TERMS=unpaid`, `AI_PROVIDER=mock`, `ALLOW_PREVIEW_EXTRACTION=true` (branch-scoped; the preview's database is the test project); the synthetic documents in `scripts/fixtures/synthetic/`; script `supabase/release/test-project-activate-v3.sql` | text PDF and DOCX: progress → "Reading your research" → review with the excerpt note → Confirm → thank-you, never earlier; the `Pass 1` row's stored excerpt holds none of the fixtures' invented names, emails, phones or IDs; manual chosen: no `ai_generations` row; a scan: provider `none`, `excerpt_unavailable`, hand entry; version 2 never offered under `unpaid`. **Proves our code paths only, not Gemini's behaviour.** |
-| R1 | **Real Gemini**, excerpt path (before the release session) | **Minimum secure setup (founder, in the Vercel UI; the value is never shown to anyone else):** one new variable `GEMINI_API_KEY`, type **Sensitive**, environment **Preview** only, **Git branch `claude/phase3-release-prep`** only. The value may be the existing key or a second key created in the **same** Google AI Studio project (preferred: it can be deleted afterwards without touching Production); a separate Google project is optional — nothing technical requires it (same free-tier terms either way; a test uses about 5 requests of the project's free quota). Then the founder (or Claude, on approval) changes this branch's `AI_PROVIDER` from `mock` to `gemini`. **`GEMINI_MODEL` is not set for the branch**: the existing shared variable (Development/Preview/Production) already supplies Production's model, verified as `gemini-3.5-flash-lite` (all 18 Production calls since the variable was last set on 2026-09-21 recorded it). Redeploy the branch; synthetic documents only (invented people, consistent with Google's restriction) | one request per eligible paper, text only, no file part; answers parse; title, abstract, year, university, faculty, degree filled for the synthetic thesis; no person's name in the answer; a scan or a possible name sends nothing. Afterwards: branch `AI_PROVIDER` back to `mock`, the branch `GEMINI_API_KEY` deleted (and the second key deleted in AI Studio, if one was made), redeploy |
+| H12 | **Mock provider.** Gemini default (full document), manual choice, agreement gate, scans, no premature thank-you | preview with 0018–0020 on the test project, **version 4** active (`supabase/release/test-project-activate-v4.sql`), policy automatic, `EXTRACTION_MODE=automatic`, `GEMINI_DATA_TERMS=unpaid`, `AI_PROVIDER=mock`, `ALLOW_PREVIEW_EXTRACTION=true` (branch-scoped); synthetic documents in `scripts/fixtures/synthetic/`; `scripts/hosted-verify-h12.js` | text PDF, Word file and scanned PDF read; review offers authors and supervisor; manual chosen: no `ai_generations` row; no thank-you before Confirm. **Proves our code paths only, not Gemini's behaviour.** |
+| R1 | **Real Gemini** (before the release session) | **Minimum secure setup (founder, in the Vercel UI; the value is never shown to anyone else):** one new variable `GEMINI_API_KEY`, type **Sensitive**, environment **Preview** only, **Git branch `claude/phase3-release-prep`** only. The value may be the existing key or a second key created in the **same** Google AI Studio project (preferred: it can be deleted afterwards without touching Production); a separate Google project is optional — nothing technical requires it (same free-tier terms either way; a test uses about 5 requests of the project's free quota). Then the founder (or Claude, on approval) changes this branch's `AI_PROVIDER` from `mock` to `gemini`. **`GEMINI_MODEL` is not set for the branch**: the existing shared variable (Development/Preview/Production) already supplies Production's model, verified as `gemini-3.5-flash-lite` (all 18 Production calls since the variable was last set on 2026-09-21 recorded it). Redeploy the branch; synthetic documents only (invented people, consistent with Google's restriction) | the synthetic thesis PDF, Word file and scan are read with at most two requests each; answers parse; title, authors, supervisor, year, university, faculty, degree filled for the synthetic thesis. Afterwards: branch `AI_PROVIDER` back to `mock`, the branch `GEMINI_API_KEY` deleted (and the second key deleted in AI Studio, if one was made), redeploy |
 | H11 | Metrics timeout and staff exclusion | lock `activity_counts` in the test DB while loading a page; view as signed-in staff | page renders within ~400 ms budget with "counts unavailable"; staff views not counted |
 
 Full-text checks (H7/H8 document parts) only on synthetic records in the test project, by lifting the restriction **there only**.
@@ -377,13 +380,13 @@ On 2026-10-02 the production `service_role` key (legacy JWT, project `mzpkiuovjp
 
 ## 8. Launch recommendation
 
-Smallest dependable release (revised 2026-10-04, free tier confirmed): stages A→A2, then the release session (B + D), then E→G, with **Gemini reading by default on a minimized excerpt under Google's free-tier terms** (manual entry always available, and automatic when no safe excerpt can be made), the **University of Khartoum** collection only, **metadata and abstracts** for records that meet the review rules, **full text off**, **no new AI**, `PUBLIC_SITE_ORIGIN` set only once the permanent domain is decided.
+Smallest dependable release (revised 2026-10-04, free tier confirmed): stages A→A2, then the release session (B + D), then E→G, with **Gemini reading the document by default under Google's free-tier terms** (manual entry always available), the **University of Khartoum** collection only, **metadata and abstracts** for records that meet the review rules, **full text off**, **no new AI**, `PUBLIC_SITE_ORIGIN` set only once the permanent domain is decided.
 
 ### Decisions for Samer
 | # | Decision | Recommendation |
 |---|---|---|
-| D1 | The Gemini project's data-use arrangement | **Decided 2026-10-04: free tier (unpaid), no billing.** Accept the resulting limitations (`docs/legal/README.md`, "Version 3"); set `GEMINI_DATA_TERMS=unpaid` in the release session |
-| D2 | Activate the submission agreement (EN/AR) | Approve **version 3** (`docs/legal/submission-terms.v3.*.md`), activate in the release session after H12 and R1; the Initial Version and version 2 stay inactive |
+| D1 | The Gemini project's data-use arrangement | **Decided 2026-10-04: free tier (unpaid), no billing; Gemini reads the document itself.** Set `GEMINI_DATA_TERMS=unpaid` in the release session |
+| D2 | Activate the submission agreement (EN/AR) | Approve **version 4** (`docs/legal/submission-terms.v4.*.md`), activate in the release session after H12 and R1; versions 1–3 stay inactive |
 | D3 | Approve the volunteer confidentiality text | Review now; admins can work without it |
 | D4 | Keep a private §8 request log | Start one (a private spreadsheet) before D |
 | D5 | Merge strategy | One final production deploy |
@@ -392,12 +395,12 @@ Smallest dependable release (revised 2026-10-04, free tier confirmed): stages A�
 | D8 | Rotate the exposed production service-role key (§7a) | **Decided 2026-10-02: no rotation; risk accepted (§7a)** |
 
 ### Remaining blockers (2026-10-04)
-1. Stage A is **done** (§7). Next: **approval of Stage A2** (migrations 0018 and 0019, §4). Then the **release session** (§4, stages B + D together); running the new code before version 3 is active would stop automatic reading in production.
-2. Approval of **agreement version 3 (D2)**; **R1**, the real Gemini test, which needs the separate free-tier test key described in §6.
+1. Stage A is **done** (§7). Next: **approval of Stage A2** (migrations 0018, 0019 and 0020, §4). Then the **release session** (§4, stages B + D together); running the new code before version 4 is active would stop automatic reading in production.
+2. Approval of **agreement version 4 (D2)**; **R1**, the real Gemini test, which needs the branch-scoped Preview key described in §6.
 3. Later stages need their own approvals and founder decisions D3 (confidentiality text), D4 (request log), D6 (domain).
 Not blockers: isolated hosted verification (complete, §7), activity counts (fixed by `fra1`, verified), key rotation (founder decision: not rotated; accepted risk in §7a).
 
 ### Pre-existing observations (not introduced by this release; no action needed for it)
 - On the six original tables the browser roles hold Supabase's default grants (including `TRUNCATE`, which RLS does not cover). The API cannot issue `TRUNCATE`, so it is not reachable through the site; a later hardening migration can revoke these grants.
 - `anon` can execute `normalize_year_text` (a pure year parser) and the trigger functions `prevent_premature_publish` / `stamp_submission_extraction_policy` (not callable directly). Harmless; listed so the Stage A checks' allow-list is explained.
-- **Production reads every new paper with Gemini today** (`f45dc690`), and production's own history shows free-tier (unpaid) quota refusals on 2026-09-19/20/21; 18 further calls followed, the last on 2026-10-03. Under Google's unpaid terms those requests carried whole front pages, including authors' and supervisors' names and contact details, and asked the model for names. The release session ends this (only a minimized excerpt, only for version 3 acceptances). Recorded here so the founder can decide whether anything is owed to those submitters.
+- **Production reads every new paper with Gemini today** (`f45dc690`), and production's own history shows free-tier (unpaid) quota refusals on 2026-09-19/20/21; 18 further calls followed, the last on 2026-10-03. Those requests carried whole front pages under the free-tier terms, without an agreement that said so. The release session puts version 4 (which says so) in front of every automatic reading. Recorded here so the founder can decide whether anything is owed to those submitters.

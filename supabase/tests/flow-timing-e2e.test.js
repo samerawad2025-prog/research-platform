@@ -51,9 +51,7 @@ async function check(name, fn) {
 }
 
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'timing-docs-'))
-// A realistic synthetic thesis (invented people): under the free tier a
-// near-empty PDF would correctly never be read, and the automatic path
-// would not be exercised.
+// A realistic synthetic thesis (invented people).
 async function pdfFile(name) {
   const p = path.join(TMP, name)
   fs.copyFileSync(path.join(__dirname, '../../scripts/fixtures/synthetic/thesis-en.pdf'), p)
@@ -160,7 +158,7 @@ async function main() {
   if (FLOW === 'acceptance') {
     sql(`update extraction_policy set mode = 'automatic', changed_at = now()`)
     // Version 2 only: the version whose text describes Gemini reading.
-    sql(`update agreement_versions set active = (id like 'submission-terms-2026-10-04-v3-%')`)
+    sql(`update agreement_versions set active = (id like 'submission-terms-2026-10-04-v4-%')`)
 
     await check('automatic: submit -> progress -> reading -> review -> thank-you only after Confirm (every hop delayed)', async () => {
       mock({ delayMs: 4000 }) // a slow extraction, so the reading state is long

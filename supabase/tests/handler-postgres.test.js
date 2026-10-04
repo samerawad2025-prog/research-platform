@@ -151,7 +151,7 @@ function createPreM1Database() {
 // external_ai_permission before any provider call; this also runs the
 // pre-M1 production route against that state.
 function applyMigration() {
-  for (const m of ['0011_manual_entry.sql', '0012_submission_acceptance.sql', '0013_linkedin_visibility_declared_authors.sql', '0018_ai_processing_agreement.sql', '0019_gemini_free_tier_agreement.sql']) {
+  for (const m of ['0011_manual_entry.sql', '0012_submission_acceptance.sql', '0013_linkedin_visibility_declared_authors.sql', '0018_ai_processing_agreement.sql', '0019_gemini_free_tier_agreement.sql', '0020_free_tier_full_document_agreement.sql']) {
     const file = path.join(ROOT, 'supabase/migrations', m)
     if (fs.existsSync(file)) execFileSync('psql', ['-X', '-q', '-v', 'ON_ERROR_STOP=1', '-d', DB, '-f', file], { stdio: ['ignore', 'ignore', 'pipe'] })
   }
