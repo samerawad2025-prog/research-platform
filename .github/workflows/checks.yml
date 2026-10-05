@@ -78,3 +78,15 @@ jobs:
 
       - name: Submission acceptance (Phase 3 M2A)
         run: node scripts/test-submission-acceptance.js
+
+      - name: Submission form flow, agreement text and LinkedIn (Phase 3 M2B/M3)
+        run: node scripts/test-submission-client.js
+
+      - name: Admin review handlers (Phase 3 M4)
+        run: node scripts/test-admin-handlers.js
+
+      - name: Public research pages and files (Phase 3 M5)
+        run: node scripts/test-public.js
+
+      - name: Citations and activity counts (Phase 3 M6)
+        run: node scripts/test-citations-activity.js

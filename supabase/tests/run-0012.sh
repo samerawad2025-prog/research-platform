@@ -49,3 +49,12 @@ node supabase/tests/handler-postgres.test.js
 # M2A: acceptance, upload and finalization against a real database and a
 # storage substitute.
 node supabase/tests/submission-postgres.test.js
+
+# M4: roles, boundaries, approval preconditions, revision safety, audit,
+# institutions, duplicates, legacy handling and documents, against a real
+# database (migration 0015 is applied twice inside the test).
+node supabase/tests/admin-postgres.test.js
+
+# M5: every public read in every review state, search, filters and
+# pagination, against a real database.
+node supabase/tests/public-postgres.test.js

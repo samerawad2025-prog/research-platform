@@ -16,6 +16,8 @@ import { supabase } from '../lib/supabaseClient'
 import { normalizeYear } from '../lib/extraction/applyResult'
 import { isFieldVisible, needsLanguageLabel, routeByScript } from '../lib/fields/languagePairs'
 import { seedResearchers } from '../lib/fields/researcherSeed'
+import { validateLinkedIn } from '../lib/validation/linkedin'
+import { takeReceived } from '../lib/submission/clientFlow'
 import { deriveView } from '../lib/fields/confirmationView'
 import { mark, report } from '../lib/timing'
 import Button from './ui/Button'
@@ -289,6 +291,14 @@ export default function ConfirmationScreen({ token, manualMode = false }) {
   // are not saved on the server, so leaving would lose it.
   const dirtyRef = useRef(false)
   const seededRef = useRef(false)
+  // Arrived straight from a completed submission (a one-time flag in this
+  // tab, set by the submission form; it holds no token).
+  const [received, setReceived] = useState(false)
+  useEffect(() => {
+    // sessionStorage is only readable after hydration.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (takeReceived()) setReceived(true)
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -316,6 +326,7 @@ export default function ConfirmationScreen({ token, manualMode = false }) {
           seedResearchers({
             extracted: detail.researchers,
             existing: data.researchers,
+            declaredByDepositor: data.submitter_role === 'authorized_depositor',
             alreadyConfirmed: Boolean(data.metadata_confirmed_at),
           })
         )
@@ -369,11 +380,13 @@ export default function ConfirmationScreen({ token, manualMode = false }) {
 
       const stillWorking = applyPaperData(data)
 
-      // Manual mode still tells the server once, so the manual decision is
-      // stored on the paper. The server sends nothing anywhere for it;
-      // this only makes the record durable if the form's own call never
-      // landed.
-      if (attempt === 0 && manualMode && !data.manual_entry_at && !data.metadata_confirmed_at) {
+      // Manual mode, or a paper that can never be read (migration 0018:
+      // legacy form, no applicable agreement), still tells the server once,
+      // so the manual decision is stored on the paper. The server sends
+      // nothing anywhere for it; this only makes the record durable if the
+      // form's own call never landed.
+      const neverRead = manualMode || data.automatic_processing === false
+      if (attempt === 0 && neverRead && !data.manual_entry_at && !data.metadata_confirmed_at) {
         triggerExtraction('confirm_page_manual')
       }
 
@@ -554,7 +567,7 @@ export default function ConfirmationScreen({ token, manualMode = false }) {
 
   function addResearcher() {
     dirtyRef.current = true
-    setResearchers((list) => [...list, { full_name: '', author_order: list.length + 1, linkedin_url: '', facebook_url: '' }])
+    setResearchers((list) => [...list, { full_name: '', author_order: list.length + 1, linkedin_url: '', linkedin_public: false, is_submitter: false }])
   }
 
   async function handleConfirm(e) {
@@ -583,6 +596,10 @@ export default function ConfirmationScreen({ token, manualMode = false }) {
     // the submitter their own document's year is invalid.
     if (values.year?.trim() && normalizeYear(values.year) === null) {
       setErrorMsg({ key: 'invalidYear' })
+      return
+    }
+    if (researchers.some((r) => validateLinkedIn(r.linkedin_url).state === 'invalid')) {
+      setErrorMsg({ key: 'linkedin' })
       return
     }
 
@@ -625,7 +642,19 @@ export default function ConfirmationScreen({ token, manualMode = false }) {
     try {
       const { error, status: httpStatus } = await supabase.rpc('confirm_researcher_metadata', {
         p_token: token,
-        p_researchers: researchers,
+        // Only what the RPC reads. No other social link is sent (Phase 3 M3);
+        // LinkedIn goes in its checked https form; the display choice
+        // only matters for the submitter's own row (the RPC enforces it).
+        p_researchers: researchers.map((r) => {
+          const linkedin = validateLinkedIn(r.linkedin_url)
+          return {
+            ...(r.researcher_id ? { researcher_id: r.researcher_id } : {}),
+            full_name: r.full_name,
+            author_order: r.author_order,
+            linkedin_url: linkedin.url,
+            linkedin_public: Boolean(r.is_submitter && linkedin.state === 'valid' && r.linkedin_public),
+          }
+        }),
         p_corrections: corrections,
       })
 
@@ -720,6 +749,7 @@ export default function ConfirmationScreen({ token, manualMode = false }) {
   // announce that it is reading anything.
   const manualCopy = manual || (!paper && effectiveManualMode)
   const showFallbackNote = manual && screen.reason === 'fallback' && !paper?.metadata_confirmed_at
+  const showChosenNote = manual && screen.reason === 'chosen' && !paper?.metadata_confirmed_at
 
   // Offered wherever automatic reading did not produce a result. The
   // primary style only where it is the one way forward; next to "Try
@@ -799,7 +829,6 @@ export default function ConfirmationScreen({ token, manualMode = false }) {
     )
   }
 
-  const showSocialLinks = paper?.publication_scope?.includes('metadata_and_article')
   // A not_found English title on a paper that HAS an Arabic title is
   // not something the submitter needs to act on, so it must not be
   // counted or flagged - otherwise every Arabic paper opens claiming
@@ -828,15 +857,28 @@ export default function ConfirmationScreen({ token, manualMode = false }) {
   return (
     <form onSubmit={handleConfirm} className={styles.page} lang={locale} dir={dir}>
       <header className={styles.header}>
-        <h1>{manualCopy ? t.manual.heading : extracting ? t.loadingHeading : t.readyHeading}</h1>
-        <p className={styles.subtitle}>
-          {manualCopy ? t.manual.subtitle : extracting ? t.loadingSubtitle : t.readySubtitle}
-        </p>
+        {received && (
+          <div className={styles.receipt} role="status">
+            <p className={styles.receiptHeading}>{t.receipt.heading}</p>
+            <p>{t.receipt.body}</p>
+          </div>
+        )}
+        {/* Until the first answer, the page does not know whether anything
+            is being read (the researcher may have chosen manual entry), so
+            it says only that it is opening. */}
+        <h1>{manualCopy ? t.manual.heading : !paper ? t.openingHeading : extracting ? t.loadingHeading : t.readyHeading}</h1>
+        {paper || manualCopy ? (
+          <p className={styles.subtitle}>
+            {manualCopy ? t.manual.subtitle : extracting ? t.loadingSubtitle : t.readySubtitle}
+          </p>
+        ) : null}
         {showFallbackNote && <p className={styles.attentionBanner}>{t.manual.fallbackNote}</p>}
+        {showChosenNote && <p className={styles.subtitle}>{t.manual.chosenNote}</p>}
         {!extracting && attentionCount > 0 && (
           <p className={styles.attentionBanner}>{t.attention(attentionCount)}</p>
         )}
         {!extracting && !manual && partial && <p className={styles.attentionBanner}>{t.partial}</p>}
+        <p className={styles.privateLink}>{t.privateLink}</p>
       </header>
 
       <section className={styles.section}>
@@ -869,9 +911,7 @@ export default function ConfirmationScreen({ token, manualMode = false }) {
                     dir="auto"
                   />
                   <button type="button" className={styles.removeButton} onClick={() => removeResearcher(i)} aria-label={t.remove}>&times;</button>
-                  {showSocialLinks && (
-                    <SocialLinks researcher={r} onChange={(patch) => updateResearcher(i, patch)} />
-                  )}
+                  <LinkedInField researcher={r} index={i} onChange={(patch) => updateResearcher(i, patch)} />
                 </li>
               ))}
             </ul>
@@ -911,7 +951,7 @@ export default function ConfirmationScreen({ token, manualMode = false }) {
       </section>
 
       <Button type="submit" disabled={extracting || status === 'saving'}>
-        {extracting ? t.confirmExtracting : status === 'saving' ? t.confirmSaving : t.confirm}
+        {!paper ? t.openingHeading : extracting ? t.confirmExtracting : status === 'saving' ? t.confirmSaving : t.confirm}
       </Button>
 
       {extracting && extractionUnavailable && !pollTimedOut && (
@@ -948,37 +988,59 @@ export default function ConfirmationScreen({ token, manualMode = false }) {
   )
 }
 
-function SocialLinks({ researcher, onChange }) {
+// LinkedIn only (Phase 3 M3). Stored whatever the publication permission,
+// private by default. Only the submitter, on their own row, can choose to
+// show it; everyone else's link stays private until they choose.
+function LinkedInField({ researcher, index, onChange }) {
   const { locale } = useLocale()
   const t = messagesFor(locale).confirmation
-  const [open, setOpen] = useState(Boolean(researcher.linkedin_url || researcher.facebook_url))
+  const inputId = useId()
+  const [open, setOpen] = useState(Boolean(researcher.linkedin_url))
+  const check = validateLinkedIn(researcher.linkedin_url)
 
   if (!open) {
     return (
       <button type="button" className={styles.addLinkButton} onClick={() => setOpen(true)}>
-        {t.socialAdd}
+        {t.linkedinAdd}
       </button>
     )
   }
 
   return (
     <div className={styles.socialInputs}>
-      <p className={styles.socialWhy}>{t.socialWhy}</p>
+      <p className={styles.socialWhy}>{t.linkedinWhy}</p>
       {/* URLs are always read left to right. */}
       <input
-        placeholder={t.linkedin}
-        aria-label={t.linkedin}
+        id={inputId}
+        // Text, not type="url": the browser's own URL check would refuse
+        // "linkedin.com/in/…", which validateLinkedIn accepts and tidies.
+        type="text"
+        inputMode="url"
+        autoComplete="url"
+        placeholder="https://www.linkedin.com/in/…"
+        aria-label={`${t.linkedin} (${index + 1})`}
+        aria-invalid={check.state === 'invalid' ? true : undefined}
+        aria-describedby={check.state === 'invalid' ? `${inputId}-error` : undefined}
         dir="ltr"
-        value={researcher.linkedin_url}
-        onChange={(e) => onChange({ linkedin_url: e.target.value })}
+        value={researcher.linkedin_url || ''}
+        onChange={(e) => onChange({ linkedin_url: e.target.value, ...(e.target.value.trim() ? {} : { linkedin_public: false }) })}
       />
-      <input
-        placeholder={t.facebook}
-        aria-label={t.facebook}
-        dir="ltr"
-        value={researcher.facebook_url}
-        onChange={(e) => onChange({ facebook_url: e.target.value })}
-      />
+      {check.state === 'invalid' && (
+        <p id={`${inputId}-error`} className={styles.fieldError}>{t.linkedinInvalid}</p>
+      )}
+      {researcher.is_submitter ? (
+        <label className={styles.publicChoice}>
+          <input
+            type="checkbox"
+            checked={Boolean(researcher.linkedin_public)}
+            disabled={check.state !== 'valid'}
+            onChange={(e) => onChange({ linkedin_public: e.target.checked })}
+          />
+          <span>{t.linkedinPublic}</span>
+        </label>
+      ) : (
+        <p className={styles.socialWhy}>{t.linkedinOthers}</p>
+      )}
     </div>
   )
 }

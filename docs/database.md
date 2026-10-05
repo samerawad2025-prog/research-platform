@@ -12,7 +12,7 @@ Anyone credited on a paper, and the person who submitted it (`papers.submitted_b
 | full_name | |
 | email | Private. Never returned by any public-facing RPC. |
 | whatsapp_number | Private, optional. Same footing as email. Loosely validated, not strict E.164. |
-| linkedin_url, facebook_url | Only ever stored if the paper's `publication_scope` includes `metadata_and_article`. *Planned (`PHASE_3_PLAN.md` M3, not built): Facebook no longer collected, existing values retained but not displayed; LinkedIn stored regardless of scope, with a separate public-display choice defaulting to off.* |
+| linkedin_url, linkedin_public, facebook_url | Before migration 0013: LinkedIn/Facebook stored only if the paper's `publication_scope` included `metadata_and_article`. From 0013 (Phase 3 M3, **not applied**): LinkedIn is stored regardless of scope and must be an `https://…linkedin.com/in/…` address; `linkedin_public` (default false, never inferred) is the separate display choice, settable only by the submitter for their own row; a researcher row shared with another paper cannot be renamed or re-profiled through one paper's confirmation link; Facebook is no longer collected or returned, and existing values are kept unchanged. |
 | school, department, graduation_year | Declared, not currently populated by anything. |
 
 ## `papers`
@@ -47,7 +47,7 @@ Both exist, both empty. Reserved for a future step (turning confirmed metadata i
 ## Storage
 Bucket `papers`: private, 20MB limit, `allowed_mime_types` restricted to PDF and DOCX only (`.doc` deliberately excluded — no reliable dependency-light parser exists for the legacy binary format).
 
-Anonymous users can INSERT into the bucket; the policy "anon can upload research files" checks only `bucket_id = 'papers'`. Nothing ties an upload to an accepted submission, so the form's consent checks are client-side only. There is no anonymous read, update or delete. *Planned (`PHASE_3_PLAN.md` M2, not built):* remove this policy. Uploads would then go through time-limited signed URLs, issued by the server for a server-chosen path, only after a server-recorded acceptance.
+Anonymous users can INSERT into the bucket; the policy "anon can upload research files" checks only `bucket_id = 'papers'`. Nothing ties an upload to an accepted submission, so the form's consent checks are client-side only. There is no anonymous read, update or delete. Migration **0014** (prepared, not applied; applied only at the M2B cutover) removes this policy and revokes `submit_paper` from `PUBLIC`/`anon`/`authenticated`. Uploads then go only through time-limited signed links, issued by the server for a server-chosen path after a server-recorded acceptance (`docs/submission-flow.md`).
 
 ## RPC functions — the entire public API surface
 
@@ -64,4 +64,16 @@ Individual function bodies are mirrored in `supabase/functions/` for easier revi
 
 ## Acceptance tables (migration 0012, Phase 3 M2A, not applied)
 
-`agreement_versions` (the acceptable agreement texts, by hash; seeded inactive), `submission_acceptances` (one row per acceptance: agreement version, server timestamp, claimed role, publication setting, processing-decision snapshot and the offered decision it may not exceed, contact details, server-chosen object path, the upload authorization's own expiry; after finalization, the paper and document hash; never deleted), and `submission_rate_limits` (hashed keys, fixed windows). All RLS-locked; reachable only through service-role functions. Details: `docs/submission-flow.md`.
+`agreement_versions` (the acceptable agreement texts, by hash; seeded inactive), `submission_acceptances` (one row per acceptance: agreement version, server timestamp, claimed role, publication setting, processing-decision snapshot and the offered decision it may not exceed, contact details, server-chosen object path, the upload authorization's own expiry; after finalization, the paper and document hash; never deleted), and `submission_rate_limits` (hashed keys, fixed windows). Migration 0013 adds `submission_acceptances.declared_authors`: a depositor's author list, recorded once before any upload link and linked at finalization. All RLS-locked; reachable only through service-role functions. Details: `docs/submission-flow.md`.
+
+## Review tables (migration 0015, Phase 3 M4, not applied)
+
+`staff_members` (roles, written only by administrators or the one-time bootstrap), `confidentiality_versions` / `confidentiality_acknowledgements` (append-only evidence of what each volunteer read), `review_assignments`, `institutions` / `institution_aliases` / `academic_units` / `academic_unit_aliases` (with source provenance; eligibility lives on the institution), `paper_reviews` (one row per paper: status, institution mapping, legacy setting, authority verification, withdrawal, embargo), `review_notes` (private, append-only), `review_issues`, `review_approvals` (append-only; each ties an approval to the content fingerprint, evidence and document version reviewed), `document_versions` (original and dissemination copies with hashes and provenance), `release_restrictions` (the full-text legal condition), and `admin_audit_events` (append-only, blocked for update, delete and truncate). All RLS-locked with no browser grants; reachable only through service-role functions that take the acting user id and re-check role, assignment and acknowledgement. `publication_eligibility(paper)` is the one rule every future public path must use. Details: `docs/admin-review.md`.
+
+## Public records (migration 0016, Phase 3 M5, not applied)
+
+`public_records` holds one stable, random `public_id` per approved paper (never its UUID or token). The public site reads only through `public_record`, `public_catalogue`, `public_document` and `public_sitemap`: service-role functions that re-apply `publication_eligibility()` and return an allowlist of public fields. Details: `docs/public-research.md`.
+
+## Activity counts (migration 0017, Phase 3 M6, not applied)
+
+`activity_counts` (paper, event kind, total) and `activity_dedup` (one-way daily keys with a creation time, eligible for deletion after 2 days and removed in bounded batches during later requests, or all at once by the owner-only `activity_purge_expired()`). Written only through `public_record_event`, read only through `public_activity`; both service-role, both re-applying `publication_eligibility()`. No address, browser string or reading history is stored; dedup and limiter rows carry timestamps. Details: `docs/public-research.md` §7a.

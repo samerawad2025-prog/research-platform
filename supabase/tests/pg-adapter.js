@@ -43,7 +43,7 @@ function lit(v) {
   return `'${String(v).replace(/'/g, "''")}'`
 }
 
-const VOID_FUNCTIONS = ['mark_submission_object_removed', 'record_upload_authorization']
+const VOID_FUNCTIONS = ['mark_submission_object_removed', 'record_upload_authorization', 'record_declared_authors']
 
 function pgClient({ psql }, { storage = null } = {}) {
   function builder(table) {
@@ -122,6 +122,16 @@ function fakeStorage() {
       if (objects.has(path) && !g.upsert) return { error: { message: 'The resource already exists' } }
       objects.set(path, Buffer.from(bytes))
       return { error: null }
+    },
+    // Server-side upload with the service role (upsert:false refuses to overwrite).
+    async upload(path, bytes, opts = {}) {
+      if (objects.has(path) && !opts.upsert) return { data: null, error: { message: 'The resource already exists' } }
+      objects.set(path, Buffer.from(bytes))
+      return { data: { path }, error: null }
+    },
+    async createSignedUrl(path, seconds) {
+      if (!objects.has(path)) return { data: null, error: { message: 'Object not found' } }
+      return { data: { signedUrl: `https://storage.invalid/object/sign/papers/${path}?token=t${seconds}` }, error: null }
     },
     async download(path) {
       if (!objects.has(path)) return { data: null, error: { message: 'Object not found' } }
