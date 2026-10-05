@@ -54,3 +54,14 @@
 @media (min-width: 52rem) { .layout { grid-template-columns: 16rem minmax(0, 1fr); } }
 @media (max-width: 30rem) { .wrap { padding: var(--space-4) var(--space-4) var(--space-6); } .dl { grid-template-columns: minmax(0, 1fr); gap: 0; } .dl dd { margin-block-end: var(--space-2); } .button, .buttonSecondary { width: 100%; } }
 .srOnly { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+/* M6: citation and activity, kept visually secondary. */
+.cite { border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface-raised); margin: var(--space-5) 0; }
+.citeSummary { cursor: pointer; padding: var(--space-3) var(--space-4); font-weight: 600; color: var(--accent); min-height: 44px; display: flex; align-items: center; }
+.citeBody { padding: 0 var(--space-4) var(--space-3); }
+.citeText { width: 100%; box-sizing: border-box; font: inherit; font-size: var(--text-sm); line-height: var(--leading-body); padding: var(--space-2) var(--space-3); border: 1px solid var(--line-control); border-radius: var(--radius-sm); background: var(--surface); color: var(--ink); resize: vertical; }
+.activity { margin-top: var(--space-6); padding-top: var(--space-4); border-top: 1px solid var(--line); }
+.activityTitle { font-size: var(--text-base); margin: 0 0 var(--space-2); }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: var(--space-2); margin: 0 0 var(--space-2); }
+.stat { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: var(--space-2) var(--space-3); background: var(--surface-raised); }
+.stat dt { font-size: var(--text-xs); color: var(--ink-muted); }
+.stat dd { margin: 0; font-size: var(--text-lg); font-weight: 600; font-variant-numeric: tabular-nums; }

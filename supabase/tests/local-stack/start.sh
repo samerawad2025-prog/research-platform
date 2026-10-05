@@ -62,12 +62,17 @@ node supabase/tests/local-stack/gateway.js > "$SB_DIR/gateway.log" 2>&1 &
 echo $! > "$SB_DIR/gateway.pid"
 until curl -sf http://127.0.0.1:54321/storage/v1/status >/dev/null; do sleep 1; done
 
-# The production schema as of the base branch, then 0011 and 0012.
+# The production schema as of the base branch, then the release migrations
+# in production order (0014, the cutover, is left to the tests that need it).
 git show "${BASE_REF:-origin/research-platform}:supabase/schema.sql" | $PSQL
 $PSQL < supabase/migrations/0011_manual_entry.sql
 $PSQL < supabase/migrations/0012_submission_acceptance.sql
 $PSQL < supabase/migrations/0013_linkedin_visibility_declared_authors.sql
 $PSQL < supabase/migrations/0015_admin_review.sql
 $PSQL < supabase/migrations/0016_public_research.sql
+$PSQL < supabase/migrations/0017_activity_metrics.sql
+$PSQL < supabase/migrations/0018_ai_processing_agreement.sql
+$PSQL < supabase/migrations/0019_gemini_free_tier_agreement.sql
+$PSQL < supabase/migrations/0020_free_tier_full_document_agreement.sql
 $PSQL -c "notify pgrst, 'reload schema'"
 echo "local Supabase stack ready at http://127.0.0.1:54321 (keys in $SB_DIR)"

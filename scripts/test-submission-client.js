@@ -46,7 +46,10 @@ const base = {
 
 check('intent body: exactly the server contract, trimmed; authors only for a depositor', () => {
   const b = flow.intentBody(base)
-  assert.deepStrictEqual(Object.keys(b).sort(), ['accepted', 'agreementId', 'claimedRole', 'email', 'file', 'fullName', 'offerToken', 'publicationSetting', 'whatsapp'].sort())
+  assert.deepStrictEqual(Object.keys(b).sort(), ['accepted', 'agreementId', 'claimedRole', 'email', 'file', 'fullName', 'offerToken', 'processingChoice', 'publicationSetting', 'whatsapp'].sort())
+  assert.strictEqual(b.processingChoice, 'manual', 'no explicit automatic choice is sent as manual')
+  for (const c of [undefined, null, 'Automatic', true]) assert.strictEqual(flow.intentBody({ ...base, processingChoice: c }).processingChoice, 'manual', String(c))
+  assert.strictEqual(flow.intentBody({ ...base, processingChoice: 'automatic' }).processingChoice, 'automatic')
   assert.strictEqual(b.fullName, 'Sara')
   assert.strictEqual(validateIntentBody(b).error, undefined, JSON.stringify(validateIntentBody(b)))
   const d = flow.intentBody({ ...base, claimedRole: 'authorized_depositor', authors: [' A ', '', 'B'], whatsappE164: null })
@@ -66,6 +69,7 @@ check('snapshot: any change to what was accepted, or a new file selection, is a 
     flow.snapshotKey(flow.intentBody({ ...base, agreementId: 'submission-terms-2026-09-25-ar' }), 1),
     flow.snapshotKey(flow.intentBody({ ...base, offerToken: 'offer-2' }), 1),
     flow.snapshotKey(flow.intentBody({ ...base, claimedRole: 'coauthor' }), 1),
+    flow.snapshotKey(flow.intentBody({ ...base, processingChoice: 'automatic' }), 1),
     flow.snapshotKey(flow.intentBody({ ...base, email: 'x@example.invalid' }), 1),
     flow.snapshotKey(flow.intentBody({ ...base, file: { ...base.file, size: 11 } }), 1),
     flow.snapshotKey(b, 2), // same file attributes, chosen again

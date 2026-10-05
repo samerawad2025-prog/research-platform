@@ -325,7 +325,10 @@ async function main() {
   await check('the route and the flag: /api/admin is a single, uncached, noindex entry point that reads the bearer token only', () => {
     const route = fs.readFileSync(path.join(ROOT, 'app/api/admin/[...path]/route.js'), 'utf8')
     assert.ok(/Cache-Control': 'no-store'/.test(route) && /noindex/.test(route))
-    assert.ok(/authorization/.test(route) && !/cookie/i.test(route), 'no cookie authority')
+    // It may SET the metrics-exclusion cookie (M6), but never reads a cookie:
+    // authority comes from the bearer token only.
+    assert.ok(/authorization/.test(route), 'reads the bearer token')
+    assert.ok(!/cookies\(|request\.cookies|get\(['"]cookie['"]\)/i.test(route), 'no cookie authority')
     assert.ok(/ADMIN_REVIEW/.test(fs.readFileSync(path.join(ROOT, 'lib/admin/handlers.js'), 'utf8')))
     assert.ok(/'\/api\/admin\/\[\.\.\.path\]'/.test(fs.readFileSync(path.join(ROOT, 'next.config.mjs'), 'utf8')), 'the legal texts are traced into the function')
   })

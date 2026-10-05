@@ -7,11 +7,13 @@ import { handlePublicFile } from '../../../../lib/public/server'
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
-export async function GET(request, { params }) {
+async function run(request, { params }) {
   const { publicId } = await params
   const supabase = adminOrNull(getSupabaseAdmin)
   if (!supabase) return new Response('Not found.', { status: 404, headers: { 'Cache-Control': 'no-store' } })
   const mode = new URL(request.url).searchParams.get('mode')
-  const r = await handlePublicFile({ publicId, mode, supabase, storage: supabase.storage.from('papers'), clientKey: clientKeyOf(request) })
+  const r = await handlePublicFile({ method: request.method, headers: request.headers, publicId, mode, supabase, storage: supabase.storage.from('papers'), clientKey: clientKeyOf(request) })
   return new Response(r.body ?? null, { status: r.status, headers: r.headers })
 }
+export const GET = run
+export const HEAD = run

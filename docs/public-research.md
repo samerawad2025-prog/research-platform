@@ -1,5 +1,7 @@
 # Public research pages (Phase 3 M5)
 
+> **Release order and steps live in [`docs/release-runbook.md`](release-runbook.md)** (authoritative since 2026-09-30). This file explains the reasoning; where the two differ, the runbook wins.
+
 The public side of the repository: a catalogue with search and filters, a
 page per work at `/research/[publicId]`, and reading or downloading of the
 approved document where full text is permitted.
@@ -11,7 +13,7 @@ link. Nothing is public until the release requirements at the end of this
 page are met and the flag is set deliberately.
 
 Migration: `supabase/migrations/0016_public_research.sql` requires 0015.
-Citation export and activity metrics are M6, not here.
+Citation export and activity counts (M6) are described in §7a.
 
 ---
 
@@ -152,7 +154,17 @@ Only `https://` origins are accepted, apart from `http://127.0.0.1` and
     change in the database and the next request.
   - The only exposure window is a signed file link issued **before** a
     withdrawal: it keeps working for up to 60 seconds after it was issued.
-    This is tested.
+    What the local tests establish, against the local Storage API only:
+    - the link's token is issued with a lifetime of at most 60 seconds;
+    - the link still works immediately after a withdrawal;
+    - once its expiry time has passed (plus a 3-second clock tolerance), a
+      **fresh** request with the same link is refused and returns no
+      document bytes.
+
+    Expiry ends *authorization* only. It does not reach a file already
+    downloaded, a copy a browser or proxy has cached, or a document still
+    open in a reader's viewer. Hosted Storage (and any CDN in front of it)
+    must be checked separately before release.
   - Copies people already downloaded cannot be recalled. The agreement says
     so (`docs/legal/submission-terms.en.md` §5, §8).
   - If a CDN or proxy is added in front later, it must honour `no-store`,
@@ -207,6 +219,190 @@ The states tested:
 - changed after approval;
 - withdrawn and superseded dissemination versions;
 - active full-text restriction.
+
+## 7a. Citations and activity counts (Phase 3 M6)
+
+### Citation export
+
+Each public research page has a **Cite this research** panel, closed by
+default and placed after the research itself. It offers:
+
+- **Citation text**, which can be copied;
+- **RIS** (`/research/[publicId]/cite?format=ris`) for Zotero, Mendeley and
+  EndNote;
+- **BibTeX** (`?format=bibtex`) for LaTeX tools.
+
+All three are generated from the record's confirmed public fields
+(`lib/public/citation.js`):
+
+- **Authors** appear exactly as confirmed and in their order. A full name is
+  never split into family and given names: BibTeX gets each name in braces,
+  so it is read as one literal name.
+- **Title**: the English title, with the Arabic one as the translated title
+  (RIS `TT`, a BibTeX note, or in brackets in the text). An Arabic-only
+  record uses its Arabic title. UTF-8 is kept.
+- **Type:**
+  - a thesis whose degree reads as a doctorate becomes `@phdthesis` / RIS
+    `THES`;
+  - a master's degree becomes `@mastersthesis`;
+  - any other thesis becomes `@misc` with its degree as written;
+  - an article becomes `@misc` / RIS `GEN`, because no journal is recorded
+    and none is invented.
+- **Nothing missing is invented.** A missing year is omitted (shown as
+  "n.d." in the text only), and so are missing publishers, journals and
+  degrees.
+- **No DOI:** the schema records none, so none is exported. DOI
+  registration and Crossref/OpenAlex lookups are out of scope.
+- **Escaping:** BibTeX escapes `\ { } % & $ # _ ~ ^`. Line breaks and control
+  characters are collapsed, so a value can never start a new RIS tag or
+  break an entry.
+- **URL:** from `PUBLIC_SITE_ORIGIN` only. Without it the exports have no
+  URL, and the panel says the site has no permanent address yet. The
+  request host is never used.
+- **Same rule as the page:** a record that stops being public after its page
+  was shown gets a 404 from the export route.
+
+Validation:
+
+- `scripts/test-citations-activity.js` (CI) checks structure, types,
+  escaping, brace balance and the absence of invented fields.
+- `scripts/validate-citations.py` (local; needs `bibtexparser` 1.4,
+  `rispy` and `pylatexenc`) parses the exports with independent parsers and
+  checks what a reference manager reads back. It covers English, Arabic,
+  mixed-language and title-only records.
+
+### Activity counts: what each one means
+
+Four separate counts per record, shown under **Activity on this platform**.
+Each is at most one per visitor, per kind, per record, per UTC day:
+
+| Shown as | Counted when | Not counted |
+|---|---|---|
+| Page views | the page stayed **visible for 2 seconds** in a browser, which then sent a beacon | server rendering, metadata generation, prefetch/prerender, a hidden tab, `navigator.webdriver` browsers, reloads the same day |
+| Requests to read the document online | the server issued a link to read the approved document (`mode=read`) | HEAD requests, which issue no link; refusals |
+| Download requests | the server issued a download link | as above |
+| Citation exports | an RIS or BibTeX file was served (GET), **or** the citation text was copied successfully | opening the panel, a failed copy, HEAD requests |
+
+Issuing a document link does not prove the file was opened or fully
+downloaded, so the labels say "requests". The page states that these are
+platform activity counts, **not citations and not unique readers**.
+
+### What is filtered out, and how
+
+- **Automated traffic:**
+  - declared bots, link-preview fetchers (WhatsApp, Slack, Facebook and
+    others), headless and scripted clients, and requests without a browser
+    string;
+  - `Purpose` / `Sec-Purpose: prefetch`.
+
+  This removes the obvious cases. It is not perfect bot detection.
+- **Staff.** When a verified staff member opens the review area, the
+  server sets an HttpOnly cookie that **it signed**, valid for 12 hours.
+  - The cookie is a marker, `v1.<expiry>.<signature>`. It contains no user
+    id or role.
+  - It grants nothing: the review API authorizes by bearer token only and
+    never reads cookies.
+  - Its only effect is that this browser's activity is not counted.
+  - A forged, altered or expired marker is ignored. No browser-supplied
+    role or count is trusted.
+- **Repeats.** Each visitor is represented by a **per-UTC-day** client key:
+  an HMAC, made with a server secret, of the date, the address and the
+  browser string.
+  - It changes every UTC day, so no stored key links a client across
+    days.
+  - It approximates repeat clients and cannot identify people. People
+    sharing a connection and browser can count as one visitor, and a
+    changing address or browser can count as several.
+- **Rate limit.** 300 events per client key per 10 minutes, across all
+  records. The document route has its own limit, 60 per 10 minutes.
+  - The 10-minute windows are aligned to the epoch, so a UTC day always
+    begins a new window. The daily key never splits a window, and so never
+    loosens the limit.
+- **What the browser can send.** The event endpoint accepts only `{event}`,
+  as `page_view` or `citation_copy`. Anything else, including a count or a
+  role, is refused, and cross-site posts are refused too.
+
+### Time budget
+
+Metrics are optional; publication checks are not.
+
+- Every metrics call, whether recording an event or reading the counts,
+  has a **400 ms** budget (`METRICS_BUDGET_MS` in
+  `lib/public/activity.js`). When the budget runs out:
+  - the caller stops waiting;
+  - the database request is aborted (supabase-js `abortSignal`);
+  - the result is reported as not recorded or unavailable, never as a
+    count.
+- The page shows *Activity counts are not available right now*. The
+  citation file is served, and the document redirect is sent.
+- The document link is signed before the event is recorded, so a stall
+  costs the reader at most the budget out of the link's 60 seconds.
+- No background promise is left running: the request is awaited up to the
+  budget and then aborted.
+- **One honest imprecision.** A write that already reached the database
+  before the abort can still complete afterwards. For example, the
+  database may finish it once a lock is released. So a timed-out event can
+  occasionally be counted, but it is never reported as counted.
+- The publication rule (`public_record`, `public_document`) and the
+  document route's request limit are **not** budgeted and never skipped. A
+  slow check delays the answer; it does not let anything through.
+
+### Temporary data, retention and privacy
+
+| Where | What | Why |
+|---|---|---|
+| `activity_counts` | record, kind of event, total, when the total last changed | the counts shown |
+| `activity_dedup` | a one-way key (the daily client key hashed again with the record and event) and when it was created | to count a client once a day per record and event |
+| `submission_rate_limits` | rows keyed `activity:<first 32 hex of the daily client key>` or `public_file:<…>`, with a count per 10-minute window and the window's start time | the request limits |
+
+- These rows **do contain timestamps**: the dedup row's creation time and
+  the limiter window's start.
+- There is no reading history. No row records a reader, an address, a
+  browser string, a page sequence or an individual event.
+- No cookie is set on readers, and there are no third-party analytics.
+  Raw addresses and browser strings are neither stored nor logged.
+
+**Cleanup, as it actually works:**
+
+- Dedup and limiter rows become **eligible for deletion after 2 days**.
+- They are deleted **during later requests**, in bounded batches: up to
+  200 dedup rows per recorded event, and up to 50 limiter rows per limiter
+  call.
+- With little or no traffic, nothing runs, and rows stay until traffic
+  resumes. **Two days is therefore not a guaranteed maximum.**
+
+Manual maintenance, for quiet periods or before an export or review of the
+database. Run it by hand in the Supabase SQL editor; there is no schedule:
+
+```sql
+select activity_purge_expired();
+-- → {"activity_dedup_deleted": N, "rate_limit_rows_deleted": M}
+```
+
+It deletes every dedup row older than 2 days, and every `activity:` or
+`public_file:` limiter row whose window started more than 2 days ago. It
+touches no other limiter and no count. It is executable only by the
+database owner: not by the application's service role and not by any
+browser role.
+
+### Publication boundaries
+
+- Events are accepted only while the record is public.
+- Document events are accepted only while its full text is public, which
+  includes the legal restriction.
+- Counts are shown only while the record is public. Document counts are
+  shown only while full text is public, so a metadata-only record never
+  appears to offer a document.
+- When a record becomes unavailable, its counts are kept privately and
+  shown again, unchanged, only after a fresh approval.
+
+### Failure handling
+
+- If counting fails or times out, the page, the citation and the document
+  still work, and the event endpoint answers `{"recorded": false}`.
+- If the counts cannot be read in time, the page says so instead of
+  showing zeros.
+- No alerts or activity emails are sent.
 
 ## 8. Before switching it on
 

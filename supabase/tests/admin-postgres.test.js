@@ -48,7 +48,7 @@ function setup() {
   const tmp = path.join(os.tmpdir(), 'm4-pre-schema.sql')
   fs.writeFileSync(tmp, execFileSync('git', ['show', `${BASE_REF}:supabase/schema.sql`], { cwd: ROOT, encoding: 'utf8' }))
   run(tmp)
-  for (const m of ['0011_manual_entry', '0012_submission_acceptance', '0013_linkedin_visibility_declared_authors', '0015_admin_review']) {
+  for (const m of ['0011_manual_entry', '0012_submission_acceptance', '0013_linkedin_visibility_declared_authors', '0015_admin_review', '0018_ai_processing_agreement', '0019_gemini_free_tier_agreement', '0020_free_tier_full_document_agreement']) {
     run(path.join(ROOT, 'supabase/migrations', `${m}.sql`))
   }
   run(path.join(ROOT, 'supabase/migrations/0015_admin_review.sql')) // idempotent
@@ -94,7 +94,7 @@ async function newPathPaper(o = {}) {
   const r = await handleCreateIntent({
     body: {
       offerToken: terms.body.offer.token, agreementId: 'submission-terms-2026-09-25-en', accepted: true,
-      publicationSetting: o.setting || 'record_abstract', claimedRole: role,
+      publicationSetting: o.setting || 'record_abstract', claimedRole: role, processingChoice: 'manual',
       fullName: o.fullName || 'Synthetic Submitter', email: o.email || `s${n}@example.invalid`,
       ...(role === 'authorized_depositor' ? { authors: o.authors || ['Declared Author One', 'Declared Author Two'] } : {}),
       file: { name: 'a.pdf', size: bytes.length, type: 'application/pdf' },

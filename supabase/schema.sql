@@ -4202,3 +4202,641 @@ begin
   end loop;
 end $grants$;
 
+
+-- ============================================================
+-- Phase 3 M6 (migration 0017): activity counts. Fresh installs only;
+-- a live database gets supabase/migrations/0017_activity_metrics.sql instead.
+-- ============================================================
+
+create table if not exists activity_counts (
+  paper_id uuid not null references papers(id),
+  event text not null check (event in ('page_view', 'document_open', 'document_download', 'citation_export')),
+  count bigint not null default 0 check (count >= 0),
+  updated_at timestamptz not null default now(),
+  primary key (paper_id, event)
+);
+alter table activity_counts enable row level security;
+revoke all on table activity_counts from anon, authenticated;
+
+create table if not exists activity_dedup (
+  key text primary key check (key ~ '^[0-9a-f]{64}$'),
+  created_at timestamptz not null default now()
+);
+create index if not exists activity_dedup_created on activity_dedup (created_at);
+alter table activity_dedup enable row level security;
+revoke all on table activity_dedup from anon, authenticated;
+
+-- Record one event. p_client is the server's keyed hash of the client (64
+-- hex), never an address. Returns 'counted', 'duplicate' or 'not_eligible'.
+-- The increment is a single atomic upsert; the duplicate check is a unique
+-- insert, so a retried or concurrent request counts once.
+create or replace function public_record_event(p_public_id text, p_event text, p_client text)
+returns text
+language plpgsql
+security definer
+set search_path = public, extensions
+as $fn$
+declare
+  v_paper uuid;
+  e jsonb;
+  v_key text;
+begin
+  if p_event not in ('page_view', 'document_open', 'document_download', 'citation_export')
+     or coalesce(p_client, '') !~ '^[0-9a-f]{64}$'
+     or coalesce(p_public_id, '') !~ '^[a-hjkmnp-z2-9]{12}$' then
+    raise exception 'invalid event';
+  end if;
+  select paper_id into v_paper from public_records where public_id = p_public_id;
+  if not found then
+    return 'not_eligible';
+  end if;
+  e := publication_eligibility(v_paper);
+  if not coalesce((e->>'record_public')::boolean, false)
+     or (p_event in ('document_open', 'document_download') and not coalesce((e->>'fulltext_public')::boolean, false)) then
+    return 'not_eligible';
+  end if;
+
+  -- Bounded cleanup of expired deduplication keys (at most 200 per call).
+  delete from activity_dedup where key in (
+    select key from activity_dedup where created_at < now() - interval '2 days' limit 200);
+
+  v_key := encode(digest(p_client || ':' || p_public_id || ':' || p_event || ':' || to_char(now() at time zone 'utc', 'YYYY-MM-DD'), 'sha256'), 'hex');
+  insert into activity_dedup (key) values (v_key) on conflict do nothing;
+  if not found then
+    return 'duplicate';
+  end if;
+  insert into activity_counts as c (paper_id, event, count) values (v_paper, p_event, 1)
+  on conflict (paper_id, event) do update set count = c.count + 1, updated_at = now();
+  return 'counted';
+end;
+$fn$;
+
+-- The counts a public page may show, or NULL when the record is not public.
+-- Document counts only while full text is public now: a record that is
+-- metadata-only today never appears to offer a document.
+create or replace function public_activity(p_public_id text)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public, extensions
+as $fn$
+declare
+  v_paper uuid;
+  e jsonb;
+  v_full boolean;
+begin
+  if coalesce(p_public_id, '') !~ '^[a-hjkmnp-z2-9]{12}$' then
+    return null;
+  end if;
+  select paper_id into v_paper from public_records where public_id = p_public_id;
+  if not found then
+    return null;
+  end if;
+  e := publication_eligibility(v_paper);
+  if not coalesce((e->>'record_public')::boolean, false) then
+    return null;
+  end if;
+  v_full := coalesce((e->>'fulltext_public')::boolean, false);
+  return jsonb_build_object(
+    'page_view', coalesce((select count from activity_counts where paper_id = v_paper and event = 'page_view'), 0),
+    'citation_export', coalesce((select count from activity_counts where paper_id = v_paper and event = 'citation_export'), 0),
+    'document_open', case when v_full then coalesce((select count from activity_counts where paper_id = v_paper and event = 'document_open'), 0) end,
+    'document_download', case when v_full then coalesce((select count from activity_counts where paper_id = v_paper and event = 'document_download'), 0) end);
+end;
+$fn$;
+
+-- Manual maintenance: delete every expired activity row now. Owner only
+-- (SQL editor); not callable by the application or any browser role.
+--   select activity_purge_expired();
+create or replace function activity_purge_expired()
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $fn$
+declare
+  v_dedup int;
+  v_limits int;
+begin
+  delete from activity_dedup where created_at < now() - interval '2 days';
+  get diagnostics v_dedup = row_count;
+  delete from submission_rate_limits
+  where (key like 'activity:%' or key like 'public_file:%') and window_start < now() - interval '2 days';
+  get diagnostics v_limits = row_count;
+  return jsonb_build_object('activity_dedup_deleted', v_dedup, 'rate_limit_rows_deleted', v_limits);
+end;
+$fn$;
+revoke all on function activity_purge_expired() from public, anon, authenticated, service_role;
+
+do $grants$
+declare
+  r record;
+begin
+  for r in
+    select p.oid::regprocedure as sig
+    from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public' and p.proname in ('public_record_event', 'public_activity')
+  loop
+    execute format('revoke all on function %s from public, anon, authenticated, service_role', r.sig);
+    execute format('grant execute on function %s to service_role', r.sig);
+  end loop;
+end $grants$;
+
+-- ============================================================
+-- Migration 0018 (supabase/migrations/0018_ai_processing_agreement.sql):
+-- Gemini reading by default, bound to an applicable agreement version, with
+-- the researcher's own manual choice. Same statements as the migration.
+-- ============================================================
+
+-- 1. Which external AI arrangement an agreement version describes.
+alter table agreement_versions add column if not exists external_ai_processing text;
+alter table agreement_versions drop constraint if exists agreement_versions_external_ai_processing_check;
+alter table agreement_versions add constraint agreement_versions_external_ai_processing_check
+  check (external_ai_processing in ('gemini_api_paid'));
+
+-- 2. Version 2, inactive until the founder activates it.
+insert into agreement_versions (id, agreement_key, language, version_label, version_date, content_sha256, active, external_ai_processing)
+values
+  ('submission-terms-2026-10-04-en', 'submission-terms', 'en', 'Version 2', '2026-10-04',
+   '468c51eb1e8edb493de94a969415c8fce28344523503bc43f409a2a45f459367', false, 'gemini_api_paid'),
+  ('submission-terms-2026-10-04-ar', 'submission-terms', 'ar', 'Version 2', '2026-10-04',
+   '3bcfe8c27a1046835423b38dc59e7f17d5b4deae94a28cf8273208ea5a71faf0', false, 'gemini_api_paid')
+on conflict (id) do nothing;
+
+-- 3. The researcher's choice, and the arrangement automatic reading was
+--    permitted under, recorded with the acceptance.
+alter table submission_acceptances add column if not exists processing_choice text;
+alter table submission_acceptances drop constraint if exists submission_acceptances_processing_choice_check;
+alter table submission_acceptances add constraint submission_acceptances_processing_choice_check
+  check (processing_choice in ('automatic', 'manual'));
+alter table submission_acceptances add column if not exists ai_processing_terms text;
+alter table submission_acceptances drop constraint if exists submission_acceptances_ai_processing_terms_check;
+alter table submission_acceptances add constraint submission_acceptances_ai_processing_terms_check
+  check (ai_processing_terms in ('gemini_api_paid'));
+
+-- 4. Record an acceptance (replaces the 0012 signature).
+drop function if exists create_submission_intent(text, text, text, text, text, text, text, text, text, text, text, bigint, int, text, timestamptz);
+
+create or replace function create_submission_intent(
+  p_intent_token_hash text,
+  p_agreement_version_id text,
+  p_agreement_language text,
+  p_agreement_sha256 text,
+  p_claimed_role text,
+  p_publication_setting text,
+  p_processing_mode text,
+  p_full_name text,
+  p_email text,
+  p_whatsapp_number text,
+  p_file_extension text,
+  p_declared_size bigint,
+  p_ttl_seconds int,
+  p_offer_decision text,
+  p_offer_issued_at timestamptz,
+  p_processing_choice text,
+  p_ai_processing_terms text
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, extensions
+as $fn$
+declare
+  v_agreement agreement_versions%rowtype;
+  v_policy text := coalesce((select mode from extraction_policy where id), 'manual');
+  v_mode text := case when p_processing_mode = 'automatic' then 'automatic' else 'manual' end;
+  -- Anything but an explicit 'automatic' is the researcher choosing manual.
+  v_choice text := case when p_processing_choice = 'automatic' then 'automatic' else 'manual' end;
+  v_terms text;
+  v_decision text;
+  v_id uuid := gen_random_uuid();
+  v_path text;
+  v_row submission_acceptances%rowtype;
+begin
+  select * into v_agreement from agreement_versions where id = p_agreement_version_id;
+  if not found or not v_agreement.active then
+    raise exception 'submission:agreement_not_active';
+  end if;
+  if v_agreement.language <> p_agreement_language or v_agreement.content_sha256 <> p_agreement_sha256 then
+    raise exception 'submission:agreement_mismatch';
+  end if;
+
+  -- The arrangement automatic reading may run under: the one the accepted
+  -- text describes, and only if it is the one the server attests to.
+  v_terms := case when v_agreement.external_ai_processing is not null
+                       and v_agreement.external_ai_processing = p_ai_processing_terms
+                  then v_agreement.external_ai_processing end;
+
+  -- Automatic only when every authority says so. It can only narrow.
+  v_decision := case when v_mode = 'automatic' and v_policy = 'automatic' and p_offer_decision = 'automatic'
+                          and v_choice = 'automatic' and v_terms is not null
+                     then 'automatic' else 'manual' end;
+  v_path := 'intents/' || v_id::text || '/' || encode(gen_random_bytes(12), 'hex') || '.' || p_file_extension;
+
+  insert into submission_acceptances (
+    id, intent_token_hash, expires_at,
+    agreement_version_id, agreement_language, agreement_sha256,
+    claimed_role, publication_setting,
+    processing_decision, processing_mode_at_acceptance, processing_policy_at_acceptance,
+    processing_offer_decision, offer_issued_at,
+    processing_choice, ai_processing_terms,
+    full_name, email, whatsapp_number,
+    object_path, file_extension, declared_size
+  ) values (
+    v_id, p_intent_token_hash, now() + make_interval(secs => p_ttl_seconds),
+    v_agreement.id, v_agreement.language, v_agreement.content_sha256,
+    p_claimed_role, p_publication_setting,
+    v_decision, v_mode, v_policy,
+    case when p_offer_decision = 'automatic' then 'automatic' else 'manual' end, p_offer_issued_at,
+    v_choice, case when v_decision = 'automatic' then v_terms end,
+    trim(p_full_name), trim(p_email), nullif(trim(p_whatsapp_number), ''),
+    v_path, p_file_extension, p_declared_size
+  )
+  returning * into v_row;
+
+  return jsonb_build_object(
+    'id', v_row.id,
+    'object_path', v_row.object_path,
+    'expires_at', v_row.expires_at,
+    'accepted_at', v_row.accepted_at,
+    'processing_decision', v_row.processing_decision,
+    'processing_choice', v_row.processing_choice
+  );
+end;
+$fn$;
+
+-- 5. Finalize, as in 0013, plus: the researcher's manual choice is
+--    recorded on the paper as it is created.
+create or replace function finalize_submission_intent(
+  p_intent_id uuid,
+  p_intent_token_hash text,
+  p_object_size bigint,
+  p_object_sha256 text,
+  p_confirmation_token_hash text
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, extensions
+as $fn$
+declare
+  v_row submission_acceptances%rowtype;
+  v_researcher_id uuid;
+  v_author_id uuid;
+  v_paper_id uuid;
+  v_policy text;
+  v_manual_source text;
+  v_name text;
+  v_order int := 0;
+begin
+  select * into v_row from submission_acceptances
+  where id = p_intent_id and intent_token_hash = p_intent_token_hash
+  for update;
+  if not found then
+    raise exception 'submission:intent_not_found';
+  end if;
+
+  if v_row.status = 'finalized' then
+    select submission_extraction_policy, manual_entry_source into v_policy, v_manual_source from papers where id = v_row.paper_id;
+    return jsonb_build_object('paper_id', v_row.paper_id, 'already_finalized', true, 'processing_decision', v_policy,
+                              'processing_choice', v_row.processing_choice, 'manual_entry_source', v_manual_source);
+  end if;
+
+  -- Returned, not raised: raising would roll the status change back.
+  if v_row.status = 'expired' or v_row.expires_at < now() then
+    update submission_acceptances set status = 'expired' where id = v_row.id and status = 'open';
+    return jsonb_build_object('error', 'intent_expired');
+  end if;
+
+  if p_object_size is distinct from v_row.declared_size then
+    raise exception 'submission:object_size_mismatch';
+  end if;
+  if p_object_sha256 !~ '^[0-9a-f]{64}$' or p_confirmation_token_hash !~ '^[0-9a-f]{64}$' then
+    raise exception 'submission:invalid_finalization';
+  end if;
+
+  insert into researchers (full_name, email, whatsapp_number)
+  values (v_row.full_name, v_row.email, v_row.whatsapp_number)
+  returning id into v_researcher_id;
+
+  -- A researcher who chose manual entry gets it recorded here, atomically
+  -- with the paper itself: there is no moment at which the paper exists
+  -- without that decision. Only a real choice counts: when automatic
+  -- reading was not even offered, 'manual' was the only possible answer,
+  -- and the paper is simply stamped manual (the extraction route records
+  -- that decision, as the server's, when it is first asked).
+  insert into papers (
+    submitted_by, file_path, permission_to_process, publication_scope,
+    status, extraction_status, confirmation_token_hash,
+    submission_acceptance_id, publication_setting, file_sha256, file_size,
+    submission_extraction_policy, submission_decision_source,
+    manual_entry_at, manual_entry_source
+  ) values (
+    v_researcher_id, v_row.object_path, false, '{}',
+    'submitted', 'pending', p_confirmation_token_hash,
+    v_row.id, v_row.publication_setting, p_object_sha256, p_object_size,
+    v_row.processing_decision, 'server',
+    case when v_row.processing_choice = 'manual' and v_row.processing_offer_decision = 'automatic' then now() end,
+    case when v_row.processing_choice = 'manual' and v_row.processing_offer_decision = 'automatic' then 'researcher' end
+  )
+  returning id, submission_extraction_policy, manual_entry_source into v_paper_id, v_policy, v_manual_source;
+
+  -- Authorship, as declared (unverified; the confirmation step can change
+  -- it). An author is first; a co-author's position is left for
+  -- confirmation. A depositor is never linked; the names they declared
+  -- are, in order, with no contact details.
+  if v_row.claimed_role in ('author', 'coauthor') then
+    insert into paper_researchers (paper_id, researcher_id, author_order)
+    values (v_paper_id, v_researcher_id, case when v_row.claimed_role = 'author' then 1 else null end);
+  elsif v_row.claimed_role = 'authorized_depositor' and v_row.declared_authors is not null then
+    for v_name in select value from jsonb_array_elements_text(v_row.declared_authors)
+    loop
+      v_order := v_order + 1;
+      insert into researchers (full_name) values (v_name) returning id into v_author_id;
+      insert into paper_researchers (paper_id, researcher_id, author_order) values (v_paper_id, v_author_id, v_order);
+    end loop;
+  end if;
+
+  update submission_acceptances
+  set status = 'finalized', finalized_at = now(), paper_id = v_paper_id,
+      object_sha256 = p_object_sha256, object_size = p_object_size
+  where id = v_row.id;
+
+  return jsonb_build_object('paper_id', v_paper_id, 'already_finalized', false, 'processing_decision', v_policy,
+                            'processing_choice', v_row.processing_choice, 'manual_entry_source', v_manual_source);
+end;
+$fn$;
+
+-- 6. The submission stamp. Server path: as in 0012 (the least permissive of
+--    the server's decision and the policy row). Any other insert: manual.
+create or replace function stamp_submission_extraction_policy()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $fn$
+declare
+  v_policy text := coalesce((select mode from extraction_policy where id), 'manual');
+begin
+  if tg_op = 'INSERT' then
+    if new.submission_decision_source = 'server' then
+      new.submission_extraction_policy :=
+        case when new.submission_extraction_policy = 'automatic' and v_policy = 'automatic'
+             then 'automatic' else 'manual' end;
+    else
+      -- No server acceptance, so no acceptance of an agreement that allows
+      -- external AI reading: never automatic, whatever the policy row says.
+      new.submission_extraction_policy := 'manual';
+      new.submission_decision_source := 'database_policy';
+    end if;
+  else
+    new.submission_extraction_policy := old.submission_extraction_policy;
+    new.submission_decision_source := old.submission_decision_source;
+  end if;
+  return new;
+end;
+$fn$;
+revoke all on function stamp_submission_extraction_policy() from public;
+
+-- 7. The rule checked before any provider call.
+create or replace function external_ai_permission(p_paper_id uuid)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $fn$
+declare
+  v_paper papers%rowtype;
+  v_acc submission_acceptances%rowtype;
+  v_agreement agreement_versions%rowtype;
+begin
+  select * into v_paper from papers where id = p_paper_id;
+  if not found then
+    return jsonb_build_object('permitted', false, 'reason', 'paper_not_found');
+  end if;
+  if v_paper.manual_entry_at is not null then
+    return jsonb_build_object('permitted', false, 'reason', 'manual_entry_recorded');
+  end if;
+  if v_paper.submission_acceptance_id is null then
+    -- Every paper created before 0018, and every paper from the legacy
+    -- anonymous path: no acceptance of an applicable agreement exists.
+    return jsonb_build_object('permitted', false, 'reason', 'no_applicable_acceptance');
+  end if;
+  select * into v_acc from submission_acceptances where id = v_paper.submission_acceptance_id;
+  if not found or v_acc.status <> 'finalized' then
+    return jsonb_build_object('permitted', false, 'reason', 'no_applicable_acceptance');
+  end if;
+  if v_acc.processing_choice = 'manual' and v_acc.processing_offer_decision = 'automatic' then
+    return jsonb_build_object('permitted', false, 'reason', 'researcher_chose_manual');
+  end if;
+  if v_acc.processing_decision <> 'automatic' or v_acc.processing_choice is distinct from 'automatic'
+     or v_paper.submission_extraction_policy is distinct from 'automatic'
+     or v_paper.submission_decision_source is distinct from 'server' then
+    return jsonb_build_object('permitted', false, 'reason', 'manual_decision');
+  end if;
+  select * into v_agreement from agreement_versions where id = v_acc.agreement_version_id;
+  if not found or v_agreement.content_sha256 <> v_acc.agreement_sha256
+     or v_acc.ai_processing_terms is null
+     or v_agreement.external_ai_processing is distinct from v_acc.ai_processing_terms then
+    return jsonb_build_object('permitted', false, 'reason', 'agreement_not_applicable');
+  end if;
+  return jsonb_build_object('permitted', true, 'terms', v_acc.ai_processing_terms, 'agreement_version_id', v_acc.agreement_version_id);
+end;
+$fn$;
+revoke all on function external_ai_permission(uuid) from public, anon, authenticated;
+grant execute on function external_ai_permission(uuid) to service_role;
+
+-- 8. The confirmation read, as in 0013, plus automatic_processing.
+create or replace function get_paper_for_confirmation(p_token text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v_paper record;
+  v_researchers jsonb;
+  v_extraction jsonb;
+  v_role text;
+begin
+  if p_token is null or length(p_token) = 0 then
+    return null;
+  end if;
+
+  select * into v_paper
+  from papers
+  where confirmation_token_hash = encode(digest(p_token, 'sha256'), 'hex')
+  limit 1;
+
+  if not found then
+    return null;
+  end if;
+
+  select coalesce(jsonb_agg(
+    jsonb_build_object(
+      'researcher_id', r.id,
+      'full_name', r.full_name,
+      'linkedin_url', r.linkedin_url,
+      'linkedin_public', r.linkedin_public,
+      'is_submitter', r.id = v_paper.submitted_by,
+      'author_order', pr.author_order
+    ) order by pr.author_order nulls last, r.full_name
+  ), '[]'::jsonb)
+  into v_researchers
+  from paper_researchers pr
+  join researchers r on r.id = pr.researcher_id
+  where pr.paper_id = v_paper.id;
+
+  select ag.result_data into v_extraction
+  from ai_generations ag
+  where ag.id = v_paper.last_applied_generation_id;
+
+  select claimed_role into v_role from submission_acceptances where id = v_paper.submission_acceptance_id;
+
+  -- Explicit allowlist of fields, not select *.
+  return jsonb_build_object(
+    'paper_id', v_paper.id,
+    'title', v_paper.title,
+    'title_ar', v_paper.title_ar,
+    'abstract', v_paper.abstract,
+    'abstract_ar', v_paper.abstract_ar,
+    'supervisor_name', v_paper.supervisor_name,
+    'year', v_paper.year,
+    'university', v_paper.university,
+    'faculty', v_paper.faculty,
+    'degree_type', v_paper.degree_type,
+    'document_type', v_paper.document_type,
+    'failure_code', v_paper.failure_code,
+    'publication_scope', v_paper.publication_scope,
+    'publication_setting', v_paper.publication_setting,
+    'submitter_role', v_role,
+    'extraction_status', v_paper.extraction_status,
+    'metadata_confirmed_at', v_paper.metadata_confirmed_at,
+    'manual_entry_source', v_paper.manual_entry_source,
+    'manual_entry_at', v_paper.manual_entry_at,
+    -- Phase 3, 0018: whether this paper may ever be read automatically.
+    'automatic_processing', coalesce((external_ai_permission(v_paper.id) ->> 'permitted')::boolean, false),
+    'researchers', v_researchers,
+    'extraction_detail', v_extraction
+  );
+end;
+$$;
+
+revoke all on function get_paper_for_confirmation(text) from public;
+grant execute on function get_paper_for_confirmation(text) to anon;
+
+-- Service role only, as in 0012.
+revoke all on function create_submission_intent(text, text, text, text, text, text, text, text, text, text, text, bigint, int, text, timestamptz, text, text) from public, anon, authenticated;
+grant execute on function create_submission_intent(text, text, text, text, text, text, text, text, text, text, text, bigint, int, text, timestamptz, text, text) to service_role;
+revoke all on function finalize_submission_intent(uuid, text, bigint, text, text) from public, anon, authenticated;
+grant execute on function finalize_submission_intent(uuid, text, bigint, text, text) to service_role;
+
+-- ============================================================
+-- Migration 0019 (supabase/migrations/0019_gemini_free_tier_agreement.sql):
+-- Gemini under Google's unpaid (free-tier) terms, minimized excerpt only;
+-- agreement version 3 (inactive); external_ai_permission returns the names
+-- held for the paper. Same statements as the migration.
+-- ============================================================
+
+-- 1. The unpaid arrangement as a recognised value.
+alter table agreement_versions drop constraint if exists agreement_versions_external_ai_processing_check;
+alter table agreement_versions add constraint agreement_versions_external_ai_processing_check
+  check (external_ai_processing in ('gemini_api_paid', 'gemini_api_unpaid'));
+alter table submission_acceptances drop constraint if exists submission_acceptances_ai_processing_terms_check;
+alter table submission_acceptances add constraint submission_acceptances_ai_processing_terms_check
+  check (ai_processing_terms in ('gemini_api_paid', 'gemini_api_unpaid'));
+
+-- 2. Version 3, inactive until the founder activates it.
+insert into agreement_versions (id, agreement_key, language, version_label, version_date, content_sha256, active, external_ai_processing)
+values
+  ('submission-terms-2026-10-04-v3-en', 'submission-terms', 'en', 'Version 3', '2026-10-04',
+   '503bcdc52968ed8712fd29446bdfbbe2003365cb4449588296df772e983abb99', false, 'gemini_api_unpaid'),
+  ('submission-terms-2026-10-04-v3-ar', 'submission-terms', 'ar', 'Version 3', '2026-10-04',
+   'aef0ced4846f195615b8970d3537e7494045f467921d0950e9d3b9fa0069efdc', false, 'gemini_api_unpaid')
+-- Version 3's wording was corrected before release (Google's statements
+-- re-verified on 2026-10-04). A database that received an earlier draft of
+-- this file (only the isolated test project) converges to the reviewed text,
+-- but ONLY while nobody has accepted that version: an accepted version is
+-- evidence and is never changed. On a database without these rows (every
+-- production database) this is a plain insert. The active flag is never
+-- touched here.
+on conflict (id) do update
+  set content_sha256 = excluded.content_sha256,
+      version_label = excluded.version_label,
+      version_date = excluded.version_date,
+      external_ai_processing = excluded.external_ai_processing
+  where agreement_versions.content_sha256 is distinct from excluded.content_sha256
+    and not exists (select 1 from submission_acceptances a where a.agreement_version_id = agreement_versions.id);
+
+-- 3. The permission rule, as in 0018, plus the names held for the paper.
+create or replace function external_ai_permission(p_paper_id uuid)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $fn$
+declare
+  v_paper papers%rowtype;
+  v_acc submission_acceptances%rowtype;
+  v_agreement agreement_versions%rowtype;
+  v_names jsonb;
+begin
+  select * into v_paper from papers where id = p_paper_id;
+  if not found then
+    return jsonb_build_object('permitted', false, 'reason', 'paper_not_found');
+  end if;
+  if v_paper.manual_entry_at is not null then
+    return jsonb_build_object('permitted', false, 'reason', 'manual_entry_recorded');
+  end if;
+  if v_paper.submission_acceptance_id is null then
+    -- Every paper created before 0018, and every paper from the legacy
+    -- anonymous path: no acceptance of an applicable agreement exists.
+    return jsonb_build_object('permitted', false, 'reason', 'no_applicable_acceptance');
+  end if;
+  select * into v_acc from submission_acceptances where id = v_paper.submission_acceptance_id;
+  if not found or v_acc.status <> 'finalized' then
+    return jsonb_build_object('permitted', false, 'reason', 'no_applicable_acceptance');
+  end if;
+  if v_acc.processing_choice = 'manual' and v_acc.processing_offer_decision = 'automatic' then
+    return jsonb_build_object('permitted', false, 'reason', 'researcher_chose_manual');
+  end if;
+  if v_acc.processing_decision <> 'automatic' or v_acc.processing_choice is distinct from 'automatic'
+     or v_paper.submission_extraction_policy is distinct from 'automatic'
+     or v_paper.submission_decision_source is distinct from 'server' then
+    return jsonb_build_object('permitted', false, 'reason', 'manual_decision');
+  end if;
+  select * into v_agreement from agreement_versions where id = v_acc.agreement_version_id;
+  if not found or v_agreement.content_sha256 <> v_acc.agreement_sha256
+     or v_acc.ai_processing_terms is null
+     or v_agreement.external_ai_processing is distinct from v_acc.ai_processing_terms then
+    return jsonb_build_object('permitted', false, 'reason', 'agreement_not_applicable');
+  end if;
+
+  select coalesce(jsonb_agg(distinct r.full_name) filter (where r.full_name is not null and length(trim(r.full_name)) > 0), '[]'::jsonb)
+    into v_names
+  from researchers r
+  where r.id = v_paper.submitted_by
+     or r.id in (select pr.researcher_id from paper_researchers pr where pr.paper_id = v_paper.id);
+
+  return jsonb_build_object('permitted', true, 'terms', v_acc.ai_processing_terms,
+                            'agreement_version_id', v_acc.agreement_version_id, 'known_names', v_names);
+end;
+$fn$;
+revoke all on function external_ai_permission(uuid) from public, anon, authenticated;
+grant execute on function external_ai_permission(uuid) to service_role;
+
+-- ============================================================
+-- Migration 0020 (supabase/migrations/0020_free_tier_full_document_agreement.sql):
+-- agreement version 4 (Gemini reads the document under Google's free-tier
+-- terms), inactive. Same statement as the migration.
+-- ============================================================
+insert into agreement_versions (id, agreement_key, language, version_label, version_date, content_sha256, active, external_ai_processing)
+values
+  ('submission-terms-2026-10-04-v4-en', 'submission-terms', 'en', 'Version 4', '2026-10-04',
+   'fce461b4b47389de736e1d30bee44df48c3f3dd15fd6d3f14d7959059fc184c7', false, 'gemini_api_unpaid'),
+  ('submission-terms-2026-10-04-v4-ar', 'submission-terms', 'ar', 'Version 4', '2026-10-04',
+   '8b3c313eab99789b36226fb246f04628fd21f970777dee7e470cf06b92511231', false, 'gemini_api_unpaid')
+on conflict (id) do nothing;
