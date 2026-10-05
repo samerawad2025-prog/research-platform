@@ -69,3 +69,24 @@ jobs:
 
       - name: Researcher seeding (BUG_HISTORY #33)
         run: node scripts/test-researcher-seed.js
+
+      - name: Extraction mode and manual entry (Phase 3 M1)
+        run: node scripts/test-extraction-mode.js
+
+      - name: Confirmation screen states (Phase 3 M1)
+        run: node scripts/test-confirmation-view.js
+
+      - name: Submission acceptance (Phase 3 M2A)
+        run: node scripts/test-submission-acceptance.js
+
+      - name: Submission form flow, agreement text and LinkedIn (Phase 3 M2B/M3)
+        run: node scripts/test-submission-client.js
+
+      - name: Admin review handlers (Phase 3 M4)
+        run: node scripts/test-admin-handlers.js
+
+      - name: Public research pages and files (Phase 3 M5)
+        run: node scripts/test-public.js
+
+      - name: Citations and activity counts (Phase 3 M6)
+        run: node scripts/test-citations-activity.js

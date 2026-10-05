@@ -192,3 +192,10 @@
     flex-direction: column;
   }
 }
+
+/* Two navigation links (browse, submit) once public research is on. */
+.headerActions nav {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: var(--space-3);
+}

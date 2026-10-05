@@ -1,5 +1,7 @@
 # PHASE_3_PLAN.md
 
+> **Release order and steps live in [`docs/release-runbook.md`](docs/release-runbook.md)** (authoritative since 2026-09-30). This file explains the reasoning; where the two differ, the runbook wins.
+
 **Prepared:** 2026-09-26, Phase 3 Milestone 0 (documentation only). Supersedes the forward-looking parts of `PHASE_2_PLAN.md` and the roadmap in `CLAUDE_CODE_HANDOVER.md` §13; both remain as history.
 
 **How to read this file.** Product intent comes from the founder's latest decisions (below). Implementation status comes only from code, migrations and deployment evidence. Every item carries one of four labels:
@@ -58,7 +60,7 @@ A planning document is never evidence that something is built.
 | # | Letter | Milestone | Depends on | Blocks |
 |---|---|---|---|---|
 | M0 | — | Documentation reconciliation and this plan | — | — (this milestone) |
-| M1 | A | Processing configuration and manual metadata path | — | Provides the fallback for §6. It does not settle provider suitability. |
+| M1 | A | Processing configuration and manual metadata path — **built, in review** (PR stacked on M0) | — | Provides the fallback for §6. It does not settle provider suitability. |
 | M2 | B | Server-enforced acceptance, controlled uploads, two publication settings, legacy permissions | M1 recommended first | Supports §3/§4; M4 |
 | M3 | C | Facebook removal and independent LinkedIn visibility | Must land **no later than** M2 (see M3) | Agreement activation |
 | M4 | D | Administrative review, checks, institution eligibility, publication permissions | M2, M3 | M5 |
@@ -74,6 +76,26 @@ A planning document is never evidence that something is built.
 **Why.** Section 6 of the agreement promises that submitted content is not used for general-purpose AI model training. The Gemini API project's billing/data-use arrangement is **unverified**. Google's unpaid API terms permit product improvement and human review, so the promise must not be activated while possibly incompatible processing runs. The project also must not depend on buying an AI plan. So external extraction needs an off switch, and the confirmation flow needs to work without it.
 
 **What the switch does not do.** It provides a fallback. It does not make the provider arrangement suitable, and it does not establish that it is. While production runs automatic extraction under an unverified arrangement, the §6 commitment is not supported, whatever the state of this milestone.
+
+**Status (2026-09-26): implemented and verified on branch `claude/phase3-m1-extraction-mode`, not merged, not deployed.** What was built, where it differs from the plan below:
+- **Setting.** `EXTRACTION_MODE=automatic|manual` (not `external|disabled`). A missing or unrecognised value means `manual`. It is read in `lib/env.js` (`resolveExtractionMode`). Which mode production runs is a separate product decision from deploying the code; see `docs/deployment.md` "Rollout", which keeps database readiness, application deployment, the mode and provider suitability apart.
+- **Server enforcement.** The route's logic moved, otherwise unchanged, into `lib/extraction/extractHandler.js`, which `app/api/extract/route.js` wraps. The mode is checked first, before the preview guard, the database, the storage download or the provider. In manual mode no request of any kind leaves the server: not from the form's trigger, the page's safety net, the stuck nudge or "Try again", and not from a direct API call. The only write stores the manual decision on the paper.
+- **State (revised in the M1 correction pass).**
+  - Migration `0011` adds `papers.manual_entry_at` + `manual_entry_source` (`mode` or `researcher`), separate from `extraction_status`, so a paper's extraction history is never relabelled.
+  - The migration is a **prerequisite for deploying M1 in any mode**. Without it the route answers `503 database_not_ready` and never calls the provider.
+  - It is authored and tested against a real local Postgres (`supabase/tests/run-0011.sh`), including the pre-M1 production route running against the migrated schema. It is **not applied to production**.
+  - Once a decision is stored, no claim, retry or stale reclaim starts a provider call for that paper, in any mode. A confirmed paper never starts one either.
+  - A failed write of the decision is reported as `recorded: false` (HTTP 503), never as success.
+- **Researcher's choice is durable.** "Enter the details yourself" calls `POST /api/manual-entry`, which is server-side, token-authorized, and gives the anonymous role no new access. It records `researcher` atomically, and the page switches only once the server confirms. Refreshing or reopening the link keeps the choice, because `get_paper_for_confirmation` returns it. If the choice cannot be stored, the page says so and does not switch.
+- **Human edits win.** Applying a result, and moving the applied-result pointer on any outcome, happens in the same statement as the "not confirmed and no manual decision" condition. A result that arrives after the researcher confirmed, or after manual entry was recorded, is appended to `ai_generations` and not applied.
+- **Dispatch boundary (second correction pass).** The paper is re-read immediately before every provider request: pass 1, pass 2 and each retry. A manual decision or a confirmation recorded during the download or an earlier pass stops the next request. A request already dispatched cannot be recalled. It finishes, is recorded, and is not applied.
+- **Submission policy (second correction pass).** Migration 0011 also stamps each new paper with the `extraction_policy` in force at insert. Automatic extraction needs `automatic` there as well as `EXTRACTION_MODE=automatic`, so a paper submitted during manual operation is never extracted later even if its manual decision was never recorded. This is an interim safeguard; recording the decision in the submission request itself is M2's server-controlled path.
+- **Screen.** In manual mode the confirmation page opens straight into an editable form: no polling beyond the first read, no shimmer, no "needs attention" flags, and wording that never mentions configuration. In automatic mode every place automatic reading did not produce a result now also offers "Enter the details yourself": the transient-failure, encrypted and generic-failure screens, the two-minute timeout, and "unavailable here" (a preview, or a server configuration fault). Choosing it stops the poll at once. The not-research notice is unchanged. It uses the same fields, validation and confirm RPC in EN and AR.
+- **Not done here (by design):**
+  - No provider call can be recalled once sent.
+  - Typed-but-unconfirmed entries are not saved as drafts. The browser now warns before leaving with unconfirmed changes.
+  - A document the model classified as not research gets no manual path, unless manual entry was already recorded. The notice and contact route remain.
+  - The pre-M1 application ignores stored decisions, so it must not be restored while unconfirmed manual papers exist (`docs/deployment.md`, rollback).
 
 **Scope.**
 - A server-side processing mode, for example `EXTRACTION_MODE=external|disabled`, read in `lib/env.js` next to the existing preview guard. When `disabled`, `/api/extract` performs no external provider call and sends no document content anywhere.
@@ -97,6 +119,29 @@ A planning document is never evidence that something is built.
 ---
 
 ### M2 (B): Server-enforced acceptance, controlled uploads, two publication settings, legacy permissions
+
+**Status (2026-09-27): M2A and M2B built and tested locally, together with M3; none of it deployed; the bypass is still open in production.**
+- **M2B** is on branch `claude/phase3-m2b-m3-submission`, in a PR stacked on M2A (#18). It covers:
+  - the acceptance form on the new endpoints: agreement text served from `docs/legal/` by hash, a signed processing offer, one unchecked checkbox, two publication settings, three roles with depositor-declared authors;
+  - stale-offer reacceptance, narrowing notice, language handling, upload/submission-expiry recovery, idempotent finalization recovery;
+  - the private receipt;
+  - no fallback to the legacy path.
+- **Cutover** is prepared as migration **0014** (drops the anonymous storage policy, revokes every `submit_paper` overload from `PUBLIC`/`anon`/`authenticated`, and verifies effective privileges). It is tested on the local stack, including a browser submission after it.
+- The release order, dependencies, failure recovery and rollback are in `docs/submission-flow.md`, "Cutover". Hosted Storage lifetime, the hosted gateway (CORS) and the S3 backend remain release checks on a preview project.
+
+**Earlier status (2026-09-26): split into M2A (backend foundation) and M2B (interface and cutover).**
+- **M2A is built and tested in isolation, on branch `claude/phase3-m2a-acceptance-upload`, in a PR stacked on M1.** It is not deployed, and it is inactive by default. It covers:
+  - the agreement registry;
+  - acceptance records with server timestamps and a processing-decision snapshot;
+  - upload authorization for one server-chosen path;
+  - finalization that creates the paper exactly once, bound to the document's SHA-256;
+  - request limits and bounded cleanup.
+- **One authority for processing.** `papers.submission_extraction_policy` holds the decision, and `submission_decision_source` records its origin. The server records `automatic` only when both `EXTRACTION_MODE` and the policy row are automatic.
+- **The old anonymous path is still open.** Production is not secured until M2B cuts over and a later migration closes it.
+- The contract, assumptions and cutover are in `docs/submission-flow.md`.
+- Corrected 2026-09-27: cleanup follows the upload authorization's lifecycle, depositors are not made authors, and acceptance is bound to a signed processing offer (the M2B contract in `docs/submission-flow.md` includes reacceptance on `offer_stale`).
+- Verified against a real **local** Supabase stack (PostgREST + Storage API): path binding, `upsert: false` refusing a second upload (before and after finalization), expiry refusal, privilege boundaries. Still to confirm on a preview project: the hosted authorization lifetime, Kong and the S3 backend.
+
 
 **Why.** Today the acceptance and scope checks run only in the page. Storage has an anonymous INSERT policy on the `papers` bucket whose only condition is the bucket name (`supabase/schema.sql`), and `submit_paper` is granted to `anon`. A direct request can upload a file or create a submission without accepting anything.
 
@@ -147,11 +192,16 @@ The bypass stays open between the two steps; keep that window short.
 
 **Rollback.** Keep a written rollback script. Note that restoring the anonymous INSERT policy also restores the bypass, so rollback is an emergency measure, not a resting state.
 
-**Unverified.** Whether Supabase signed upload URLs reject a second upload to the same path in this project's configuration. Test it before describing the behaviour.
+**Partly verified (2026-09-27).** On a local Storage API 1.28.0, a signed upload URL with `upsert: false` rejects a second upload once an object exists; it is not single-use in any other sense. Confirm on this project's hosted Storage before describing the behaviour to researchers.
 
 ---
 
 ### M3 (C): Facebook removal and independent LinkedIn visibility
+
+**Status (2026-09-27): built and tested locally with M2B (migration 0013); not deployed.**
+- The display choice is `researchers.linkedin_public`, not a per-paper flag. Only the submitter can turn it on, for their own row. A row shared with another paper cannot be changed from this paper.
+- LinkedIn is validated as an `https://…linkedin.com/in/<name>` address.
+- Details: `docs/submission-flow.md`, "LinkedIn and Facebook".
 
 **Scope.**
 - Stop collecting Facebook links in the confirmation UI, and have the confirm RPC ignore any `facebook_url` it receives. Existing Facebook values are retained, not displayed, and handled later under the agreement's retention review; the column is not dropped in this milestone.
@@ -172,6 +222,8 @@ The bypass stays open between the two steps; keep that window short.
 ---
 
 ### M4 (D): Administrative review, checks, institution eligibility, publication permissions
+
+> **Status: built, not deployed** (stacked PR on #19). Migration `0015_admin_review.sql`, `/admin`, `/api/admin/*`, behind `ADMIN_REVIEW=enabled`. Details, first-admin steps, the permission matrix and the contract M5 must use (`publication_eligibility()`): `docs/admin-review.md`. Reconciliations against the scope below: the approval precondition states its minimum-metadata rule explicitly (a title and an abstract in **either** language, never both); the full-text legal condition is a separate global release restriction that **Approve cannot bypass**; UofK's 21 units are seeded from the official directory as retrieved in the founder's review on 2026-09-30 (English only; no Arabic invented); a blocking issue suspends an approval and requires a fresh one; volunteers prepare recommendations only. Still open before real use: founder approval of the confidentiality text, hosted Auth/Storage checks, MFA/sign-up settings, and the full-text legal advice.
 
 **Scope.**
 - **Admin access.** Authenticated administrator and volunteer accounts (Supabase Auth; no new paid service) with roles. All admin reads and writes go through server authorization. Volunteers see only what their duties require. A confidentiality commitment is recorded per volunteer, with its date.
@@ -199,6 +251,8 @@ The bypass stays open between the two steps; keep that window short.
 ---
 
 ### M5 (E): Public research pages, approved downloads, withdrawal, browse/search
+
+> **Status: built, not deployed** (stacked PR on #20). Migration `0016_public_research.sql`, `/research`, `/research/[publicId]`, the approved-file route, `/api/research`, `sitemap.xml` and `robots.txt`, behind `PUBLIC_RESEARCH=enabled` (off). Every surface uses `publication_eligibility()` through four database functions returning an allowlist of fields. Files: the approved dissemination version only, private bucket, 60-second signed links; the full-text legal restriction stays active. Permanent links come only from `PUBLIC_SITE_ORIGIN` (unset until a domain is chosen: no canonical URL, no indexing). Reconciliations against the scope below: "institution" is not offered as a filter while one institution is public; `/confirm/*` is excluded by `robots.txt` (no analytics exist); citation export stays in M6. Details: `docs/public-research.md`.
 
 **Scope.**
 - **Public identifiers.** A separate public identifier per published record: random, stable, never the UUID or the confirmation token. The route is something like `/research/[publicId]`, with the site origin configurable so a later domain choice does not break links.
@@ -230,6 +284,8 @@ In addition, a withdrawn record stops being served within the documented window,
 ---
 
 ### M6 (F): Citation export and truthful aggregate activity metrics
+
+> **Status: built, not deployed** (stacked PR on #21). Migration `0017_activity_metrics.sql`; *Cite this research* (text, RIS, BibTeX) and *Activity on this platform* on each public page, behind the same `PUBLIC_RESEARCH` flag (off). Four separately labelled counts (page views, requests to read online, download requests, citation exports), deduplicated per visitor per day, with obvious bots, previews, prefetch and staff (server-signed cookie) excluded, and document counts shown only while full text is public. No DOI is recorded in the schema, so none is exported. Details: `docs/public-research.md` §7a.
 
 **Scope.**
 - **Citation export.** Citation text plus RIS and BibTeX, generated from **confirmed local metadata only**, with the stable record URL. Missing authors or years are omitted or marked, never invented. An existing valid DOI is included if one is recorded; no DOIs are invented, and DOI registration is not part of Phase 3. External lookups (Crossref) are not required.

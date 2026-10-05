@@ -226,6 +226,35 @@ check('the real c71a48b9 shape: 6 extracted authors, submitter among them', () =
   )
 })
 
+check('M3: seeds carry LinkedIn visibility and the submitter flag, and never Facebook', () => {
+  const me = { ...submitter, facebook_url: 'https://facebook.com/legacy', linkedin_public: true, is_submitter: true }
+  for (const seeded of [
+    seedResearchers({ extracted: { status: 'found', value: [{ name: 'Samer Habib', author_order: 1 }, { name: 'Other', author_order: 2 }] }, existing: [me], alreadyConfirmed: false }),
+    seedResearchers({ extracted: null, existing: [me], alreadyConfirmed: true }),
+    seedResearchers({ extracted: null, existing: [], alreadyConfirmed: false }),
+  ]) {
+    for (const r of seeded) assert.ok(!('facebook_url' in r), JSON.stringify(r))
+  }
+  const [mine, other] = seedResearchers({ extracted: { status: 'found', value: [{ name: 'Samer Habib', author_order: 1 }, { name: 'Other', author_order: 2 }] }, existing: [me], alreadyConfirmed: false })
+  assert.strictEqual(mine.linkedin_public, true)
+  assert.strictEqual(mine.is_submitter, true)
+  assert.strictEqual(other.linkedin_public, false)
+  assert.strictEqual(other.is_submitter, false)
+})
+
+check('M2B: a depositor\'s declared authors seed the screen; extraction does not replace them', () => {
+  const declared = [
+    { researcher_id: 'a1', full_name: 'فاطمة الأمين', author_order: 1, linkedin_url: null },
+    { researcher_id: 'a2', full_name: 'Mohammed Adam', author_order: 2, linkedin_url: null },
+  ]
+  const extracted = { status: 'found', value: [{ name: 'Fatima Al-Amin Suleiman', author_order: 1 }] }
+  const seeded = seedResearchers({ extracted, existing: declared, alreadyConfirmed: false, declaredByDepositor: true })
+  assert.deepStrictEqual(seeded.map((r) => [r.researcher_id, r.full_name]), [['a1', 'فاطمة الأمين'], ['a2', 'Mohammed Adam']])
+  // Unchanged for everyone else, and for a depositor paper with no declared list.
+  assert.strictEqual(seedResearchers({ extracted, existing: declared, alreadyConfirmed: false })[0].full_name, 'Fatima Al-Amin Suleiman')
+  assert.strictEqual(seedResearchers({ extracted, existing: [], alreadyConfirmed: false, declaredByDepositor: true })[0].full_name, 'Fatima Al-Amin Suleiman')
+})
+
 if (failed > 0) {
   console.error(`\n${failed} check(s) failed.`)
   process.exit(1)

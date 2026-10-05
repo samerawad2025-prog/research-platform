@@ -27,7 +27,13 @@ function check(name, fn) {
 }
 
 // --- the reclaim invariant, read from the source itself --------------------
-const routeSrc = fs.readFileSync(path.join(__dirname, '../app/api/extract/route.js'), 'utf8')
+// The route is a thin wrapper; its rules live in the handler. Both are
+// read so each pattern is found wherever it now lives (maxDuration stays
+// in the route, where Next.js requires it).
+const routeSrc =
+  fs.readFileSync(path.join(__dirname, '../app/api/extract/route.js'), 'utf8') +
+  '\n' +
+  fs.readFileSync(path.join(__dirname, '../lib/extraction/extractHandler.js'), 'utf8')
 
 function readNumber(pattern) {
   const m = routeSrc.match(pattern)
@@ -107,10 +113,10 @@ check('a claim always clears the previous failure_code', () => {
 
 check('a preview deployment cannot run extraction by default', () => {
   assert.ok(
-    routeSrc.includes('extractionAllowed()'),
+    routeSrc.includes('extractionAllowed(env)'),
     'the environment guard must run before anything touches the database or the AI provider'
   )
-  const guardAt = routeSrc.indexOf('extractionAllowed()')
+  const guardAt = routeSrc.indexOf('extractionAllowed(env)')
   const claimAt = routeSrc.indexOf('claimQuery')
   assert.ok(guardAt > -1 && guardAt < claimAt, 'the guard must come before the claim, not after')
 })

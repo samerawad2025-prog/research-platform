@@ -9,7 +9,7 @@ import { useLocale } from './LocaleProvider'
 import { CONTACT_EMAIL, CONTACT_PHONE, messagesFor } from '../lib/i18n'
 import styles from './SiteShell.module.css'
 
-export default function SiteShell({ children }) {
+export default function SiteShell({ children, showResearch = false }) {
   const { locale, setLocale } = useLocale()
   const t = messagesFor(locale).shell
 
@@ -26,6 +26,11 @@ export default function SiteShell({ children }) {
           </Link>
           <div className={styles.headerActions}>
             <nav>
+              {showResearch && (
+                <Link href="/research" className={styles.navLink}>
+                  {messagesFor(locale).research.nav}
+                </Link>
+              )}
               <Link href="/submit" className={styles.navLink}>
                 {t.navSubmit}
               </Link>

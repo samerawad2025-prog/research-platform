@@ -16,6 +16,9 @@ import { supabase } from '../lib/supabaseClient'
 import { normalizeYear } from '../lib/extraction/applyResult'
 import { isFieldVisible, needsLanguageLabel, routeByScript } from '../lib/fields/languagePairs'
 import { seedResearchers } from '../lib/fields/researcherSeed'
+import { validateLinkedIn } from '../lib/validation/linkedin'
+import { takeReceived } from '../lib/submission/clientFlow'
+import { deriveView } from '../lib/fields/confirmationView'
 import { mark, report } from '../lib/timing'
 import Button from './ui/Button'
 import { useLocale } from './LocaleProvider'
@@ -126,11 +129,13 @@ function needsAttention(entry) {
   return !entry || entry.status !== 'found'
 }
 
-function InlineField({ label, value, entry, multiline, dir, onChange, disabled, emptyHint }) {
+function InlineField({ label, value, entry, multiline, dir, onChange, disabled, emptyHint, manual }) {
   const { locale } = useLocale()
   const t = messagesFor(locale).confirmation
   const [editing, setEditing] = useState(false)
-  const attention = needsAttention(entry)
+  // Hand entry starts with every field empty on purpose. Flagging all of
+  // them as "needs your attention" would read as nine errors.
+  const attention = !manual && needsAttention(entry)
   const labelId = useId()
   const buttonId = useId()
 
@@ -249,7 +254,11 @@ function FieldNote({ entry, onPick, dir }) {
   return null
 }
 
-export default function ConfirmationScreen({ token }) {
+// manualMode comes from the server page (EXTRACTION_MODE), as a plain
+// boolean. It only chooses what to show; the rule itself is enforced by
+// /api/extract, which sends nothing to a provider in manual mode
+// whatever this component does.
+export default function ConfirmationScreen({ token, manualMode = false }) {
   const { locale } = useLocale()
   const t = messagesFor(locale).confirmation
   const dir = dirFor(locale)
@@ -266,7 +275,30 @@ export default function ConfirmationScreen({ token }) {
   // Bumped by a manual retry to re-run the polling effect in place,
   // rather than reloading the page.
   const [retryNonce, setRetryNonce] = useState(0)
+  // The researcher chose to type the details themselves on this visit.
+  // Mirrored in a ref so the poll loop, which closes over its first
+  // render, sees the choice immediately and stops.
+  const [manualChoice, setManualChoice] = useState(false)
+  const manualChoiceRef = useRef(false)
+  // The server answered that it is in manual mode, or that automatic
+  // reading cannot run here (a preview, a configuration fault).
+  const [serverManual, setServerManual] = useState(false)
+  const serverManualRef = useRef(false)
+  const [extractionUnavailable, setExtractionUnavailable] = useState(false)
+  // True while the researcher's manual choice is being recorded.
+  const [choosingManual, setChoosingManual] = useState(false)
+  // Anything typed since the page loaded or was last confirmed. Drafts
+  // are not saved on the server, so leaving would lose it.
+  const dirtyRef = useRef(false)
   const seededRef = useRef(false)
+  // Arrived straight from a completed submission (a one-time flag in this
+  // tab, set by the submission form; it holds no token).
+  const [received, setReceived] = useState(false)
+  useEffect(() => {
+    // sessionStorage is only readable after hydration.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (takeReceived()) setReceived(true)
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -276,7 +308,12 @@ export default function ConfirmationScreen({ token }) {
     // first load and every poll tick alike, so the two can never drift.
     function applyPaperData(data) {
       setPaper(data)
-      const stillWorking = data.extraction_status === 'pending' || data.extraction_status === 'processing'
+      const stillWorking =
+        deriveView({
+          paper: data,
+          manualMode: manualMode || serverManualRef.current,
+          manualChoice: manualChoiceRef.current,
+        }).view === 'extracting'
 
       if (!seededRef.current) {
         const detail = data.extraction_detail || {}
@@ -289,6 +326,7 @@ export default function ConfirmationScreen({ token }) {
           seedResearchers({
             extracted: detail.researchers,
             existing: data.researchers,
+            declaredByDepositor: data.submitter_role === 'authorized_depositor',
             alreadyConfirmed: Boolean(data.metadata_confirmed_at),
           })
         )
@@ -318,7 +356,12 @@ export default function ConfirmationScreen({ token }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ token }),
         keepalive: true,
-      }).catch(() => {})
+      })
+        .then(async (res) => {
+          const body = await res.json().catch(() => ({}))
+          if (!cancelled) noteServerAnswer(res.status, body)
+        })
+        .catch(() => {})
       mark(token, 'extract_triggered', { by })
     }
 
@@ -336,6 +379,16 @@ export default function ConfirmationScreen({ token }) {
       if (attempt === 0) mark(token, 'first_poll_response')
 
       const stillWorking = applyPaperData(data)
+
+      // Manual mode, or a paper that can never be read (migration 0018:
+      // legacy form, no applicable agreement), still tells the server once,
+      // so the manual decision is stored on the paper. The server sends
+      // nothing anywhere for it; this only makes the record durable if the
+      // form's own call never landed.
+      const neverRead = manualMode || data.automatic_processing === false
+      if (attempt === 0 && neverRead && !data.manual_entry_at && !data.metadata_confirmed_at) {
+        triggerExtraction('confirm_page_manual')
+      }
 
       if (!stillWorking) {
         // The moment the client can actually see a finished extraction.
@@ -392,7 +445,74 @@ export default function ConfirmationScreen({ token }) {
     mark(token, 'confirm_page_mounted')
     pollLoop(0)
     return () => { cancelled = true }
-  }, [token, retryNonce])
+  }, [token, retryNonce, manualMode])
+
+  // What the extraction route said about itself. Only two answers
+  // change the screen: "this server is in manual mode", and "automatic
+  // reading cannot run here at all", which offers hand entry at once
+  // instead of making someone wait out the two-minute poll first.
+  function noteServerAnswer(httpStatus, body) {
+    if (body?.mode === 'manual') {
+      serverManualRef.current = true
+      seededRef.current = true
+      setServerManual(true)
+    }
+    else if (['preview_extraction_disabled', 'server_config', 'database_not_ready', 'manual_not_recorded'].includes(body?.reason)) {
+      setExtractionUnavailable(true)
+    }
+  }
+
+  // Records the researcher's choice to enter the details themselves,
+  // then switches the page. The server stores the decision on the paper
+  // (atomically, token-checked), so a refresh, a reopened link or a
+  // later change of mode keeps it, no new provider call starts for the
+  // paper, and a result already on its way is not applied.
+  //
+  // The page only switches once the server says the decision is stored.
+  // If it could not be stored, the person is told and can try again;
+  // the page does not pretend otherwise.
+  async function chooseManual() {
+    if (choosingManual) return
+    setChoosingManual(true)
+    setErrorMsg(null)
+    let recorded = false
+    try {
+      const res = await fetch('/api/manual-entry', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token }),
+      })
+      const body = await res.json().catch(() => ({}))
+      recorded = res.ok && (body.recorded === true || body.confirmed === true)
+    } catch {
+      recorded = false
+    }
+    setChoosingManual(false)
+    if (!recorded) {
+      setErrorMsg({ key: 'manualChoice' })
+      mark(token, 'manual_entry_not_recorded')
+      return
+    }
+    // Stop the poll and lock the fields, so a result that lands a moment
+    // later can never replace what the person is about to type.
+    manualChoiceRef.current = true
+    seededRef.current = true
+    setManualChoice(true)
+    mark(token, 'manual_entry_chosen')
+  }
+
+  // Warn before leaving with typed changes that are not confirmed yet.
+  // Only while there is something to lose; the browser shows its own
+  // standard wording.
+  useEffect(() => {
+    function onBeforeUnload(e) {
+      if (!dirtyRef.current) return
+      e.preventDefault()
+      e.returnValue = ''
+    }
+    window.addEventListener('beforeunload', onBeforeUnload)
+    return () => window.removeEventListener('beforeunload', onBeforeUnload)
+  }, [])
 
   // Asks the server to restart extraction, then restarts the poll
   // without a page reload so the timings already recorded for this
@@ -405,11 +525,12 @@ export default function ConfirmationScreen({ token }) {
   async function retryExtraction() {
     setRetrying(true)
     try {
-      await fetch('/api/extract', {
+      const res = await fetch('/api/extract', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ token }),
       })
+      noteServerAnswer(res.status, await res.json().catch(() => ({})))
     } catch {
       // Nothing to show: the poll below reports the real outcome.
     }
@@ -419,14 +540,17 @@ export default function ConfirmationScreen({ token }) {
   }
 
   function setValue(key, v) {
+    dirtyRef.current = true
     setValues((prev) => ({ ...prev, [key]: v }))
   }
 
   function updateResearcher(index, patch) {
+    dirtyRef.current = true
     setResearchers((list) => list.map((r, i) => (i === index ? { ...r, ...patch } : r)))
   }
 
   function moveResearcher(index, direction) {
+    dirtyRef.current = true
     setResearchers((list) => {
       const next = [...list]
       const target = index + direction
@@ -437,11 +561,13 @@ export default function ConfirmationScreen({ token }) {
   }
 
   function removeResearcher(index) {
+    dirtyRef.current = true
     setResearchers((list) => list.filter((_, i) => i !== index).map((r, i) => ({ ...r, author_order: i + 1 })))
   }
 
   function addResearcher() {
-    setResearchers((list) => [...list, { full_name: '', author_order: list.length + 1, linkedin_url: '', facebook_url: '' }])
+    dirtyRef.current = true
+    setResearchers((list) => [...list, { full_name: '', author_order: list.length + 1, linkedin_url: '', linkedin_public: false, is_submitter: false }])
   }
 
   async function handleConfirm(e) {
@@ -470,6 +596,10 @@ export default function ConfirmationScreen({ token }) {
     // the submitter their own document's year is invalid.
     if (values.year?.trim() && normalizeYear(values.year) === null) {
       setErrorMsg({ key: 'invalidYear' })
+      return
+    }
+    if (researchers.some((r) => validateLinkedIn(r.linkedin_url).state === 'invalid')) {
+      setErrorMsg({ key: 'linkedin' })
       return
     }
 
@@ -512,7 +642,19 @@ export default function ConfirmationScreen({ token }) {
     try {
       const { error, status: httpStatus } = await supabase.rpc('confirm_researcher_metadata', {
         p_token: token,
-        p_researchers: researchers,
+        // Only what the RPC reads. No other social link is sent (Phase 3 M3);
+        // LinkedIn goes in its checked https form; the display choice
+        // only matters for the submitter's own row (the RPC enforces it).
+        p_researchers: researchers.map((r) => {
+          const linkedin = validateLinkedIn(r.linkedin_url)
+          return {
+            ...(r.researcher_id ? { researcher_id: r.researcher_id } : {}),
+            full_name: r.full_name,
+            author_order: r.author_order,
+            linkedin_url: linkedin.url,
+            linkedin_public: Boolean(r.is_submitter && linkedin.state === 'valid' && r.linkedin_public),
+          }
+        }),
         p_corrections: corrections,
       })
 
@@ -538,6 +680,7 @@ export default function ConfirmationScreen({ token }) {
         return
       }
 
+      dirtyRef.current = false
       setStatus('done')
     } catch (err) {
       // Not a network failure (those are returned, above), so nothing
@@ -591,31 +734,43 @@ export default function ConfirmationScreen({ token }) {
     !rawDetail.supervisor_name && rawDetail.supervisor
       ? { ...rawDetail, supervisor_name: rawDetail.supervisor }
       : rawDetail
-  // document_type is specified and returned as a plain string, not a
-  // {status, value} object (see lib/ai/schema.js). Reading .value off
-  // it was always undefined, so this check could never actually fire.
-  // paper.document_type is the reliable source: it's the top-level
-  // papers column, written directly in the route regardless of which
-  // generation ends up "applied".
-  const docType = paper?.document_type
-  const extracting = !paper || paper.extraction_status === 'pending' || paper.extraction_status === 'processing'
-  const failed = paper?.extraction_status === 'failed'
-  const partial = paper?.extraction_status === 'partial'
-  const encrypted = failed && paper?.failure_code === 'encrypted_document'
-  // A failure in OUR pipeline or the AI provider's, not in the
-  // submitter's file. Telling someone their document is unreadable
+  // Which screen, decided in lib/fields/confirmationView.js. A transient
+  // failure is one in OUR pipeline or the AI provider's, not in the
+  // submitter's file: telling someone their document is unreadable
   // because Google's model was busy is both wrong and insulting to the
   // work they just uploaded - and it is the exact collapse of distinct
   // failures into one message that BUG_HISTORY.md #7 exists to stop.
-  // Observed in production: two real submissions failed this way on a
-  // 503 "This model is currently experiencing high demand".
-  const TRANSIENT_FAILURES = ['api_error', 'timeout', 'empty_response', 'malformed_json', 'internal']
-  const transientFailure = failed && TRANSIENT_FAILURES.includes(paper?.failure_code)
+  const effectiveManualMode = manualMode || serverManual
+  const screen = deriveView({ paper, manualMode: effectiveManualMode, manualChoice })
+  const extracting = screen.view === 'extracting'
+  const manual = screen.manual
+  const partial = paper?.extraction_status === 'partial'
+  // Before the first answer arrives in manual mode, the page must not
+  // announce that it is reading anything.
+  const manualCopy = manual || (!paper && effectiveManualMode)
+  const showFallbackNote = manual && screen.reason === 'fallback' && !paper?.metadata_confirmed_at
+  const showChosenNote = manual && screen.reason === 'chosen' && !paper?.metadata_confirmed_at
+
+  // Offered wherever automatic reading did not produce a result. The
+  // primary style only where it is the one way forward; next to "Try
+  // again" or "Start a new submission" it is the secondary choice.
+  const enterYourselfButton = (primary) => (
+    <button
+      type="button"
+      className={primary ? styles.primaryLink : styles.secondaryAction}
+      onClick={chooseManual}
+      disabled={choosingManual}
+    >
+      {choosingManual ? t.manual.switching : t.manual.enterYourself}
+    </button>
+  )
+  const choiceError =
+    errorMsg?.key === 'manualChoice' ? <p role="alert" className={styles.errorMessage}>{errorText}</p> : null
 
   // A CV, invoice, or anything that isn't research. Say so plainly
   // rather than dropping the person into a confirmation screen full of
   // empty fields, or worse, a generic error.
-  if (failed && docType === 'not_research') {
+  if (screen.view === 'notResearch') {
     return (
       <div className={styles.centered} lang={locale} dir={dir}>
         <h1 className={styles.noticeHeading}>{t.notResearch.heading}</h1>
@@ -630,19 +785,22 @@ export default function ConfirmationScreen({ token }) {
   // below: this one is correctable by the person themselves (remove
   // the password and resubmit), so it gets a specific, accurate
   // message rather than the catch-all.
-  if (encrypted) {
+  if (screen.view === 'encrypted') {
     return (
       <div className={styles.centered} lang={locale} dir={dir}>
         <h1 className={styles.noticeHeading}>{t.encrypted.heading}</h1>
         <p>{t.encrypted.body1}</p>
         <p>{t.encrypted.body2}</p>
         <a href="/submit" className={styles.primaryLink}>{t.newSubmission}</a>
+        <p>{t.manual.orEnter}</p>
+        {enterYourselfButton(false)}
+        {choiceError}
       </div>
     )
   }
 
   // Temporary, on our side, and retryable by the person right now.
-  if (transientFailure) {
+  if (screen.view === 'transient') {
     return (
       <div className={styles.centered} lang={locale} dir={dir}>
         <h1 className={styles.noticeHeading}>{t.transient.heading}</h1>
@@ -651,22 +809,26 @@ export default function ConfirmationScreen({ token }) {
         <button type="button" className={styles.primaryLink} onClick={retryExtraction} disabled={retrying}>
           {retrying ? t.transient.retrying : t.transient.retry}
         </button>
+        <p>{t.manual.orEnter}</p>
+        {enterYourselfButton(false)}
         {errorMsg && <p role="alert" className={styles.errorMessage}>{errorText}</p>}
       </div>
     )
   }
 
-  if (failed) {
+  if (screen.view === 'failed') {
     return (
       <div className={styles.centered} lang={locale} dir={dir}>
         <h1 className={styles.noticeHeading}>{t.failed.heading}</h1>
         <p>{t.failed.body1}</p>
         <p>{t.failed.body2}</p>
+        <p>{t.manual.orEnter}</p>
+        {enterYourselfButton(true)}
+        {choiceError}
       </div>
     )
   }
 
-  const showSocialLinks = paper?.publication_scope?.includes('metadata_and_article')
   // A not_found English title on a paper that HAS an Arabic title is
   // not something the submitter needs to act on, so it must not be
   // counted or flagged - otherwise every Arabic paper opens claiming
@@ -683,7 +845,7 @@ export default function ConfirmationScreen({ token }) {
     const partner = pairPartner(key)
     return Boolean(partner) && !needsAttention(detail[partner])
   }
-  const attentionCount = extracting
+  const attentionCount = extracting || manual
     ? 0
     : METADATA_FIELDS.filter(
         (f) =>
@@ -695,12 +857,28 @@ export default function ConfirmationScreen({ token }) {
   return (
     <form onSubmit={handleConfirm} className={styles.page} lang={locale} dir={dir}>
       <header className={styles.header}>
-        <h1>{extracting ? t.loadingHeading : t.readyHeading}</h1>
-        <p className={styles.subtitle}>{extracting ? t.loadingSubtitle : t.readySubtitle}</p>
+        {received && (
+          <div className={styles.receipt} role="status">
+            <p className={styles.receiptHeading}>{t.receipt.heading}</p>
+            <p>{t.receipt.body}</p>
+          </div>
+        )}
+        {/* Until the first answer, the page does not know whether anything
+            is being read (the researcher may have chosen manual entry), so
+            it says only that it is opening. */}
+        <h1>{manualCopy ? t.manual.heading : !paper ? t.openingHeading : extracting ? t.loadingHeading : t.readyHeading}</h1>
+        {paper || manualCopy ? (
+          <p className={styles.subtitle}>
+            {manualCopy ? t.manual.subtitle : extracting ? t.loadingSubtitle : t.readySubtitle}
+          </p>
+        ) : null}
+        {showFallbackNote && <p className={styles.attentionBanner}>{t.manual.fallbackNote}</p>}
+        {showChosenNote && <p className={styles.subtitle}>{t.manual.chosenNote}</p>}
         {!extracting && attentionCount > 0 && (
           <p className={styles.attentionBanner}>{t.attention(attentionCount)}</p>
         )}
-        {!extracting && partial && <p className={styles.attentionBanner}>{t.partial}</p>}
+        {!extracting && !manual && partial && <p className={styles.attentionBanner}>{t.partial}</p>}
+        <p className={styles.privateLink}>{t.privateLink}</p>
       </header>
 
       <section className={styles.section}>
@@ -733,9 +911,7 @@ export default function ConfirmationScreen({ token }) {
                     dir="auto"
                   />
                   <button type="button" className={styles.removeButton} onClick={() => removeResearcher(i)} aria-label={t.remove}>&times;</button>
-                  {showSocialLinks && (
-                    <SocialLinks researcher={r} onChange={(patch) => updateResearcher(i, patch)} />
-                  )}
+                  <LinkedInField researcher={r} index={i} onChange={(patch) => updateResearcher(i, patch)} />
                 </li>
               ))}
             </ul>
@@ -755,14 +931,19 @@ export default function ConfirmationScreen({ token }) {
             // this change exists to remove.
             label={fieldLabel(f, needsLanguageLabel(f, values), t)}
             value={values[f.key] || ''}
-            entry={satisfiedByPartner(f.key) ? { status: 'found' } : detail[f.key]}
+            // Hand entry shows no extraction notes: there is no result
+            // to annotate, and a failure record has no field entries.
+            entry={manual ? undefined : satisfiedByPartner(f.key) ? { status: 'found' } : detail[f.key]}
+            manual={manual}
             multiline={f.multiline}
             dir={valueDir(f, needsLanguageLabel(f, values))}
             disabled={extracting}
             emptyHint={
-              // Only the language wording when the OTHER language is
-              // also on screen; a lone box is just "we didn't find it".
-              f.pair && (values[f.pair] || '').trim() ? t.pairEmptyHint : t.emptyHint
+              manual
+                ? t.manual.emptyHint
+                : // Only the language wording when the OTHER language is
+                  // also on screen; a lone box is just "we didn't find it".
+                  f.pair && (values[f.pair] || '').trim() ? t.pairEmptyHint : t.emptyHint
             }
             onChange={(v) => setValue(f.key, v)}
           />
@@ -770,8 +951,15 @@ export default function ConfirmationScreen({ token }) {
       </section>
 
       <Button type="submit" disabled={extracting || status === 'saving'}>
-        {extracting ? t.confirmExtracting : status === 'saving' ? t.confirmSaving : t.confirm}
+        {!paper ? t.openingHeading : extracting ? t.confirmExtracting : status === 'saving' ? t.confirmSaving : t.confirm}
       </Button>
+
+      {extracting && extractionUnavailable && !pollTimedOut && (
+        <div className={styles.timeoutNote}>
+          <p>{t.manual.unavailable}</p>
+          {enterYourselfButton(true)}
+        </div>
+      )}
 
       {pollTimedOut && extracting && (
         <p className={styles.timeoutNote}>
@@ -788,6 +976,10 @@ export default function ConfirmationScreen({ token }) {
           <button type="button" className={styles.linkButton} onClick={retryExtraction} disabled={retrying}>
             {retrying ? t.timeoutRestarting : t.timeoutRetry}
           </button>
+          {' '}
+          <button type="button" className={styles.linkButton} onClick={chooseManual} disabled={choosingManual}>
+            {choosingManual ? t.manual.switching : t.manual.enterYourself}
+          </button>
         </p>
       )}
 
@@ -796,37 +988,59 @@ export default function ConfirmationScreen({ token }) {
   )
 }
 
-function SocialLinks({ researcher, onChange }) {
+// LinkedIn only (Phase 3 M3). Stored whatever the publication permission,
+// private by default. Only the submitter, on their own row, can choose to
+// show it; everyone else's link stays private until they choose.
+function LinkedInField({ researcher, index, onChange }) {
   const { locale } = useLocale()
   const t = messagesFor(locale).confirmation
-  const [open, setOpen] = useState(Boolean(researcher.linkedin_url || researcher.facebook_url))
+  const inputId = useId()
+  const [open, setOpen] = useState(Boolean(researcher.linkedin_url))
+  const check = validateLinkedIn(researcher.linkedin_url)
 
   if (!open) {
     return (
       <button type="button" className={styles.addLinkButton} onClick={() => setOpen(true)}>
-        {t.socialAdd}
+        {t.linkedinAdd}
       </button>
     )
   }
 
   return (
     <div className={styles.socialInputs}>
-      <p className={styles.socialWhy}>{t.socialWhy}</p>
+      <p className={styles.socialWhy}>{t.linkedinWhy}</p>
       {/* URLs are always read left to right. */}
       <input
-        placeholder={t.linkedin}
-        aria-label={t.linkedin}
+        id={inputId}
+        // Text, not type="url": the browser's own URL check would refuse
+        // "linkedin.com/in/…", which validateLinkedIn accepts and tidies.
+        type="text"
+        inputMode="url"
+        autoComplete="url"
+        placeholder="https://www.linkedin.com/in/…"
+        aria-label={`${t.linkedin} (${index + 1})`}
+        aria-invalid={check.state === 'invalid' ? true : undefined}
+        aria-describedby={check.state === 'invalid' ? `${inputId}-error` : undefined}
         dir="ltr"
-        value={researcher.linkedin_url}
-        onChange={(e) => onChange({ linkedin_url: e.target.value })}
+        value={researcher.linkedin_url || ''}
+        onChange={(e) => onChange({ linkedin_url: e.target.value, ...(e.target.value.trim() ? {} : { linkedin_public: false }) })}
       />
-      <input
-        placeholder={t.facebook}
-        aria-label={t.facebook}
-        dir="ltr"
-        value={researcher.facebook_url}
-        onChange={(e) => onChange({ facebook_url: e.target.value })}
-      />
+      {check.state === 'invalid' && (
+        <p id={`${inputId}-error`} className={styles.fieldError}>{t.linkedinInvalid}</p>
+      )}
+      {researcher.is_submitter ? (
+        <label className={styles.publicChoice}>
+          <input
+            type="checkbox"
+            checked={Boolean(researcher.linkedin_public)}
+            disabled={check.state !== 'valid'}
+            onChange={(e) => onChange({ linkedin_public: e.target.checked })}
+          />
+          <span>{t.linkedinPublic}</span>
+        </label>
+      ) : (
+        <p className={styles.socialWhy}>{t.linkedinOthers}</p>
+      )}
     </div>
   )
 }
