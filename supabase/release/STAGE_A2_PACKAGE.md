@@ -1,6 +1,6 @@
 # Stage A2 package — migrations 0018, 0019, 0020 on production
 
-**Status: prepared, NOT applied.** Ready-to-run numbered files with a checklist: `supabase/release/stage-a2-production/` (`00_CHECKLIST.md`). Needs its own founder approval. Procedure and
+**Status: APPLIED to production 2026-10-04 23:50–23:51 UTC** by the founder in the SQL Editor; all 13 checks passed and were re-verified independently (read-only) on 2026-10-05 — `docs/release-runbook.md` §7. Ready-to-run numbered files with a checklist: `supabase/release/stage-a2-production/` (`00_CHECKLIST.md`). Needs its own founder approval. Procedure and
 rationale: `docs/release-runbook.md`, "Stage A2". This file pins the exact
 files and the exact record statements for that procedure.
 

@@ -2,15 +2,21 @@
 
 > **Release order and steps live in [`docs/release-runbook.md`](docs/release-runbook.md)** (authoritative since 2026-09-30). This file explains the reasoning; where the two differ, the runbook wins.
 
-**Last updated:** October 4, 2026 (dated note below); the 2026-09-26 section follows it. **Phases 1 and 2 are closed. Phase 3 is planned in `PHASE_3_PLAN.md` and not yet started in code.** The 2026-09-26 section below is current. Everything under it is dated history and says so.
+**Last updated:** October 5, 2026 (dated notes below); the 2026-09-26 section follows it. **Phases 1 and 2 are closed. Phase 3 is planned in `PHASE_3_PLAN.md` and not yet started in code.** The 2026-09-26 section below is current. Everything under it is dated history and says so.
 
 ---
+
+## Update 2026-10-05 (the runbook has the detail)
+
+- **Stage A2 applied to production** (0018, 0019, 0020) by the founder on 2026-10-04, 23:50–23:51 UTC; all 13 checks passed and were re-verified independently (read-only): existing papers, researchers, AI history, agreements and acceptances unchanged; every agreement version (1–4) **inactive**; `extraction_policy` manual; production code still `f45dc690` and serving.
+- The real Gemini test (R1) passed on the Preview on 2026-10-04 (3 requests, Production model).
+- **Next:** founder approval of agreement version 4 (D2), then the release session (`docs/release-runbook.md` §4, stages B + D). Preview key cleanup is with the founder (runbook §8, item 2a).
 
 ## Update 2026-10-04 (release preparation; the runbook has the detail)
 
 - **Stage A applied to production** (0011–0013, 0015–0017), verified, data unchanged (`docs/release-runbook.md` §7). Production code is still `f45dc690`.
 - **Founder decisions of 2026-10-04:** Gemini reading is the default with "Enter details manually" as the alternative; acceptance of the applicable agreement version and the researcher's choice are enforced on the server before any Gemini call; the premature thank-you screen is fixed.
-- **The Gemini API project is confirmed free tier.** Gemini reads the document itself (first pages or Word text, scans included; authors and supervisor extracted; working Production model `gemini-3.5-flash-lite`). Agreement **version 4** (EN/AR) says what is sent and that Google may use it to improve its products, with human review; manual entry sends nothing. An excerpt-only design (version 3) was withdrawn the same day. Built on the release-prep branch with migrations **0018 + 0019 + 0020** (not applied to production).
+- **The Gemini API project is confirmed free tier.** Gemini reads the document itself (first pages or Word text, scans included; authors and supervisor extracted; working Production model `gemini-3.5-flash-lite`). Agreement **version 4** (EN/AR) says what is sent and that Google may use it to improve its products, with human review; manual entry sends nothing. An excerpt-only design (version 3) was withdrawn the same day. Built on the release-prep branch with migrations **0018 + 0019 + 0020** (applied to production on 2026-10-04 as Stage A2; every version inactive).
 - **Until the release, production (`f45dc690`) sends every new paper's front pages to Gemini under the free tier without an agreement that says so**; the release session puts version 4 in front of every automatic reading (`docs/release-runbook.md` §4, §8).
 
 ---
