@@ -1,5 +1,7 @@
 # Public research pages (Phase 3 M5)
 
+> **Release order and steps live in [`docs/release-runbook.md`](release-runbook.md)** (authoritative since 2026-09-30). This file explains the reasoning; where the two differ, the runbook wins.
+
 The public side of the repository: a catalogue with search and filters, a
 page per work at `/research/[publicId]`, and reading or downloading of the
 approved document where full text is permitted.

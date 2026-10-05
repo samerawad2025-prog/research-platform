@@ -39,7 +39,9 @@ check('a stored manual decision survives a refresh, in either mode, whatever ext
       const m = view(paper(status, { manual_entry_source: 'mode', failure_code: 'timeout' }), { manualMode })
       assert.deepStrictEqual(m, { view: 'form', manual: true, reason: 'mode' }, `${status}/${manualMode}`)
       const r = view(paper(status, { manual_entry_source: 'researcher', failure_code: 'timeout' }), { manualMode })
-      assert.deepStrictEqual(r, { view: 'form', manual: true, reason: 'fallback' }, `${status}/${manualMode}`)
+      // Chosen before any reading (still pending) is not a fallback.
+      const expected = status === 'pending' ? 'chosen' : 'fallback'
+      assert.deepStrictEqual(r, { view: 'form', manual: true, reason: expected }, `${status}/${manualMode}`)
     }
   }
 })
@@ -117,17 +119,46 @@ check('hand-entry wording exists in English and Arabic with the same keys', () =
   const blocks = manualBlocks()
   assert.strictEqual(blocks.length, 2, 'one manual block per language')
   assert.deepStrictEqual(keysOf(blocks[0]), keysOf(blocks[1]))
-  assert.deepStrictEqual(keysOf(blocks[0]), ['emptyHint', 'enterYourself', 'fallbackNote', 'heading', 'orEnter', 'subtitle', 'switching', 'unavailable'])
+  assert.deepStrictEqual(keysOf(blocks[0]), ['chosenNote', 'emptyHint', 'enterYourself', 'fallbackNote', 'heading', 'orEnter', 'subtitle', 'switching', 'unavailable'])
   assert.strictEqual((i18n.match(/manualChoice:/g) || []).length, 2, 'the choice-not-recorded message in both languages')
   assert.ok(/[؀-ۿ]/.test(blocks[1]), 'the second block is Arabic')
-  assert.strictEqual((i18n.match(/manualNext:/g) || []).length, 2, 'the submission hand-off line in both languages')
+  // The hand-off line between a stored submission and the next page: one in
+  // the legacy form's block and one in the acceptance form's, per language.
+  const opening = i18n.split('\n').filter((l) => /^\s*opening: '/.test(l))
+  assert.strictEqual(opening.length, 4, 'the hand-off line in both forms and both languages')
+  // Progress, never a completion message: nothing is finished until the
+  // details are confirmed (the premature thank-you, 2026-10-04).
+  for (const l of opening) assert.ok(!/thank|شكر/i.test(l), l)
 })
 
 check('hand-entry wording never exposes configuration or provider names', () => {
-  const text = manualBlocks().join('\n') + i18n.split('\n').filter((l) => /manualNext|manualChoice/.test(l)).join('\n')
+  const text = manualBlocks().join('\n') + i18n.split('\n').filter((l) => /^\s*opening:|manualChoice/.test(l)).join('\n')
   for (const word of ['EXTRACTION_MODE', 'Gemini', 'Google', 'mode', 'config', 'AI', 'provider', 'preview']) {
     assert.ok(!new RegExp(`\\b${word}\\b`).test(text), `"${word}" appears in user-facing wording`)
   }
+})
+
+check('a paper that can never be read (automatic_processing false) never waits, and is not offered a refused retry', () => {
+  // Legacy form, pre-0018, or no applicable agreement (migration 0018).
+  for (const s of ['pending', 'processing']) {
+    assert.deepStrictEqual(view(paper(s, { automatic_processing: false })), { view: 'form', manual: true, reason: 'mode' }, s)
+  }
+  for (const code of ['api_error', 'timeout', 'internal', 'max_tokens', 'encrypted_document']) {
+    assert.deepStrictEqual(view(paper('failed', { failure_code: code, automatic_processing: false })), { view: 'form', manual: true, reason: 'fallback' }, code)
+  }
+  // Results and reviews are unaffected; a not-research notice stays a notice.
+  assert.deepStrictEqual(view(paper('completed', { automatic_processing: false })), { view: 'form', manual: false, reason: null })
+  assert.strictEqual(view(paper('failed', { document_type: 'not_research', automatic_processing: false })).view, 'notResearch')
+  // An older database (no key) behaves as before.
+  assert.strictEqual(view(paper('pending')).view, 'extracting')
+  assert.strictEqual(view(paper('failed', { failure_code: 'api_error' })).view, 'transient')
+})
+
+check('manual entry chosen before submitting is its own case, never the failure note', () => {
+  const p = paper('pending', { manual_entry_source: 'researcher', automatic_processing: false })
+  assert.deepStrictEqual(view(p), { view: 'form', manual: true, reason: 'chosen' })
+  // Switching after a failure is still the fallback.
+  assert.deepStrictEqual(view(paper('failed', { manual_entry_source: 'researcher', failure_code: 'timeout' })).reason, 'fallback')
 })
 
 if (failed) {

@@ -114,9 +114,10 @@ function isEmailish(value) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim())
 }
 
-// manualMode comes from the server page (EXTRACTION_MODE). It only picks
-// the wording of the brief hand-off message; /api/extract enforces the mode.
-export default function LegacySubmissionForm({ manualMode = false }) {
+// Since migration 0018 a submission from this form is never read
+// automatically (it carries no acceptance of an agreement that allows it);
+// /api/extract enforces that, and the next page asks for the details.
+export default function LegacySubmissionForm() {
   const router = useRouter()
   const { locale } = useLocale()
   const t = messagesFor(locale).submission
@@ -125,7 +126,17 @@ export default function LegacySubmissionForm({ manualMode = false }) {
   const [file, setFile] = useState(null)
   const fileInputRef = useRef(null)
   const fileId = useId()
-  const [status, setStatus] = useState('idle') // idle | submitting | extracting | error
+  // idle | submitting | opening | error. 'opening' is progress, not an
+  // outcome: the submission is stored and the next page is loading. Nothing
+  // here may look finished - the only completion screen is the one shown
+  // after the details are confirmed (ConfirmationScreen). It used to be a
+  // separate 'extracting' state that REPLACED the form with "Thank you for
+  // sharing your work…" for as long as router.push took, which on a slow
+  // connection read as the final thank-you page before the next step.
+  const [status, setStatus] = useState('idle')
+  // A second click (or Enter) that lands before React re-renders the
+  // disabled button must not start a second upload and a second paper.
+  const inFlight = useRef(false)
   const [errorMsg, setErrorMsg] = useState(null) // { key, ... } — see errorText()
   // Which fields the person has already interacted with. An error is
   // only SHOWN once a field has been touched, so the form doesn't open
@@ -154,7 +165,9 @@ export default function LegacySubmissionForm({ manualMode = false }) {
     fileOk &&
     form.permission_to_process &&
     form.publication_scope.length > 0 &&
-    status !== 'submitting'
+    status !== 'submitting' &&
+    status !== 'opening'
+  const locked = status === 'submitting' || status === 'opening'
 
   // What is still outstanding, in the order the form presents it.
   // Shown under the submit button so a disabled button is never a dead
@@ -190,6 +203,7 @@ export default function LegacySubmissionForm({ manualMode = false }) {
   async function handleSubmit(e) {
     e.preventDefault()
 
+    if (inFlight.current) return
     if (form.website) return // honeypot — bots fill every field
 
     if (!file) {
@@ -222,6 +236,7 @@ export default function LegacySubmissionForm({ manualMode = false }) {
       return
     }
 
+    inFlight.current = true
     setStatus('submitting')
     setErrorMsg(null)
 
@@ -268,12 +283,13 @@ export default function LegacySubmissionForm({ manualMode = false }) {
       // token to key them by yet; hand them over now.
       adoptPendingMarks(token)
       mark(token, 'paper_created')
-      setStatus('extracting')
+      // Stays locked, showing progress, until the next page replaces it.
+      setStatus('opening')
 
-      // 3. Kick off extraction now that the paper exists. The
-      //    confirmation page polls for the result and handles a
-      //    still-processing state on its own, so we don't block
-      //    navigation on it completing first.
+      // 3. Tell the server the paper exists. Since migration 0018 it
+      //    reads nothing for a submission from this form; the call only
+      //    records the manual decision durably. The confirmation page
+      //    handles everything else, so navigation does not wait for it.
       // keepalive is load-bearing, not a nicety. This fetch is
       // deliberately not awaited and is immediately followed by a
       // navigation; without keepalive the browser is entitled to
@@ -298,15 +314,8 @@ export default function LegacySubmissionForm({ manualMode = false }) {
       await supabase.storage.from('papers').remove([filePath]).catch(() => {})
       setErrorMsg(userFacingError(err))
       setStatus('error')
+      inFlight.current = false
     }
-  }
-
-  if (status === 'extracting') {
-    return (
-      <div className={styles.successMessage} lang={locale} dir={dir}>
-        <p>{manualMode ? t.manualNext : t.extracting}</p>
-      </div>
-    )
   }
 
   return (
@@ -323,6 +332,9 @@ export default function LegacySubmissionForm({ manualMode = false }) {
         aria-hidden="true"
       />
 
+      {/* Every control, disabled as a group while the submission is in
+          flight or the next page is opening. */}
+      <fieldset className={styles.lockGroup} disabled={locked}>
       <fieldset className={styles.section}>
         <legend>{t.aboutYou}</legend>
 
@@ -463,14 +475,16 @@ export default function LegacySubmissionForm({ manualMode = false }) {
           </label>
         ))}
       </fieldset>
+      </fieldset>
 
       <div className={styles.submitButtonWrap}>
         <Button type="submit" disabled={!canSubmit}>
-          {status === 'submitting' ? t.submitting : t.submit}
+          {status === 'submitting' ? t.submitting : status === 'opening' ? t.opening : t.submit}
         </Button>
       </div>
+      {status === 'opening' && <p role="status" className={styles.pendingNote}>{t.opening}</p>}
 
-      {!canSubmit && status !== 'submitting' && outstanding.length > 0 && (
+      {!canSubmit && !locked && outstanding.length > 0 && (
         <p className={styles.pendingNote}>
           {t.stillNeeded(outstanding)}
         </p>
