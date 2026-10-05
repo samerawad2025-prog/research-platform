@@ -16,6 +16,10 @@
 //   PV_ONLY         optional: comma list of checks to run
 //                   (config, auto, manual, scan); default: all
 //   PV_STATE        file to write paper tokens to (mode 600; never printed)
+//   PV_SUPABASE_URL, PV_ANON_KEY  for the 'cutover' check only (the public
+//                   anon key of the same project). Run 'cutover' ONLY after
+//                   0014 is verified in the database: if the old path were
+//                   still open, its probes would create a row and a file.
 //   HV_PROXY_CA_SPKI optional, for the agent proxy (as hosted-verify-h12.js)
 // Prints statuses and booleans only: never a token, link or key.
 
@@ -191,6 +195,16 @@ async function main() {
         },
       })
     } finally { await page.context().close() }
+  })
+
+  await check('cutover (after 0014): anonymous upload to papers and anonymous submit_paper are refused', 'cutover', async () => {
+    const { createClient } = require('@supabase/supabase-js')
+    const sb = createClient(process.env.PV_SUPABASE_URL, process.env.PV_ANON_KEY, { auth: { persistSession: false } })
+    const up = await sb.storage.from('papers').upload(`SYNTHETIC-cutover-probe-${RUN}.pdf`, Buffer.from('%PDF-1.4 synthetic cutover probe'), { contentType: 'application/pdf' })
+    assert.ok(up.error, 'anonymous upload was accepted')
+    const rpc = await sb.rpc('submit_paper', { p_full_name: NAME, p_email: `release-check-cutover-${RUN}@example.invalid`, p_file_path: `SYNTHETIC-cutover-probe-${RUN}.pdf`, p_permission_to_process: false, p_publication_scope: ['record'], p_whatsapp_number: null })
+    assert.ok(rpc.error, 'anonymous submit_paper was accepted')
+    return `upload refused (${up.error.statusCode || up.error.status || ''} ${up.error.message}); submit_paper refused (${rpc.error.code} ${rpc.error.message})`
   })
 
   if (browser) await browser.close()

@@ -2,11 +2,16 @@
 
 > **Release order and steps live in [`docs/release-runbook.md`](docs/release-runbook.md)** (authoritative since 2026-09-30). This file explains the reasoning; where the two differ, the runbook wins.
 
-**Last updated:** October 5, 2026 (dated notes below); the 2026-09-26 section follows it. **Phases 1 and 2 are closed. Phase 3 is planned in `PHASE_3_PLAN.md` and not yet started in code.** The 2026-09-26 section below is current. Everything under it is dated history and says so.
+**Last updated:** October 5, 2026, after the production release (dated notes below); the 2026-09-26 section follows it. **Phases 1 and 2 are closed. Phase 3 is planned in `PHASE_3_PLAN.md` and not yet started in code.** The 2026-09-26 section below is current. Everything under it is dated history and says so.
 
 ---
 
-## Update 2026-10-05 (the runbook has the detail)
+## Update 2026-10-05 — released (the runbook has the detail)
+
+- **Production release, 2026-10-05 05:44 UTC:** `15f94476` (the reviewed stack #16–#23, one production deploy, `dpl_HLAiNGzahHCpqG11DmhQN2LSYmP6`, `fra1`). Version 4 (EN + AR) is active; Gemini reads the document by default under the free tier (`gemini-3.5-flash-lite`), with "Enter details manually" as the alternative. Verified in production with three clearly marked synthetic submissions (text PDF, manual, scanned PDF): correct acceptance records, no provider call for manual entry, thank-you only after Confirm. Admin review and the public site stay off.
+- **Next:** stage E (migration 0014, closes the old anonymous path) — founder runs `supabase/release/stage-e-production/` in the SQL Editor (the connector timed out, nothing applied). Then administrator setup (stage F) and the public site (stage G).
+
+### Earlier on 2026-10-05
 
 - **Stage A2 applied to production** (0018, 0019, 0020) by the founder on 2026-10-04, 23:50–23:51 UTC; all 13 checks passed and were re-verified independently (read-only): existing papers, researchers, AI history, agreements and acceptances unchanged; every agreement version (1–4) **inactive**; `extraction_policy` manual; production code still `f45dc690` and serving.
 - The real Gemini test (R1) passed on the Preview on 2026-10-04 (3 requests, Production model).
