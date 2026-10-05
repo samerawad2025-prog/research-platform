@@ -1,4 +1,5 @@
-import SubmissionForm from "../../components/SubmissionForm";
+import LegacySubmissionForm from "../../components/LegacySubmissionForm";
+import AcceptanceSubmissionForm from "../../components/AcceptanceSubmissionForm";
 
 // This page talks to Supabase in the browser, not at build time — don't
 // let Next.js try to pre-render it during `next build`, which would
@@ -6,5 +7,14 @@ import SubmissionForm from "../../components/SubmissionForm";
 export const dynamic = "force-dynamic";
 
 export default function SubmitPage() {
-  return <SubmissionForm />;
+  // SUBMISSION_ACCEPTANCE_FLOW=enabled selects the acceptance form. If that
+  // flow is then unavailable, the form says so; it never falls back to the
+  // legacy anonymous path (docs/submission-flow.md, "Cutover").
+  if (String(process.env.SUBMISSION_ACCEPTANCE_FLOW || "").trim().toLowerCase() === "enabled") {
+    return <AcceptanceSubmissionForm />;
+  }
+  // The legacy form, kept during the rollout. Its submissions carry no
+  // acceptance of an agreement that allows automatic reading, so the
+  // extraction route never reads them (migration 0018).
+  return <LegacySubmissionForm />;
 }

@@ -1,0 +1,331 @@
+#!/usr/bin/env node
+//
+// Phase 3 M2A checks that need no database (CI). The database-backed
+// behaviour - acceptance records, finalization, concurrency, expiry,
+// cleanup, request limits - is tested against a real Postgres in
+// supabase/tests/submission-postgres.test.js (run-0012.sh).
+//
+// Run: node scripts/test-submission-acceptance.js
+
+const assert = require('node:assert')
+const crypto = require('node:crypto')
+const fs = require('node:fs')
+const path = require('node:path')
+
+const { AGREEMENTS } = require('../lib/submission/agreements')
+const { previewDecision } = require('../lib/submission/acceptanceHandlers')
+const { validateIntentBody, handleCreateIntent, handleFinalize, handleTerms, confirmationTokenFor, signOffer, verifyOffer, authorizationExpiry } = require('../lib/submission/acceptanceHandlers')
+const { clientKeyOf } = require('../lib/submission/routeHelpers')
+
+let failed = 0
+async function check(name, fn) {
+  try {
+    await fn()
+    console.log(`ok     ${name}`)
+  } catch (err) {
+    console.error(`FAIL   ${name} — ${err.message}`)
+    failed++
+  }
+}
+
+const ROOT = path.join(__dirname, '..')
+const migration = fs.readFileSync(path.join(ROOT, 'supabase/migrations/0012_submission_acceptance.sql'), 'utf8')
+const migration18 = fs.readFileSync(path.join(ROOT, 'supabase/migrations/0018_ai_processing_agreement.sql'), 'utf8')
+const migration19 = fs.readFileSync(path.join(ROOT, 'supabase/migrations/0019_gemini_free_tier_agreement.sql'), 'utf8')
+
+// A database stand-in that fails the test if it is touched at all.
+const untouchable = new Proxy({}, { get: () => { throw new Error('the database was reached') } })
+const SECRET = 'x'.repeat(40)
+const ENV = { SUBMISSION_ACCEPTANCE_FLOW: 'enabled', SUBMISSION_TOKEN_SECRET: SECRET, EXTRACTION_MODE: 'automatic' }
+
+const good = () => ({
+  offerToken: 'checked-by-the-handler',
+  agreementId: 'submission-terms-2026-09-25-ar',
+  accepted: true,
+  publicationSetting: 'record_abstract_fulltext',
+  claimedRole: 'authorized_depositor',
+  processingChoice: 'automatic',
+  authors: ['مؤلف أول', 'Second Author'],
+  fullName: 'سارة أحمد',
+  email: 'sara@example.invalid',
+  whatsapp: '0912345678',
+  whatsappCountry: 'SD',
+  file: { name: 'بحث.docx', size: 12345, type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' },
+})
+
+async function main() {
+  await check('registry: each agreement hash is the SHA-256 of its file in docs/legal/', () => {
+    for (const a of AGREEMENTS) {
+      const actual = crypto.createHash('sha256').update(fs.readFileSync(path.join(ROOT, a.file))).digest('hex')
+      assert.strictEqual(actual, a.sha256, a.file)
+    }
+  })
+
+  await check('registry: migrations 0012, 0018 and 0019 seed the same ids, languages, hashes and AI arrangement, all inactive', () => {
+    for (const a of AGREEMENTS) {
+      if (a.externalAi) {
+        const re = new RegExp(`\\('${a.id}', '${a.key}', '${a.language}', '${a.versionLabel}', '${a.versionDate}',\\s*'${a.sha256}', false, '${a.externalAi}'\\)`)
+        const source = a.versionLabel === 'Version 4' ? fs.readFileSync(path.join(ROOT, 'supabase/migrations/0020_free_tier_full_document_agreement.sql'), 'utf8') : a.externalAi === 'gemini_api_unpaid' ? migration19 : migration18
+        assert.ok(re.test(source), a.id)
+      } else {
+        const re = new RegExp(`\\('${a.id}', '${a.key}', '${a.language}', '${a.versionLabel}', '${a.versionDate}',\\s*'${a.sha256}', false\\)`)
+        assert.ok(re.test(migration), a.id)
+      }
+    }
+    assert.ok(!/,\s*true\)\s*(,|on conflict)/.test(migration), 'no agreement is seeded active')
+    assert.ok(!/,\s*true,\s*'[a-z_]+'\)/.test(migration18), 'no agreement is seeded active')
+    // 0018 never touches the existing rows: no update of agreement_versions at all.
+    assert.ok(!/update\s+agreement_versions/i.test(migration18), 'existing agreement rows are not modified')
+    assert.ok(!/,\s*true,\s*'[a-z_]+'\)/.test(migration19), 'version 3 is not seeded active')
+    assert.ok(!/update\s+(agreement_versions|submission_acceptances|papers)\b/i.test(migration19), '0019 runs no UPDATE statement')
+    // Its one conflict clause can only bring an unaccepted draft version 3 to the reviewed text, and never touches the active flag.
+    const at = migration19.indexOf('on conflict (id) do update')
+    const clause = migration19.slice(at, migration19.indexOf(';', at))
+    assert.ok(at > 0 && /not exists \(select 1 from submission_acceptances a where a\.agreement_version_id = agreement_versions\.id\)/.test(clause), 'guarded by "no acceptance"')
+    assert.ok(!/\bactive\b/.test(clause), 'never changes the active flag')
+  })
+
+  await check('registry: version 2 describes paid Gemini terms; both languages of it say so', () => {
+    const v1 = AGREEMENTS.filter((a) => a.versionDate === '2026-09-25')
+    const v2 = AGREEMENTS.filter((a) => a.versionLabel === 'Version 2')
+    assert.strictEqual(v1.length, 2)
+    assert.strictEqual(v2.length, 2)
+    for (const a of v1) assert.strictEqual(a.externalAi, null, a.id)
+    for (const a of v2) assert.strictEqual(a.externalAi, 'gemini_api_paid', a.id)
+    for (const a of v2) {
+      const text = fs.readFileSync(path.join(ROOT, a.file), 'utf8')
+      // Every disclosure the founder asked for is present in both languages.
+      const must = a.language === 'en'
+        ? ['first 10 pages', '25 pages', '6,000 characters', 'not sent to Gemini', 'paid services', 'unpaid', '55 days', 'authorized Google personnel', 'any country', 'does not delete', 'can be wrong', 'manual entry', 'does not give consent on behalf']
+        : ['أول 10 صفحات', '25 صفحة', '6000 حرف', 'لا يُرسل مستندك إلى Gemini', 'للخدمات المدفوعة', 'غير المدفوعة', '55 يوماً', 'موظفين مفوّضين لدى Google', 'أي بلد', 'لا يؤدي سحب إيداعك', 'خاطئة', 'الإدخال اليدوي', 'نيابةً عن']
+      for (const phrase of must) assert.ok(text.includes(phrase), `${a.id}: ${phrase}`)
+      // The old blanket promise is gone from the version that sends documents out.
+      assert.ok(!text.includes('External AI extraction may operate only under provider arrangements'), a.id)
+    }
+  })
+
+  await check('registry: version 3 describes the free tier as it is, in both languages, without the paid promises', () => {
+    const v3 = AGREEMENTS.filter((a) => a.versionLabel === 'Version 3')
+    assert.strictEqual(v3.length, 2)
+    for (const a of v3) {
+      assert.strictEqual(a.externalAi, 'gemini_api_unpaid', a.id)
+      const text = fs.readFileSync(path.join(ROOT, a.file), 'utf8')
+      const must = a.language === 'en'
+        ? ['We do not send your document to Gemini', 'short excerpt', '"By", "Supervisor"', 'never asked for the names', 'nothing is sent', 'not guaranteed to find every name', 'Enter details manually',
+           'unpaid services (the free tier)', 'improve and develop Google', 'machine-learning technologies', 'Human reviewers may read', 'disconnecting the data',
+           "do not state how long content used in these ways is kept", 'abuse-monitoring policy for the Gemini API', '55 days', 'abuse-monitoring records only, not to content used to improve',
+           'servers located outside the country where you live', 'Our record of what was sent', 'deleted with them', 'title or abstract may name a person', 'cannot be told apart from a name',
+           'last updated 28 April 2026', 'last updated 9 June 2026', 'effective 1 October 2026', 'does not delete anything Google holds', 'cannot authorize the use of anyone else', 'Google asks that sensitive, confidential or personal information not be submitted', 'can be wrong',
+           'minimized excerpt of my document to Google Gemini']
+        : ['لا نرسل مستندك إلى Gemini', 'مقتطفاً قصيراً', '"إعداد" و"إشراف"', 'لا يُطلب من Gemini أبداً', 'لا يُرسل أي شيء', 'لا يُضمن أن يكتشف كل اسم', 'أدخل التفاصيل يدوياً',
+           'للخدمات غير المدفوعة (الفئة المجانية)', 'وتحسينها وتطويرها', 'تعلّم الآلة', 'مراجعين بشريين', 'فصل البيانات',
+           'لا تحدد شروط Google مدة الاحتفاظ', 'سياسة رصد إساءة الاستخدام الخاصة بواجهة Gemini', '55 يوماً', 'تخص سجلات رصد إساءة الاستخدام هذه وحدها',
+           'خارج البلد الذي تقيم فيه', 'سجلّنا لما أُرسل', 'ويُحذف معها', 'قد يتضمن اسم شخص', 'لا يمكن تمييزها من الأسماء',
+           'آخر تحديث 28 أبريل 2026', 'آخر تحديث 9 يونيو 2026', 'سارية من 1 أكتوبر 2026', 'لا يؤدي سحب إيداعك', 'لا يمكنها أن تجيز استخدام المعلومات الشخصية', 'تطلب Google عدم إرسال معلومات حساسة أو سرية أو شخصية', 'خاطئة',
+           'مقتطف مختصر من مستندي إلى Google Gemini']
+      for (const phrase of must) assert.ok(text.includes(phrase), `${a.id}: ${phrase}`)
+      // Nothing from the paid version that would be untrue on the free tier.
+      const mustNot = a.language === 'en'
+        ? ['does not use the prompts', 'We use the Gemini API only under Google', 'We will not send documents to Gemini under terms', 'we do not permit their use for general-purpose AI model training', 'first 10 pages',
+           // Stated by Google only for PAID-service logs (re-verified 2026-10-04):
+           'stored transiently or cached', 'Google or its agents maintain facilities']
+        : ['لا تستخدم الطلبات والمستندات', 'لا نستخدم واجهة Gemini البرمجية إلا بموجب', 'ولن نرسل المستندات إلى Gemini', 'ولا نسمح باستخدامها لتدريب', 'أول 10 صفحات',
+           'تخزيناً مؤقتاً', 'وكلاؤها منشآت']
+      for (const phrase of mustNot) assert.ok(!text.includes(phrase), `${a.id} still says: ${phrase}`)
+    }
+    // Sections 1-5, 8 and 9 are word for word those of version 2.
+    for (const lang of ['en', 'ar']) {
+      const strip = (t) => t.replace(/\n### 6\.[\s\S]*?\n### 8\./, '\n### 8.').replace(/^\*\*(Version|الإصدار):\*\*.*$/m, '').replace(/\n### (Acceptance|الموافقة)[\s\S]*$/, '')
+      const v2 = fs.readFileSync(path.join(ROOT, `docs/legal/submission-terms.v2.${lang}.md`), 'utf8')
+      const v3t = fs.readFileSync(path.join(ROOT, `docs/legal/submission-terms.v3.${lang}.md`), 'utf8')
+      assert.strictEqual(strip(v3t), strip(v2), `${lang}: only sections 6, 7 and the acceptance sentence differ`)
+    }
+  })
+
+  await check('registry: version 4 describes free-tier reading of the document itself, in both languages, without unsupported promises', () => {
+    const v4 = AGREEMENTS.filter((a) => a.versionLabel === 'Version 4')
+    assert.strictEqual(v4.length, 2)
+    const migration20 = fs.readFileSync(path.join(ROOT, 'supabase/migrations/0020_free_tier_full_document_agreement.sql'), 'utf8')
+    for (const a of v4) {
+      assert.strictEqual(a.externalAi, 'gemini_api_unpaid', a.id)
+      assert.ok(new RegExp(`\\('${a.id}', '${a.key}', '${a.language}', '${a.versionLabel}', '${a.versionDate}',\\s*'${a.sha256}', false, '${a.externalAi}'\\)`).test(migration20), `0020 seeds ${a.id} inactive`)
+      const text = fs.readFileSync(path.join(ROOT, a.file), 'utf8')
+      const must = a.language === 'en'
+        ? ['first 10 pages', '25 pages', 'scanned PDF is sent the same way', 'names of authors and supervisors', 'Nothing is removed before it is sent', 'unpaid services (the free tier)',
+           'improve and develop Google', 'machine-learning technologies', 'Human reviewers may read', 'do not state how long', '55 days', 'abuse-monitoring records only',
+           'outside the country where you live', 'does not delete anything Google holds', 'does not change Google\'s terms', 'does not give consent on behalf', 'Enter details manually', 'can be wrong']
+        : ['أول 10 صفحات', '25 صفحة', 'الممسوح ضوئياً بالطريقة نفسها', 'أسماء المؤلفين والمشرفين', 'ولا يُحذف شيء منها قبل الإرسال', 'للخدمات غير المدفوعة (الفئة المجانية)',
+           'وتحسينها وتطويرها', 'تعلّم الآلة', 'مراجعين بشريين', 'لا تحدد شروط Google مدة', '55 يوماً', 'سجلات رصد إساءة الاستخدام وحدها',
+           'خارج البلد الذي تقيم فيه', 'لا يؤدي سحب إيداعك', 'لا تغيّر موافقتك شروط Google', 'نيابةً عن', 'أدخل التفاصيل يدوياً', 'خاطئة']
+      for (const phrase of must) assert.ok(text.includes(phrase), `${a.id}: ${phrase}`)
+      const mustNot = a.language === 'en'
+        ? ['excerpt', 'removes lines', 'names and contact details removed', 'do not use submitted documents to train', 'does not itself use submitted documents to train', 'do not permit their use', 'stored transiently or cached', 'Google or its agents maintain facilities', 'We will not send documents']
+        : ['مقتطف', 'لا نستخدم المستندات المقدمة لتدريب', 'لا تستخدم المنصة بنفسها', 'ولا نسمح باستخدامها', 'تخزيناً مؤقتاً', 'وكلاؤها منشآت', 'ولن نرسل المستندات']
+      for (const phrase of mustNot) assert.ok(!text.includes(phrase), `${a.id} still says: ${phrase}`)
+    }
+  })
+
+  await check('validation: the processing choice is explicit, and only automatic or manual', () => {
+    for (const processingChoice of [undefined, null, '', 'Automatic', 'gemini', true, 1]) {
+      assert.strictEqual(validateIntentBody({ ...good(), processingChoice }).error, 'processing_choice_invalid', String(processingChoice))
+    }
+    assert.strictEqual(validateIntentBody({ ...good(), processingChoice: 'manual' }).value.processingChoice, 'manual')
+  })
+
+  await check('offer: automatic only with the mode, the policy, attested terms AND agreements that describe exactly those terms', () => {
+    const v2 = AGREEMENTS.filter((a) => a.externalAi === 'gemini_api_paid')
+    const v3 = AGREEMENTS.filter((a) => a.versionLabel === 'Version 4')
+    const v1 = AGREEMENTS.filter((a) => !a.externalAi)
+    const full = { EXTRACTION_MODE: 'automatic', GEMINI_DATA_TERMS: 'paid' }
+    const free = { EXTRACTION_MODE: 'automatic', GEMINI_DATA_TERMS: 'unpaid' }
+    assert.strictEqual(previewDecision(free, 'automatic', v3), 'automatic', 'the launch arrangement')
+    assert.strictEqual(previewDecision(free, 'automatic', v2), 'manual', 'paid text never offered on a free-tier server')
+    assert.strictEqual(previewDecision(full, 'automatic', v3), 'manual', 'free-tier text never offered under paid attestation')
+    assert.strictEqual(previewDecision(free, 'automatic', [...v3, v2[0]]), 'manual', 'mixed versions')
+    assert.strictEqual(previewDecision(full, 'automatic', v2), 'automatic')
+    assert.strictEqual(previewDecision(full, 'manual', v2), 'manual', 'policy row')
+    assert.strictEqual(previewDecision({ ...full, EXTRACTION_MODE: 'manual' }, 'automatic', v2), 'manual', 'mode')
+    for (const t of [undefined, '', 'free', 'yes', 'unpaid-ish']) {
+      assert.strictEqual(previewDecision({ EXTRACTION_MODE: 'automatic', GEMINI_DATA_TERMS: t }, 'automatic', v2), 'manual', `terms ${t}`)
+    }
+    assert.strictEqual(previewDecision(full, 'automatic', v1), 'manual', 'an agreement without AI disclosure never leads to reading')
+    assert.strictEqual(previewDecision(full, 'automatic', [...v2, v1[0]]), 'manual', 'every agreement offered must describe it')
+    assert.strictEqual(previewDecision(full, 'automatic', []), 'manual')
+  })
+
+  await check('validation: a complete Arabic request with a DOCX is accepted as data', () => {
+    const r = validateIntentBody(good())
+    assert.ok(r.value, JSON.stringify(r))
+    assert.strictEqual(r.value.whatsapp, '+249912345678', 'stored in E.164')
+    assert.strictEqual(r.value.fileExtension, 'docx')
+    assert.strictEqual(r.value.agreement.language, 'ar')
+  })
+
+  await check('validation: acceptance must be exactly true; unknown or forged agreements are refused', () => {
+    for (const accepted of [undefined, false, 'true', 1, 'yes', null]) {
+      assert.strictEqual(validateIntentBody({ ...good(), accepted }).error, 'acceptance_required', String(accepted))
+    }
+    for (const agreementId of ['submission-terms-2026-09-26-en', '', null, 42, { id: 'x' }]) {
+      assert.strictEqual(validateIntentBody({ ...good(), agreementId }).error, 'agreement_unknown', String(agreementId))
+    }
+  })
+
+  await check('validation: the browser cannot supply processing, paths, hashes, text or timestamps', () => {
+    for (const field of ['processingDecision', 'processing', 'extractionMode', 'automatic', 'objectPath', 'filePath', 'agreementSha256', 'agreementText', 'acceptedAt', 'identityVerified', 'language']) {
+      const r = validateIntentBody({ ...good(), [field]: 'automatic' })
+      assert.strictEqual(r.error, 'unexpected_field', field)
+      assert.strictEqual(r.field, field)
+    }
+    assert.strictEqual(validateIntentBody({ ...good(), file: { ...good().file, sha256: 'a' } }).field, 'file.sha256')
+  })
+
+  await check('validation: settings, roles, contact and file checks', () => {
+    const cases = [
+      [{ publicationSetting: 'full_paper' }, 'publication_setting_invalid'],
+      [{ publicationSetting: 'record_abstract ' }, 'publication_setting_invalid'],
+      [{ claimedRole: 'supervisor' }, 'claimed_role_invalid'],
+      [{ authors: undefined }, 'authors_required'],
+      [{ authors: [] }, 'authors_required'],
+      [{ authors: ['  '] }, 'authors_required'],
+      [{ authors: ['x'.repeat(201)] }, 'authors_required'],
+      [{ authors: Array(51).fill('A') }, 'authors_required'],
+      [{ authors: 'A, B' }, 'authors_required'],
+      [{ claimedRole: 'author' }, 'unexpected_field'],
+      [{ fullName: '   ' }, 'name_required'],
+      [{ fullName: 'x'.repeat(201) }, 'name_required'],
+      [{ email: 'a@b' }, 'email_invalid'],
+      [{ whatsapp: '123' }, 'whatsapp_invalid'],
+      [{ file: undefined }, 'file_required'],
+      [{ file: { name: 'a.exe', size: 1, type: 'application/pdf' } }, 'file_type_invalid'],
+      [{ file: { name: 'a.pdf', size: 1, type: 'application/octet-stream' } }, 'file_type_invalid'],
+      [{ file: { name: '.pdf', size: 1, type: 'application/pdf' } }, 'file_type_invalid'],
+      [{ file: { name: 'a.pdf', size: -1, type: 'application/pdf' } }, 'file_size_invalid'],
+      [{ file: { name: 'a.pdf', size: '100', type: 'application/pdf' } }, 'file_size_invalid'],
+      [{ file: { name: 'a.pdf', size: 20971521, type: 'application/pdf' } }, 'file_size_invalid'],
+    ]
+    for (const [over, reason] of cases) assert.strictEqual(validateIntentBody({ ...good(), ...over }).error, reason, JSON.stringify(over))
+    assert.strictEqual(validateIntentBody(null).error, 'invalid_body')
+    assert.strictEqual(validateIntentBody([]).error, 'invalid_body')
+  })
+
+  await check('handlers: an invalid request is refused before the database is reached', async () => {
+    const r = await handleCreateIntent({ body: { ...good(), accepted: false }, env: ENV, supabase: untouchable, storage: untouchable, clientKey: 'k' })
+    assert.strictEqual(r.status, 400)
+    const f = await handleFinalize({ body: { intentId: 'not-a-uuid', intentToken: 'x' }, env: ENV, supabase: untouchable, storage: untouchable, clientKey: 'k' })
+    assert.strictEqual(f.status, 400)
+  })
+
+  await check('handlers: off unless enabled, and unusable without a strong secret', async () => {
+    for (const env of [{}, { SUBMISSION_ACCEPTANCE_FLOW: 'yes' }, { SUBMISSION_ACCEPTANCE_FLOW: 'disabled', SUBMISSION_TOKEN_SECRET: SECRET }]) {
+      assert.strictEqual((await handleCreateIntent({ body: good(), env, supabase: untouchable, storage: untouchable })).status, 404)
+      assert.strictEqual((await handleTerms({ env, supabase: untouchable })).status, 404)
+    }
+    const weak = await handleFinalize({ body: {}, env: { SUBMISSION_ACCEPTANCE_FLOW: 'enabled', SUBMISSION_TOKEN_SECRET: 'short' }, supabase: untouchable, storage: untouchable })
+    assert.strictEqual(weak.status, 503)
+  })
+
+  await check('tokens: the confirmation token is stable per intent token, distinct across them, and secret-bound', () => {
+    const a = confirmationTokenFor(SECRET, 'intent-a')
+    assert.match(a, /^[0-9a-f]{64}$/)
+    assert.strictEqual(confirmationTokenFor(SECRET, 'intent-a'), a)
+    assert.notStrictEqual(confirmationTokenFor(SECRET, 'intent-b'), a)
+    assert.notStrictEqual(confirmationTokenFor('y'.repeat(40), 'intent-a'), a)
+  })
+
+  await check('offer: signed, bound to its secret, tamper-evident and time-limited', () => {
+    const agreements = [{ id: 'a', sha256: 'b'.repeat(64) }]
+    const { token } = signOffer(SECRET, { decision: 'manual', agreements })
+    assert.strictEqual(verifyOffer(SECRET, token).offer.d, 'manual')
+    const [body, mac] = token.split('.')
+    const p = JSON.parse(Buffer.from(body, 'base64url').toString())
+    const widened = `${Buffer.from(JSON.stringify({ ...p, d: 'automatic' })).toString('base64url')}.${mac}`
+    assert.strictEqual(verifyOffer(SECRET, widened).error, 'offer_invalid')
+    assert.strictEqual(verifyOffer('y'.repeat(40), token).error, 'offer_invalid')
+    for (const t of [undefined, '', 'x', 'a.b.c', `${body}.`]) assert.strictEqual(verifyOffer(SECRET, t).error, 'offer_invalid', String(t))
+    const old = signOffer(SECRET, { decision: 'automatic', agreements, now: Date.now() - 31 * 60_000 }).token
+    assert.deepStrictEqual(verifyOffer(SECRET, old), { error: 'offer_stale', staleBecause: 'offer_expired' })
+  })
+
+  await check('upload authorization: its own expiry is read from the token; unreadable means unknown', () => {
+    const b64 = (o) => Buffer.from(JSON.stringify(o)).toString('base64url')
+    assert.strictEqual(authorizationExpiry(`${b64({ alg: 'HS256' })}.${b64({ exp: 2000000000 })}.sig`), new Date(2000000000 * 1000).toISOString())
+    for (const t of [undefined, '', 'x', `a.${b64({})}.c`, `a.${b64({ exp: 'soon' })}.c`]) assert.strictEqual(authorizationExpiry(t), null)
+  })
+
+  await check('routes: the request-limit key is the first forwarded address', () => {
+    const req = (h) => ({ headers: { get: (k) => h[k] ?? null } })
+    assert.strictEqual(clientKeyOf(req({ 'x-forwarded-for': '203.0.113.1, 10.0.0.1' })), '203.0.113.1')
+    assert.strictEqual(clientKeyOf(req({ 'x-real-ip': '203.0.113.2' })), '203.0.113.2')
+    assert.strictEqual(clientKeyOf(req({})), 'unknown')
+  })
+
+  await check('migration 0012: nothing granted to anon; every function pins search_path; old path left open', () => {
+    const code = migration.replace(/--[^\n]*/g, '')
+    assert.ok(!/\bgrant\s+[^;]*\bto\s+[^;]*\banon\b/i.test(code), 'no grant to anon')
+    const fns = migration.match(/create or replace function [^(]+\(/g) || []
+    const bodies = migration.split(/create or replace function /).slice(1)
+    assert.strictEqual(fns.length, bodies.length)
+    for (const b of bodies) assert.ok(/security definer\s+set search_path = /.test(b), b.slice(0, 60))
+    assert.ok(!/drop policy|revoke[^;]*submit_paper/i.test(migration), 'the old path is closed later, not here')
+    // Every function is revoked from public/anon/authenticated and granted
+    // to service_role with its exact current signature.
+    const sigs = [...code.matchAll(/create or replace function (\w+)\(([^)]*)\)/g)].map(([, name, params]) => {
+      const types = params.split(',').map((x) => x.trim().split(/\s+/)[1]).filter(Boolean).join(', ')
+      return `${name}(${types})`
+    }).filter((sig) => !sig.startsWith('stamp_submission_extraction_policy'))
+    assert.ok(sigs.length >= 7, sigs.join(' '))
+    for (const sig of sigs) {
+      const esc = sig.replace(/[()]/g, '\\$&')
+      assert.ok(new RegExp(`revoke all on function ${esc} from public, anon, authenticated;`).test(code), `revoke ${sig}`)
+      assert.ok(new RegExp(`grant execute on function ${esc} to service_role;`).test(code), `grant ${sig}`)
+    }
+  })
+
+  if (failed) {
+    console.error(`\n${failed} check(s) failed.`)
+    process.exit(1)
+  }
+  console.log('\nAll checks passed.')
+}
+
+main()

@@ -5,14 +5,14 @@
 Project: Supabase, Postgres 17, region eu-central-1 (project ref `mzpkiuovjppmavqkppem`; rebuilt from `supabase/schema.sql` on 2026-09-18 after the original project `jyqvhaqyrsfqkkcxiwth` was deleted). Six tables, all with RLS enabled.
 
 ## `researchers`
-Anyone credited on a paper, including the person who submitted it.
+Anyone credited on a paper, and the person who submitted it (`papers.submitted_by`). On the new submission path an authorized depositor is a submitter without being credited (`docs/submission-flow.md`).
 
 | Column | Notes |
 |---|---|
 | full_name | |
 | email | Private. Never returned by any public-facing RPC. |
 | whatsapp_number | Private, optional. Same footing as email. Loosely validated, not strict E.164. |
-| linkedin_url, facebook_url | Only ever stored if the paper's `publication_scope` includes `metadata_and_article`. |
+| linkedin_url, linkedin_public, facebook_url | Before migration 0013: LinkedIn/Facebook stored only if the paper's `publication_scope` included `metadata_and_article`. From 0013 (Phase 3 M3, **not applied**): LinkedIn is stored regardless of scope and must be an `https://…linkedin.com/in/…` address; `linkedin_public` (default false, never inferred) is the separate display choice, settable only by the submitter for their own row; a researcher row shared with another paper cannot be renamed or re-profiled through one paper's confirmation link; Facebook is no longer collected or returned, and existing values are kept unchanged. |
 | school, department, graduation_year | Declared, not currently populated by anything. |
 
 ## `papers`
@@ -25,8 +25,11 @@ The central table.
 | document_type | `thesis` / `journal_article` / `conference_paper` / `research_report` / `not_research` |
 | methodology, keywords/themes | **Legacy, unused.** Left nullable on purpose — dropped from the extraction prompt for speed, not worth a destructive migration to remove. |
 | file_path | Path inside the private `papers` storage bucket |
-| publication_scope | Subset of `{full_paper, metadata_and_article, abstract_and_citation}` |
-| extraction_status | `pending \| processing \| completed \| partial \| failed`. `partial` means pass 1 succeeded and its data is live, but pass 2 failed after its own retry — nothing was lost, some fields just weren't double-checked. |
+| publication_scope | Subset of `{full_paper, metadata_and_article, abstract_and_citation}`. *Planned (`PHASE_3_PLAN.md` M2, not built): superseded for new submissions by a two-value publication setting (`record_abstract` / `record_abstract_fulltext`) bound to a server-side acceptance record. This column is kept unchanged on legacy rows as consent evidence and never expanded.* |
+| extraction_status | `pending \| processing \| completed \| partial \| failed`. `partial` means pass 1 succeeded and its data is live, but pass 2 failed after its own retry — nothing was lost, some fields just weren't double-checked. Never relabelled by a manual decision (see below). |
+| manual_entry_at, manual_entry_source | Migration 0011 (**not yet applied to production**; a prerequisite for M1). The decision to enter this paper's details by hand: `mode` (the server was in `EXTRACTION_MODE=manual`) or `researcher` (chosen on the confirmation page via `/api/manual-entry`). Both null = no decision. Once set, no new provider call starts for the paper and no late extraction result is applied to its metadata; `extraction_status` keeps whatever history it had. |
+| submission_acceptance_id, publication_setting, file_sha256, file_size, submission_decision_source | Migration 0012 (**not applied**; Phase 3 M2A). Set only by the new acceptance flow: the acceptance record, the chosen setting (`record_abstract` / `record_abstract_fulltext`), the SHA-256 and size of the exact document accepted, and whether the processing decision was made by the `server` or stamped from the `database_policy` row (old path). Null on older rows. See `docs/submission-flow.md`. |
+| submission_extraction_policy | Migration 0011 (**not yet applied to production**). The processing policy (`automatic` / `manual`) in the one-row `extraction_policy` table when this paper was inserted; set by trigger, immutable. Null only on rows older than 0011. Automatic extraction requires `automatic` (or null) here **and** `EXTRACTION_MODE=automatic`. |
 | failure_code | Populated on failure: `max_tokens \| malformed_json \| api_error \| timeout \| empty_response \| config \| encrypted_document \| not_research \| internal` |
 | metadata_confirmed_at | Null until the submitter confirms. Once set, a later automatic extraction must never silently overwrite these columns again — it's still recorded in `ai_generations`, just not applied. |
 | confirmation_token_hash | SHA-256 hash of a 256-bit random token — the actual credential for the confirmation flow, not the row's own id. |
@@ -44,6 +47,8 @@ Both exist, both empty. Reserved for a future step (turning confirmed metadata i
 ## Storage
 Bucket `papers`: private, 20MB limit, `allowed_mime_types` restricted to PDF and DOCX only (`.doc` deliberately excluded — no reliable dependency-light parser exists for the legacy binary format).
 
+Anonymous users can INSERT into the bucket; the policy "anon can upload research files" checks only `bucket_id = 'papers'`. Nothing ties an upload to an accepted submission, so the form's consent checks are client-side only. There is no anonymous read, update or delete. Migration **0014** (prepared, not applied; applied only at the M2B cutover) removes this policy and revokes `submit_paper` from `PUBLIC`/`anon`/`authenticated`. Uploads then go only through time-limited signed links, issued by the server for a server-chosen path after a server-recorded acceptance (`docs/submission-flow.md`).
+
 ## RPC functions — the entire public API surface
 
 - **`submit_paper(p_full_name, p_email, p_file_path, p_permission_to_process, p_publication_scope, p_whatsapp_number default null)`** → `jsonb {paper_id, confirmation_token}`.
@@ -56,3 +61,19 @@ Individual function bodies are mirrored in `supabase/functions/` for easier revi
 ## Migrations
 
 `supabase/migrations/` contains every incremental change ever applied to the live database, in order. **This project does not use the Supabase CLI's migration tracking** — every migration listed there was run manually, once, via the Supabase SQL Editor. `schema.sql` is for a fresh install only; never re-run it against the live database.
+
+## Acceptance tables (migration 0012, Phase 3 M2A, not applied)
+
+`agreement_versions` (the acceptable agreement texts, by hash; seeded inactive), `submission_acceptances` (one row per acceptance: agreement version, server timestamp, claimed role, publication setting, processing-decision snapshot and the offered decision it may not exceed, contact details, server-chosen object path, the upload authorization's own expiry; after finalization, the paper and document hash; never deleted), and `submission_rate_limits` (hashed keys, fixed windows). Migration 0013 adds `submission_acceptances.declared_authors`: a depositor's author list, recorded once before any upload link and linked at finalization. All RLS-locked; reachable only through service-role functions. Details: `docs/submission-flow.md`.
+
+## Review tables (migration 0015, Phase 3 M4, not applied)
+
+`staff_members` (roles, written only by administrators or the one-time bootstrap), `confidentiality_versions` / `confidentiality_acknowledgements` (append-only evidence of what each volunteer read), `review_assignments`, `institutions` / `institution_aliases` / `academic_units` / `academic_unit_aliases` (with source provenance; eligibility lives on the institution), `paper_reviews` (one row per paper: status, institution mapping, legacy setting, authority verification, withdrawal, embargo), `review_notes` (private, append-only), `review_issues`, `review_approvals` (append-only; each ties an approval to the content fingerprint, evidence and document version reviewed), `document_versions` (original and dissemination copies with hashes and provenance), `release_restrictions` (the full-text legal condition), and `admin_audit_events` (append-only, blocked for update, delete and truncate). All RLS-locked with no browser grants; reachable only through service-role functions that take the acting user id and re-check role, assignment and acknowledgement. `publication_eligibility(paper)` is the one rule every future public path must use. Details: `docs/admin-review.md`.
+
+## Public records (migration 0016, Phase 3 M5, not applied)
+
+`public_records` holds one stable, random `public_id` per approved paper (never its UUID or token). The public site reads only through `public_record`, `public_catalogue`, `public_document` and `public_sitemap`: service-role functions that re-apply `publication_eligibility()` and return an allowlist of public fields. Details: `docs/public-research.md`.
+
+## Activity counts (migration 0017, Phase 3 M6, not applied)
+
+`activity_counts` (paper, event kind, total) and `activity_dedup` (one-way daily keys with a creation time, eligible for deletion after 2 days and removed in bounded batches during later requests, or all at once by the owner-only `activity_purge_expired()`). Written only through `public_record_event`, read only through `public_activity`; both service-role, both re-applying `publication_eligibility()`. No address, browser string or reading history is stored; dedup and limiter rows carry timestamps. Details: `docs/public-research.md` §7a.
