@@ -620,3 +620,56 @@
 .secondaryAction:hover {
   color: var(--accent-strong);
 }
+
+/* ---------- Phase 3 M2B/M3 ---------- */
+
+.receipt {
+  margin: 0 0 var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--accent);
+  border-inline-start-width: 4px;
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+  font-size: var(--text-sm);
+  line-height: var(--leading-body);
+}
+
+.receipt p {
+  margin: 0;
+}
+
+.receiptHeading {
+  font-weight: 600;
+  font-size: var(--text-base);
+  margin-block-end: var(--space-1) !important;
+}
+
+.privateLink {
+  margin: var(--space-3) 0 0;
+  font-size: var(--text-2xs);
+  color: var(--ink-muted);
+  line-height: var(--leading-body);
+}
+
+.fieldError {
+  margin: 0;
+  color: var(--danger);
+  font-size: var(--text-2xs);
+  line-height: var(--leading-body);
+}
+
+.publicChoice {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  font-size: var(--text-xs);
+  line-height: var(--leading-body);
+}
+
+.publicChoice input {
+  flex: none;
+  inline-size: 1.125rem;
+  block-size: 1.125rem;
+  margin-block-start: 0.2rem;
+  accent-color: var(--accent);
+}

@@ -248,3 +248,173 @@
   font-weight: 600;
   white-space: nowrap;
 }
+
+/* ------------------------------------------------------------------
+   Phase 3 M2B: the acceptance form (AcceptanceSubmissionForm.jsx).
+   Same tokens and control sizes as above; logical properties only.
+   ------------------------------------------------------------------ */
+
+.unavailableHeading {
+  font-size: var(--text-xl);
+  line-height: var(--leading-heading);
+  margin: 0 0 var(--space-3);
+}
+
+.radioOption {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  margin-bottom: var(--space-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  line-height: var(--leading-body);
+  cursor: pointer;
+}
+
+.radioOption:has(input:checked) {
+  border-color: var(--accent);
+  background: var(--surface-raised);
+}
+
+.radioOption input,
+.checkboxOption input {
+  flex: none;
+  inline-size: 1.25rem;
+  block-size: 1.25rem;
+  margin: 0.125rem 0 0;
+  accent-color: var(--accent);
+}
+
+.optionLabel {
+  display: block;
+  font-weight: 600;
+  font-size: var(--text-sm);
+  color: var(--ink);
+}
+
+.optionHint {
+  display: block;
+  color: var(--ink-muted);
+}
+
+.authors {
+  margin-block-start: var(--space-3);
+  padding-inline-start: var(--space-4);
+  border-inline-start: 2px solid var(--line);
+}
+
+.authorRow {
+  display: flex;
+  gap: var(--space-2);
+  margin-block-end: var(--space-2);
+}
+
+.authorRow input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--line-control);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-control);
+  font-family: inherit;
+}
+
+.secondaryButton {
+  min-block-size: 2.75rem;
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--line-control);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font-family: inherit;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.secondaryButton:hover {
+  border-color: var(--accent);
+}
+
+.processing,
+.summary {
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-sm);
+  line-height: var(--leading-body);
+}
+
+.terms {
+  margin-block-end: var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+}
+
+.terms summary {
+  padding: var(--space-3);
+  min-block-size: 2.75rem;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--accent-strong);
+  cursor: pointer;
+}
+
+.version {
+  font-weight: 400;
+  color: var(--ink-muted);
+}
+
+.termsBody {
+  max-block-size: 24rem;
+  overflow-y: auto;
+  padding: 0 var(--space-4) var(--space-4);
+  border-block-start: 1px solid var(--line);
+  font-size: var(--text-xs);
+  line-height: var(--leading-body);
+  overflow-wrap: anywhere;
+}
+
+.termsBody h3 { font-size: var(--text-lg); margin: var(--space-4) 0 var(--space-2); }
+.termsBody h4 { font-size: var(--text-base); margin: var(--space-4) 0 var(--space-2); }
+.termsBody h5 { font-size: var(--text-sm); margin: var(--space-4) 0 var(--space-1); }
+.termsBody ul { padding-inline-start: var(--space-5); }
+
+.notice {
+  padding: var(--space-3) var(--space-4);
+  margin: 0 0 var(--space-4);
+  border-inline-start: 4px solid var(--attention);
+  background: var(--attention-surface);
+  font-size: var(--text-sm);
+  line-height: var(--leading-body);
+}
+
+.callout {
+  padding: var(--space-4);
+  margin: var(--space-4) 0;
+  border: 1px solid var(--attention);
+  border-radius: var(--radius-sm);
+  background: var(--attention-surface);
+  font-size: var(--text-sm);
+  line-height: var(--leading-body);
+}
+
+.calloutHeading {
+  font-size: var(--text-base);
+  margin: 0 0 var(--space-2);
+}
+
+.buttonRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: center;
+}
+
+/* The group of controls locked to an accepted submission snapshot. */
+.lockGroup {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}

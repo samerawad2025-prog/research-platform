@@ -1,5 +1,7 @@
 # PHASE_3_PLAN.md
 
+> **Release order and steps live in [`docs/release-runbook.md`](docs/release-runbook.md)** (authoritative since 2026-09-30). This file explains the reasoning; where the two differ, the runbook wins.
+
 **Prepared:** 2026-09-26, Phase 3 Milestone 0 (documentation only). Supersedes the forward-looking parts of `PHASE_2_PLAN.md` and the roadmap in `CLAUDE_CODE_HANDOVER.md` §13; both remain as history.
 
 **How to read this file.** Product intent comes from the founder's latest decisions (below). Implementation status comes only from code, migrations and deployment evidence. Every item carries one of four labels:
@@ -118,6 +120,29 @@ A planning document is never evidence that something is built.
 
 ### M2 (B): Server-enforced acceptance, controlled uploads, two publication settings, legacy permissions
 
+**Status (2026-09-27): M2A and M2B built and tested locally, together with M3; none of it deployed; the bypass is still open in production.**
+- **M2B** is on branch `claude/phase3-m2b-m3-submission`, in a PR stacked on M2A (#18). It covers:
+  - the acceptance form on the new endpoints: agreement text served from `docs/legal/` by hash, a signed processing offer, one unchecked checkbox, two publication settings, three roles with depositor-declared authors;
+  - stale-offer reacceptance, narrowing notice, language handling, upload/submission-expiry recovery, idempotent finalization recovery;
+  - the private receipt;
+  - no fallback to the legacy path.
+- **Cutover** is prepared as migration **0014** (drops the anonymous storage policy, revokes every `submit_paper` overload from `PUBLIC`/`anon`/`authenticated`, and verifies effective privileges). It is tested on the local stack, including a browser submission after it.
+- The release order, dependencies, failure recovery and rollback are in `docs/submission-flow.md`, "Cutover". Hosted Storage lifetime, the hosted gateway (CORS) and the S3 backend remain release checks on a preview project.
+
+**Earlier status (2026-09-26): split into M2A (backend foundation) and M2B (interface and cutover).**
+- **M2A is built and tested in isolation, on branch `claude/phase3-m2a-acceptance-upload`, in a PR stacked on M1.** It is not deployed, and it is inactive by default. It covers:
+  - the agreement registry;
+  - acceptance records with server timestamps and a processing-decision snapshot;
+  - upload authorization for one server-chosen path;
+  - finalization that creates the paper exactly once, bound to the document's SHA-256;
+  - request limits and bounded cleanup.
+- **One authority for processing.** `papers.submission_extraction_policy` holds the decision, and `submission_decision_source` records its origin. The server records `automatic` only when both `EXTRACTION_MODE` and the policy row are automatic.
+- **The old anonymous path is still open.** Production is not secured until M2B cuts over and a later migration closes it.
+- The contract, assumptions and cutover are in `docs/submission-flow.md`.
+- Corrected 2026-09-27: cleanup follows the upload authorization's lifecycle, depositors are not made authors, and acceptance is bound to a signed processing offer (the M2B contract in `docs/submission-flow.md` includes reacceptance on `offer_stale`).
+- Verified against a real **local** Supabase stack (PostgREST + Storage API): path binding, `upsert: false` refusing a second upload (before and after finalization), expiry refusal, privilege boundaries. Still to confirm on a preview project: the hosted authorization lifetime, Kong and the S3 backend.
+
+
 **Why.** Today the acceptance and scope checks run only in the page. Storage has an anonymous INSERT policy on the `papers` bucket whose only condition is the bucket name (`supabase/schema.sql`), and `submit_paper` is granted to `anon`. A direct request can upload a file or create a submission without accepting anything.
 
 **Scope.**
@@ -167,11 +192,16 @@ The bypass stays open between the two steps; keep that window short.
 
 **Rollback.** Keep a written rollback script. Note that restoring the anonymous INSERT policy also restores the bypass, so rollback is an emergency measure, not a resting state.
 
-**Unverified.** Whether Supabase signed upload URLs reject a second upload to the same path in this project's configuration. Test it before describing the behaviour.
+**Partly verified (2026-09-27).** On a local Storage API 1.28.0, a signed upload URL with `upsert: false` rejects a second upload once an object exists; it is not single-use in any other sense. Confirm on this project's hosted Storage before describing the behaviour to researchers.
 
 ---
 
 ### M3 (C): Facebook removal and independent LinkedIn visibility
+
+**Status (2026-09-27): built and tested locally with M2B (migration 0013); not deployed.**
+- The display choice is `researchers.linkedin_public`, not a per-paper flag. Only the submitter can turn it on, for their own row. A row shared with another paper cannot be changed from this paper.
+- LinkedIn is validated as an `https://…linkedin.com/in/<name>` address.
+- Details: `docs/submission-flow.md`, "LinkedIn and Facebook".
 
 **Scope.**
 - Stop collecting Facebook links in the confirmation UI, and have the confirm RPC ignore any `facebook_url` it receives. Existing Facebook values are retained, not displayed, and handled later under the agreement's retention review; the column is not dropped in this milestone.
@@ -192,6 +222,8 @@ The bypass stays open between the two steps; keep that window short.
 ---
 
 ### M4 (D): Administrative review, checks, institution eligibility, publication permissions
+
+> **Status: built, not deployed** (stacked PR on #19). Migration `0015_admin_review.sql`, `/admin`, `/api/admin/*`, behind `ADMIN_REVIEW=enabled`. Details, first-admin steps, the permission matrix and the contract M5 must use (`publication_eligibility()`): `docs/admin-review.md`. Reconciliations against the scope below: the approval precondition states its minimum-metadata rule explicitly (a title and an abstract in **either** language, never both); the full-text legal condition is a separate global release restriction that **Approve cannot bypass**; UofK's 21 units are seeded from the official directory as retrieved in the founder's review on 2026-09-30 (English only; no Arabic invented); a blocking issue suspends an approval and requires a fresh one; volunteers prepare recommendations only. Still open before real use: founder approval of the confidentiality text, hosted Auth/Storage checks, MFA/sign-up settings, and the full-text legal advice.
 
 **Scope.**
 - **Admin access.** Authenticated administrator and volunteer accounts (Supabase Auth; no new paid service) with roles. All admin reads and writes go through server authorization. Volunteers see only what their duties require. A confidentiality commitment is recorded per volunteer, with its date.
@@ -219,6 +251,8 @@ The bypass stays open between the two steps; keep that window short.
 ---
 
 ### M5 (E): Public research pages, approved downloads, withdrawal, browse/search
+
+> **Status: built, not deployed** (stacked PR on #20). Migration `0016_public_research.sql`, `/research`, `/research/[publicId]`, the approved-file route, `/api/research`, `sitemap.xml` and `robots.txt`, behind `PUBLIC_RESEARCH=enabled` (off). Every surface uses `publication_eligibility()` through four database functions returning an allowlist of fields. Files: the approved dissemination version only, private bucket, 60-second signed links; the full-text legal restriction stays active. Permanent links come only from `PUBLIC_SITE_ORIGIN` (unset until a domain is chosen: no canonical URL, no indexing). Reconciliations against the scope below: "institution" is not offered as a filter while one institution is public; `/confirm/*` is excluded by `robots.txt` (no analytics exist); citation export stays in M6. Details: `docs/public-research.md`.
 
 **Scope.**
 - **Public identifiers.** A separate public identifier per published record: random, stable, never the UUID or the confirmation token. The route is something like `/research/[publicId]`, with the site origin configurable so a later domain choice does not break links.
@@ -250,6 +284,8 @@ In addition, a withdrawn record stops being served within the documented window,
 ---
 
 ### M6 (F): Citation export and truthful aggregate activity metrics
+
+> **Status: built, not deployed** (stacked PR on #21). Migration `0017_activity_metrics.sql`; *Cite this research* (text, RIS, BibTeX) and *Activity on this platform* on each public page, behind the same `PUBLIC_RESEARCH` flag (off). Four separately labelled counts (page views, requests to read online, download requests, citation exports), deduplicated per visitor per day, with obvious bots, previews, prefetch and staff (server-signed cookie) excluded, and document counts shown only while full text is public. No DOI is recorded in the schema, so none is exported. Details: `docs/public-research.md` §7a.
 
 **Scope.**
 - **Citation export.** Citation text plus RIS and BibTeX, generated from **confirmed local metadata only**, with the stable record URL. Missing authors or years are omitted or marked, never invented. An existing valid DOI is included if one is recorded; no DOIs are invented, and DOI registration is not part of Phase 3. External lookups (Crossref) are not required.
