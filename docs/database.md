@@ -65,3 +65,15 @@ Individual function bodies are mirrored in `supabase/functions/` for easier revi
 ## Acceptance tables (migration 0012, Phase 3 M2A, not applied)
 
 `agreement_versions` (the acceptable agreement texts, by hash; seeded inactive), `submission_acceptances` (one row per acceptance: agreement version, server timestamp, claimed role, publication setting, processing-decision snapshot and the offered decision it may not exceed, contact details, server-chosen object path, the upload authorization's own expiry; after finalization, the paper and document hash; never deleted), and `submission_rate_limits` (hashed keys, fixed windows). Migration 0013 adds `submission_acceptances.declared_authors`: a depositor's author list, recorded once before any upload link and linked at finalization. All RLS-locked; reachable only through service-role functions. Details: `docs/submission-flow.md`.
+
+## Review tables (migration 0015, Phase 3 M4, not applied)
+
+`staff_members` (roles, written only by administrators or the one-time bootstrap), `confidentiality_versions` / `confidentiality_acknowledgements` (append-only evidence of what each volunteer read), `review_assignments`, `institutions` / `institution_aliases` / `academic_units` / `academic_unit_aliases` (with source provenance; eligibility lives on the institution), `paper_reviews` (one row per paper: status, institution mapping, legacy setting, authority verification, withdrawal, embargo), `review_notes` (private, append-only), `review_issues`, `review_approvals` (append-only; each ties an approval to the content fingerprint, evidence and document version reviewed), `document_versions` (original and dissemination copies with hashes and provenance), `release_restrictions` (the full-text legal condition), and `admin_audit_events` (append-only, blocked for update, delete and truncate). All RLS-locked with no browser grants; reachable only through service-role functions that take the acting user id and re-check role, assignment and acknowledgement. `publication_eligibility(paper)` is the one rule every future public path must use. Details: `docs/admin-review.md`.
+
+## Public records (migration 0016, Phase 3 M5, not applied)
+
+`public_records` holds one stable, random `public_id` per approved paper (never its UUID or token). The public site reads only through `public_record`, `public_catalogue`, `public_document` and `public_sitemap`: service-role functions that re-apply `publication_eligibility()` and return an allowlist of public fields. Details: `docs/public-research.md`.
+
+## Activity counts (migration 0017, Phase 3 M6, not applied)
+
+`activity_counts` (paper, event kind, total) and `activity_dedup` (one-way daily keys with a creation time, eligible for deletion after 2 days and removed in bounded batches during later requests, or all at once by the owner-only `activity_purge_expired()`). Written only through `public_record_event`, read only through `public_activity`; both service-role, both re-applying `publication_eligibility()`. No address, browser string or reading history is stored; dedup and limiter rows carry timestamps. Details: `docs/public-research.md` §7a.

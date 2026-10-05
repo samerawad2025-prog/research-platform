@@ -3,11 +3,11 @@
 // does for browser clients (any origin, preflight answered here). Local
 // tests only; the hosted gateway's behaviour is verified separately.
 const http = require('http')
-const routes = [['/rest/v1', 54330], ['/storage/v1', 54331]]
+const routes = [['/rest/v1', 54330], ['/storage/v1', 54331], ['/auth/v1', 54332]]
 const CORS = {
   'access-control-allow-origin': '*',
   'access-control-allow-methods': 'GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS',
-  'access-control-allow-headers': 'authorization, x-client-info, apikey, content-type, x-upsert, cache-control, prefer, range, accept-profile, content-profile',
+  'access-control-allow-headers': 'authorization, x-client-info, x-supabase-api-version, apikey, content-type, x-upsert, cache-control, prefer, range, accept-profile, content-profile',
   'access-control-expose-headers': 'content-range, content-length',
   'access-control-max-age': '3600',
 }

@@ -13,6 +13,7 @@ const fs = require('node:fs')
 const path = require('node:path')
 
 const { AGREEMENTS } = require('../lib/submission/agreements')
+const { previewDecision } = require('../lib/submission/acceptanceHandlers')
 const { validateIntentBody, handleCreateIntent, handleFinalize, handleTerms, confirmationTokenFor, signOffer, verifyOffer, authorizationExpiry } = require('../lib/submission/acceptanceHandlers')
 const { clientKeyOf } = require('../lib/submission/routeHelpers')
 
@@ -29,6 +30,8 @@ async function check(name, fn) {
 
 const ROOT = path.join(__dirname, '..')
 const migration = fs.readFileSync(path.join(ROOT, 'supabase/migrations/0012_submission_acceptance.sql'), 'utf8')
+const migration18 = fs.readFileSync(path.join(ROOT, 'supabase/migrations/0018_ai_processing_agreement.sql'), 'utf8')
+const migration19 = fs.readFileSync(path.join(ROOT, 'supabase/migrations/0019_gemini_free_tier_agreement.sql'), 'utf8')
 
 // A database stand-in that fails the test if it is touched at all.
 const untouchable = new Proxy({}, { get: () => { throw new Error('the database was reached') } })
@@ -41,6 +44,7 @@ const good = () => ({
   accepted: true,
   publicationSetting: 'record_abstract_fulltext',
   claimedRole: 'authorized_depositor',
+  processingChoice: 'automatic',
   authors: ['مؤلف أول', 'Second Author'],
   fullName: 'سارة أحمد',
   email: 'sara@example.invalid',
@@ -57,12 +61,136 @@ async function main() {
     }
   })
 
-  await check('registry: migration 0012 seeds the same ids, languages and hashes, all inactive', () => {
+  await check('registry: migrations 0012, 0018 and 0019 seed the same ids, languages, hashes and AI arrangement, all inactive', () => {
     for (const a of AGREEMENTS) {
-      const re = new RegExp(`\\('${a.id}', '${a.key}', '${a.language}', '${a.versionLabel}', '${a.versionDate}',\\s*'${a.sha256}', false\\)`)
-      assert.ok(re.test(migration), a.id)
+      if (a.externalAi) {
+        const re = new RegExp(`\\('${a.id}', '${a.key}', '${a.language}', '${a.versionLabel}', '${a.versionDate}',\\s*'${a.sha256}', false, '${a.externalAi}'\\)`)
+        const source = a.versionLabel === 'Version 4' ? fs.readFileSync(path.join(ROOT, 'supabase/migrations/0020_free_tier_full_document_agreement.sql'), 'utf8') : a.externalAi === 'gemini_api_unpaid' ? migration19 : migration18
+        assert.ok(re.test(source), a.id)
+      } else {
+        const re = new RegExp(`\\('${a.id}', '${a.key}', '${a.language}', '${a.versionLabel}', '${a.versionDate}',\\s*'${a.sha256}', false\\)`)
+        assert.ok(re.test(migration), a.id)
+      }
     }
     assert.ok(!/,\s*true\)\s*(,|on conflict)/.test(migration), 'no agreement is seeded active')
+    assert.ok(!/,\s*true,\s*'[a-z_]+'\)/.test(migration18), 'no agreement is seeded active')
+    // 0018 never touches the existing rows: no update of agreement_versions at all.
+    assert.ok(!/update\s+agreement_versions/i.test(migration18), 'existing agreement rows are not modified')
+    assert.ok(!/,\s*true,\s*'[a-z_]+'\)/.test(migration19), 'version 3 is not seeded active')
+    assert.ok(!/update\s+(agreement_versions|submission_acceptances|papers)\b/i.test(migration19), '0019 runs no UPDATE statement')
+    // Its one conflict clause can only bring an unaccepted draft version 3 to the reviewed text, and never touches the active flag.
+    const at = migration19.indexOf('on conflict (id) do update')
+    const clause = migration19.slice(at, migration19.indexOf(';', at))
+    assert.ok(at > 0 && /not exists \(select 1 from submission_acceptances a where a\.agreement_version_id = agreement_versions\.id\)/.test(clause), 'guarded by "no acceptance"')
+    assert.ok(!/\bactive\b/.test(clause), 'never changes the active flag')
+  })
+
+  await check('registry: version 2 describes paid Gemini terms; both languages of it say so', () => {
+    const v1 = AGREEMENTS.filter((a) => a.versionDate === '2026-09-25')
+    const v2 = AGREEMENTS.filter((a) => a.versionLabel === 'Version 2')
+    assert.strictEqual(v1.length, 2)
+    assert.strictEqual(v2.length, 2)
+    for (const a of v1) assert.strictEqual(a.externalAi, null, a.id)
+    for (const a of v2) assert.strictEqual(a.externalAi, 'gemini_api_paid', a.id)
+    for (const a of v2) {
+      const text = fs.readFileSync(path.join(ROOT, a.file), 'utf8')
+      // Every disclosure the founder asked for is present in both languages.
+      const must = a.language === 'en'
+        ? ['first 10 pages', '25 pages', '6,000 characters', 'not sent to Gemini', 'paid services', 'unpaid', '55 days', 'authorized Google personnel', 'any country', 'does not delete', 'can be wrong', 'manual entry', 'does not give consent on behalf']
+        : ['أول 10 صفحات', '25 صفحة', '6000 حرف', 'لا يُرسل مستندك إلى Gemini', 'للخدمات المدفوعة', 'غير المدفوعة', '55 يوماً', 'موظفين مفوّضين لدى Google', 'أي بلد', 'لا يؤدي سحب إيداعك', 'خاطئة', 'الإدخال اليدوي', 'نيابةً عن']
+      for (const phrase of must) assert.ok(text.includes(phrase), `${a.id}: ${phrase}`)
+      // The old blanket promise is gone from the version that sends documents out.
+      assert.ok(!text.includes('External AI extraction may operate only under provider arrangements'), a.id)
+    }
+  })
+
+  await check('registry: version 3 describes the free tier as it is, in both languages, without the paid promises', () => {
+    const v3 = AGREEMENTS.filter((a) => a.versionLabel === 'Version 3')
+    assert.strictEqual(v3.length, 2)
+    for (const a of v3) {
+      assert.strictEqual(a.externalAi, 'gemini_api_unpaid', a.id)
+      const text = fs.readFileSync(path.join(ROOT, a.file), 'utf8')
+      const must = a.language === 'en'
+        ? ['We do not send your document to Gemini', 'short excerpt', '"By", "Supervisor"', 'never asked for the names', 'nothing is sent', 'not guaranteed to find every name', 'Enter details manually',
+           'unpaid services (the free tier)', 'improve and develop Google', 'machine-learning technologies', 'Human reviewers may read', 'disconnecting the data',
+           "do not state how long content used in these ways is kept", 'abuse-monitoring policy for the Gemini API', '55 days', 'abuse-monitoring records only, not to content used to improve',
+           'servers located outside the country where you live', 'Our record of what was sent', 'deleted with them', 'title or abstract may name a person', 'cannot be told apart from a name',
+           'last updated 28 April 2026', 'last updated 9 June 2026', 'effective 1 October 2026', 'does not delete anything Google holds', 'cannot authorize the use of anyone else', 'Google asks that sensitive, confidential or personal information not be submitted', 'can be wrong',
+           'minimized excerpt of my document to Google Gemini']
+        : ['لا نرسل مستندك إلى Gemini', 'مقتطفاً قصيراً', '"إعداد" و"إشراف"', 'لا يُطلب من Gemini أبداً', 'لا يُرسل أي شيء', 'لا يُضمن أن يكتشف كل اسم', 'أدخل التفاصيل يدوياً',
+           'للخدمات غير المدفوعة (الفئة المجانية)', 'وتحسينها وتطويرها', 'تعلّم الآلة', 'مراجعين بشريين', 'فصل البيانات',
+           'لا تحدد شروط Google مدة الاحتفاظ', 'سياسة رصد إساءة الاستخدام الخاصة بواجهة Gemini', '55 يوماً', 'تخص سجلات رصد إساءة الاستخدام هذه وحدها',
+           'خارج البلد الذي تقيم فيه', 'سجلّنا لما أُرسل', 'ويُحذف معها', 'قد يتضمن اسم شخص', 'لا يمكن تمييزها من الأسماء',
+           'آخر تحديث 28 أبريل 2026', 'آخر تحديث 9 يونيو 2026', 'سارية من 1 أكتوبر 2026', 'لا يؤدي سحب إيداعك', 'لا يمكنها أن تجيز استخدام المعلومات الشخصية', 'تطلب Google عدم إرسال معلومات حساسة أو سرية أو شخصية', 'خاطئة',
+           'مقتطف مختصر من مستندي إلى Google Gemini']
+      for (const phrase of must) assert.ok(text.includes(phrase), `${a.id}: ${phrase}`)
+      // Nothing from the paid version that would be untrue on the free tier.
+      const mustNot = a.language === 'en'
+        ? ['does not use the prompts', 'We use the Gemini API only under Google', 'We will not send documents to Gemini under terms', 'we do not permit their use for general-purpose AI model training', 'first 10 pages',
+           // Stated by Google only for PAID-service logs (re-verified 2026-10-04):
+           'stored transiently or cached', 'Google or its agents maintain facilities']
+        : ['لا تستخدم الطلبات والمستندات', 'لا نستخدم واجهة Gemini البرمجية إلا بموجب', 'ولن نرسل المستندات إلى Gemini', 'ولا نسمح باستخدامها لتدريب', 'أول 10 صفحات',
+           'تخزيناً مؤقتاً', 'وكلاؤها منشآت']
+      for (const phrase of mustNot) assert.ok(!text.includes(phrase), `${a.id} still says: ${phrase}`)
+    }
+    // Sections 1-5, 8 and 9 are word for word those of version 2.
+    for (const lang of ['en', 'ar']) {
+      const strip = (t) => t.replace(/\n### 6\.[\s\S]*?\n### 8\./, '\n### 8.').replace(/^\*\*(Version|الإصدار):\*\*.*$/m, '').replace(/\n### (Acceptance|الموافقة)[\s\S]*$/, '')
+      const v2 = fs.readFileSync(path.join(ROOT, `docs/legal/submission-terms.v2.${lang}.md`), 'utf8')
+      const v3t = fs.readFileSync(path.join(ROOT, `docs/legal/submission-terms.v3.${lang}.md`), 'utf8')
+      assert.strictEqual(strip(v3t), strip(v2), `${lang}: only sections 6, 7 and the acceptance sentence differ`)
+    }
+  })
+
+  await check('registry: version 4 describes free-tier reading of the document itself, in both languages, without unsupported promises', () => {
+    const v4 = AGREEMENTS.filter((a) => a.versionLabel === 'Version 4')
+    assert.strictEqual(v4.length, 2)
+    const migration20 = fs.readFileSync(path.join(ROOT, 'supabase/migrations/0020_free_tier_full_document_agreement.sql'), 'utf8')
+    for (const a of v4) {
+      assert.strictEqual(a.externalAi, 'gemini_api_unpaid', a.id)
+      assert.ok(new RegExp(`\\('${a.id}', '${a.key}', '${a.language}', '${a.versionLabel}', '${a.versionDate}',\\s*'${a.sha256}', false, '${a.externalAi}'\\)`).test(migration20), `0020 seeds ${a.id} inactive`)
+      const text = fs.readFileSync(path.join(ROOT, a.file), 'utf8')
+      const must = a.language === 'en'
+        ? ['first 10 pages', '25 pages', 'scanned PDF is sent the same way', 'names of authors and supervisors', 'Nothing is removed before it is sent', 'unpaid services (the free tier)',
+           'improve and develop Google', 'machine-learning technologies', 'Human reviewers may read', 'do not state how long', '55 days', 'abuse-monitoring records only',
+           'outside the country where you live', 'does not delete anything Google holds', 'does not change Google\'s terms', 'does not give consent on behalf', 'Enter details manually', 'can be wrong']
+        : ['أول 10 صفحات', '25 صفحة', 'الممسوح ضوئياً بالطريقة نفسها', 'أسماء المؤلفين والمشرفين', 'ولا يُحذف شيء منها قبل الإرسال', 'للخدمات غير المدفوعة (الفئة المجانية)',
+           'وتحسينها وتطويرها', 'تعلّم الآلة', 'مراجعين بشريين', 'لا تحدد شروط Google مدة', '55 يوماً', 'سجلات رصد إساءة الاستخدام وحدها',
+           'خارج البلد الذي تقيم فيه', 'لا يؤدي سحب إيداعك', 'لا تغيّر موافقتك شروط Google', 'نيابةً عن', 'أدخل التفاصيل يدوياً', 'خاطئة']
+      for (const phrase of must) assert.ok(text.includes(phrase), `${a.id}: ${phrase}`)
+      const mustNot = a.language === 'en'
+        ? ['excerpt', 'removes lines', 'names and contact details removed', 'do not use submitted documents to train', 'does not itself use submitted documents to train', 'do not permit their use', 'stored transiently or cached', 'Google or its agents maintain facilities', 'We will not send documents']
+        : ['مقتطف', 'لا نستخدم المستندات المقدمة لتدريب', 'لا تستخدم المنصة بنفسها', 'ولا نسمح باستخدامها', 'تخزيناً مؤقتاً', 'وكلاؤها منشآت', 'ولن نرسل المستندات']
+      for (const phrase of mustNot) assert.ok(!text.includes(phrase), `${a.id} still says: ${phrase}`)
+    }
+  })
+
+  await check('validation: the processing choice is explicit, and only automatic or manual', () => {
+    for (const processingChoice of [undefined, null, '', 'Automatic', 'gemini', true, 1]) {
+      assert.strictEqual(validateIntentBody({ ...good(), processingChoice }).error, 'processing_choice_invalid', String(processingChoice))
+    }
+    assert.strictEqual(validateIntentBody({ ...good(), processingChoice: 'manual' }).value.processingChoice, 'manual')
+  })
+
+  await check('offer: automatic only with the mode, the policy, attested terms AND agreements that describe exactly those terms', () => {
+    const v2 = AGREEMENTS.filter((a) => a.externalAi === 'gemini_api_paid')
+    const v3 = AGREEMENTS.filter((a) => a.versionLabel === 'Version 4')
+    const v1 = AGREEMENTS.filter((a) => !a.externalAi)
+    const full = { EXTRACTION_MODE: 'automatic', GEMINI_DATA_TERMS: 'paid' }
+    const free = { EXTRACTION_MODE: 'automatic', GEMINI_DATA_TERMS: 'unpaid' }
+    assert.strictEqual(previewDecision(free, 'automatic', v3), 'automatic', 'the launch arrangement')
+    assert.strictEqual(previewDecision(free, 'automatic', v2), 'manual', 'paid text never offered on a free-tier server')
+    assert.strictEqual(previewDecision(full, 'automatic', v3), 'manual', 'free-tier text never offered under paid attestation')
+    assert.strictEqual(previewDecision(free, 'automatic', [...v3, v2[0]]), 'manual', 'mixed versions')
+    assert.strictEqual(previewDecision(full, 'automatic', v2), 'automatic')
+    assert.strictEqual(previewDecision(full, 'manual', v2), 'manual', 'policy row')
+    assert.strictEqual(previewDecision({ ...full, EXTRACTION_MODE: 'manual' }, 'automatic', v2), 'manual', 'mode')
+    for (const t of [undefined, '', 'free', 'yes', 'unpaid-ish']) {
+      assert.strictEqual(previewDecision({ EXTRACTION_MODE: 'automatic', GEMINI_DATA_TERMS: t }, 'automatic', v2), 'manual', `terms ${t}`)
+    }
+    assert.strictEqual(previewDecision(full, 'automatic', v1), 'manual', 'an agreement without AI disclosure never leads to reading')
+    assert.strictEqual(previewDecision(full, 'automatic', [...v2, v1[0]]), 'manual', 'every agreement offered must describe it')
+    assert.strictEqual(previewDecision(full, 'automatic', []), 'manual')
   })
 
   await check('validation: a complete Arabic request with a DOCX is accepted as data', () => {

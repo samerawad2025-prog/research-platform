@@ -25,7 +25,7 @@ export default async function RootLayout({ children }) {
     <html lang={locale} dir={dirFor(locale)}>
       <body className={styles.body}>
         <LocaleProvider initialLocale={locale}>
-          <SiteShell>{children}</SiteShell>
+          <SiteShell showResearch={String(process.env.PUBLIC_RESEARCH || '').trim().toLowerCase() === 'enabled'}>{children}</SiteShell>
         </LocaleProvider>
       </body>
     </html>

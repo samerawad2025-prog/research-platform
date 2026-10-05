@@ -6,6 +6,9 @@
 // (LocaleProvider and its consumers), so nothing here may use hooks or
 // browser APIs.
 
+import { ADMIN_MESSAGES } from './i18nAdmin'
+import { PUBLIC_MESSAGES } from './i18nPublic'
+
 export const LOCALES = ['en', 'ar']
 export const DEFAULT_LOCALE = 'en'
 
@@ -80,6 +83,8 @@ const AR_CONFIRM_ERRORS = {
 
 export const MESSAGES = {
   en: {
+    admin: ADMIN_MESSAGES.en,
+    research: PUBLIC_MESSAGES.en,
     meta: {
       title: OFFICIAL_NAME.en,
       description: 'Submit Sudanese academic research for review and future publication.',
@@ -146,10 +151,10 @@ export const MESSAGES = {
       },
       submit: 'Submit my research',
       submitting: 'Submitting…',
-      extracting:
-        'Thank you for sharing your work. We’re reading through it now to find your title, abstract, and research team, this usually takes under a minute.',
-      // Manual mode: the next screen asks for the details instead.
-      manualNext: 'Thank you for sharing your work. Next, you’ll add its details yourself.',
+      // Shown between a stored submission and the next page. A progress
+      // message, never a thank-you: nothing is finished until the details
+      // are confirmed on the next page.
+      opening: 'Uploaded. Opening the next step…',
       stillNeeded: (items) => `Still needed: ${items.join(', ')}.`,
       outstanding: {
         name: 'your name',
@@ -212,9 +217,25 @@ export const MESSAGES = {
       },
       processingLegend: 'How your document will be processed',
       processing: {
-        automatic:
-          'After upload, an automated service, including Google Gemini, reads your document to suggest details such as its title and authors. You check and correct them before confirming.',
+        // Short, visible AI-processing explanation (agreement section 6 has the detail).
+        // Keyed by the arrangement the server attests (GEMINI_DATA_TERMS).
+        automaticBy: {
+          gemini_api_unpaid:
+            'By default, the first pages of your document (or text from a Word file) are sent to Google’s Gemini AI service (free tier) to suggest its title, authors, supervisor and other details. Google may use what it receives, and its answers, to improve its products and AI models, and people at Google may review them. Suggestions can be wrong: you check and correct every detail before confirming. Choose manual entry if you do not want your document sent.',
+          gemini_api_paid:
+            'By default, the first pages of your document (or text from a Word file) are sent to Google’s Gemini AI service to suggest its title, authors and other details. Google does not use them to improve its products, but keeps them for up to 55 days to check for misuse. Suggestions can be wrong: you check and correct every detail before confirming.',
+        },
         manual: 'Your document will not be read automatically. After upload, you will enter its details yourself.',
+      },
+      processingChoices: {
+        automatic: {
+          label: 'Read my document with Gemini (recommended)',
+          hint: 'The details are filled in for you to check and correct.',
+        },
+        manual: {
+          label: 'Enter details manually',
+          hint: 'Nothing from your document is sent to Gemini. You type its details yourself after upload.',
+        },
       },
       termsLegend: 'Agreement',
       summary:
@@ -228,6 +249,7 @@ export const MESSAGES = {
         intent: 'Recording your acceptance…',
         upload: 'Uploading your file…',
         finalize: 'Completing your submission…',
+        opening: 'Uploaded. Opening the next step…',
       },
       narrowedHeading: 'Processing has changed',
       narrowedBody:
@@ -318,6 +340,9 @@ export const MESSAGES = {
           'Something about this file stopped us from reading it automatically. This sometimes happens with unusual formats or scanned pages of low quality.',
         body2: 'We still have your submission, and we’ll follow up with you by email.',
       },
+      // Before the page knows the submission's state: it must not claim
+      // to be reading a document that may never be read (manual choice).
+      openingHeading: 'Opening your submission',
       loadingHeading: 'Reading your research',
       readyHeading: 'Here’s what we found',
       loadingSubtitle: 'This usually takes under a minute. The page will fill in on its own.',
@@ -381,6 +406,8 @@ export const MESSAGES = {
           'Please enter the details of your research below, then confirm them. Only the title and the research team are required.',
         fallbackNote:
           'We couldn’t fill these in from your document this time, so please enter them yourself. What you enter here is what will be saved.',
+        // The researcher chose manual entry before submitting.
+        chosenNote: 'You chose to enter these details yourself, so your document was not sent for automatic reading.',
         emptyHint: 'Tap to add.',
         enterYourself: 'Enter the details yourself',
         switching: 'One moment…',
@@ -403,6 +430,8 @@ export const MESSAGES = {
     },
   },
   ar: {
+    admin: ADMIN_MESSAGES.ar,
+    research: PUBLIC_MESSAGES.ar,
     meta: {
       title: OFFICIAL_NAME.ar,
       description: 'تقديم البحوث الأكاديمية السودانية للمراجعة والنشر مستقبلاً.',
@@ -475,9 +504,7 @@ export const MESSAGES = {
       },
       submit: 'قدّم بحثي',
       submitting: 'جارٍ تقديم البحث…',
-      extracting:
-        'شكراً لمشاركتك بحثك. نقرأه الآن لاستخراج العنوان والملخص وفريق البحث، ويستغرق ذلك عادةً أقل من دقيقة.',
-      manualNext: 'شكراً لمشاركتك بحثك. في الخطوة التالية، ستضيف تفاصيله بنفسك.',
+      opening: 'تم الرفع. جارٍ فتح الخطوة التالية…',
       stillNeeded: (items) => `ما يزال مطلوباً: ${items.join('، ')}.`,
       outstanding: {
         name: 'اسمك',
@@ -540,20 +567,42 @@ export const MESSAGES = {
       },
       processingLegend: 'كيف ستتم معالجة مستندك',
       processing: {
-        automatic: (
-          <>
-            بعد الرفع، تقرأ خدمة آلية، منها <Ltr>Google Gemini</Ltr>، مستندك لاقتراح تفاصيل مثل العنوان والمؤلفين. تراجعها
-            وتصححها قبل التأكيد.
-          </>
-        ),
+        automaticBy: {
+          gemini_api_unpaid: (
+            <>
+              افتراضياً، تُرسل الصفحات الأولى من مستندك (أو نص من ملف Word) إلى خدمة الذكاء الاصطناعي <Ltr>Gemini</Ltr> التابعة
+              لشركة <Ltr>Google</Ltr> (الفئة المجانية) لاقتراح عنوانه ومؤلفيه والمشرف عليه وتفاصيل أخرى. وقد تستخدم <Ltr>Google</Ltr> ما
+              تتلقاه وردودها لتحسين منتجاتها ونماذج الذكاء الاصطناعي لديها، وقد يراجعها موظفون لديها. وقد تكون الاقتراحات خاطئة: تراجع كل
+              تفصيل وتصححه قبل التأكيد. واختر الإدخال اليدوي إذا كنت لا تريد إرسال مستندك.
+            </>
+          ),
+          gemini_api_paid: (
+            <>
+              افتراضياً، تُرسل الصفحات الأولى من مستندك (أو نص من ملف Word) إلى خدمة الذكاء الاصطناعي <Ltr>Gemini</Ltr> التابعة
+              لشركة <Ltr>Google</Ltr> لاقتراح عنوانه ومؤلفيه وتفاصيل أخرى. لا تستخدمها <Ltr>Google</Ltr> لتحسين منتجاتها، لكنها
+              تحتفظ بها مدة أقصاها 55 يوماً للتحقق من إساءة الاستخدام. قد تكون الاقتراحات خاطئة: تراجع كل تفصيل وتصححه قبل التأكيد.
+            </>
+          ),
+        },
         manual: 'لن تتم قراءة مستندك آلياً. بعد الرفع، ستُدخل تفاصيله بنفسك.',
+      },
+      processingChoices: {
+        automatic: {
+          label: <>اقرأ مستندي باستخدام <Ltr>Gemini</Ltr> (موصى به)</>,
+          hint: 'تُعبّأ التفاصيل لتراجعها وتصححها.',
+        },
+        manual: {
+          label: 'أدخل التفاصيل يدوياً',
+          hint: <>لا يُرسل أي شيء من مستندك إلى <Ltr>Gemini</Ltr>. تكتب تفاصيله بنفسك بعد الرفع.</>,
+        },
       },
       termsLegend: 'الاتفاقية',
       summary:
         'يبقى طلبك خاصاً حتى تتم مراجعته. يتبع النشر الخيار الذي تحدده. ويمكن قراءة النص الكامل المعتمد للعامة وتنزيله.',
       readTerms: 'اقرأ نص الاتفاقية كاملاً',
       // The registry's labels are English; the date is isolated LTR.
-      version: (label, date) => `${label === 'Initial Version' ? 'الإصدار الأول' : label}، \u2066${date}\u2069`,
+      version: (label, date) =>
+        `${{ 'Initial Version': 'الإصدار الأول', 'Version 2': 'الإصدار الثاني', 'Version 3': 'الإصدار الثالث', 'Version 4': 'الإصدار الرابع' }[label] || label}، \u2066${date}\u2069`,
       termsRegion: 'النص الكامل للاتفاقية',
       otherLanguage: 'الاتفاقية غير متاحة بلغتك، لذلك تُعرض باللغة أدناه.',
       submit: 'أوافق وأقدّم البحث',
@@ -561,6 +610,7 @@ export const MESSAGES = {
         intent: 'جارٍ تسجيل موافقتك…',
         upload: 'جارٍ رفع ملفك…',
         finalize: 'جارٍ إكمال التقديم…',
+        opening: 'تم الرفع. جارٍ فتح الخطوة التالية…',
       },
       narrowedHeading: 'تغيّرت طريقة المعالجة',
       narrowedBody:
@@ -650,6 +700,7 @@ export const MESSAGES = {
           'منعنا شيء في هذا الملف من قراءته تلقائياً. قد يحدث ذلك أحياناً مع التنسيقات غير المعتادة أو الصفحات الممسوحة ضوئياً بجودة منخفضة.',
         body2: 'ما زال طلبك محفوظاً، وسنتابع معك عبر البريد الإلكتروني.',
       },
+      openingHeading: 'جارٍ فتح طلبك',
       loadingHeading: 'جارٍ قراءة بحثك',
       readyHeading: 'هذه هي التفاصيل التي وجدناها',
       loadingSubtitle: 'يستغرق هذا عادةً أقل من دقيقة. ستظهر التفاصيل في الصفحة تلقائياً.',
@@ -718,6 +769,7 @@ export const MESSAGES = {
         subtitle: 'يرجى إدخال تفاصيل بحثك أدناه ثم تأكيدها. العنوان وفريق البحث فقط مطلوبان.',
         fallbackNote:
           'لم نتمكن هذه المرة من تعبئة هذه التفاصيل من مستندك، لذا يرجى إدخالها بنفسك. ما تُدخله هنا هو ما سيُحفظ.',
+        chosenNote: 'اخترت إدخال هذه التفاصيل بنفسك، لذا لم يُرسل مستندك للقراءة الآلية.',
         emptyHint: 'اضغط للإضافة.',
         enterYourself: 'أدخل التفاصيل بنفسك',
         switching: 'لحظة من فضلك…',

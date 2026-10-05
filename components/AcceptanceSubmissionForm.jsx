@@ -92,6 +92,10 @@ export default function AcceptanceSubmissionForm() {
     role: '',
     authors: [''],
     setting: 'record_abstract',
+    // The researcher's own processing choice. Gemini reading is the
+    // default; manual entry keeps the document away from it entirely. Only
+    // honoured as 'automatic' when the server offered automatic reading.
+    processing: 'automatic',
     // The agreement id the box was ticked for. Acceptance counts only for
     // the agreement currently shown, so a language switch withdraws it.
     acceptedFor: null,
@@ -100,7 +104,9 @@ export default function AcceptanceSubmissionForm() {
   const [file, setFile] = useState(null)
   const fileSerial = useRef(0)
   const [touched, setTouched] = useState({})
-  const [phase, setPhase] = useState('idle') // idle | intent | upload | finalize | narrowed
+  // idle | intent | upload | finalize | narrowed | opening. 'opening' is
+  // progress (stored; the next page is loading), never a completion screen.
+  const [phase, setPhase] = useState('idle')
   const [notice, setNotice] = useState(null) // key in a.notices
   const [error, setError] = useState(null) // key in a.errors
   const [recovery, setRecovery] = useState(null) // pending intent from an earlier attempt
@@ -235,6 +241,7 @@ export default function AcceptanceSubmissionForm() {
       if (out.kind === 'done') {
         done.current = true
         setFinished(true)
+        setPhase('opening')
         clearPending()
         intentRef.current = null
         markReceived()
@@ -325,12 +332,15 @@ export default function AcceptanceSubmissionForm() {
     const chosenType = kind.type
     let awaitingContinue = false
     try {
+      const offered = terms.data.offer.decision === 'automatic'
       const body = intentBody({
         offerToken: terms.data.offer.token,
         agreementId: agreement.id,
         accepted,
         publicationSetting: form.setting,
         claimedRole: form.role,
+        // Never 'automatic' unless the server offered it.
+        processingChoice: offered && form.processing === 'automatic' ? 'automatic' : 'manual',
         fullName: form.fullName,
         email: form.email,
         whatsappE164: whatsapp.state === 'valid' ? whatsapp.e164 : null,
@@ -430,7 +440,11 @@ export default function AcceptanceSubmissionForm() {
   }
 
   const decision = terms.data.offer.decision === 'automatic' ? 'automatic' : 'manual'
-  const workingText = phase === 'intent' ? a.working.intent : phase === 'upload' ? a.working.upload : phase === 'finalize' ? a.working.finalize : null
+  // Which of Google's terms automatic reading runs under, so the
+  // explanation matches what is done (an unknown value reads as the more
+  // restrictive free-tier description).
+  const processingTerms = terms.data.processing?.terms || null
+  const workingText = phase === 'intent' ? a.working.intent : phase === 'upload' ? a.working.upload : phase === 'finalize' ? a.working.finalize : phase === 'opening' ? a.working.opening : null
   const noticeText = notice ? a.notices[notice] : languageNotice ? a.notices.language : null
 
   return (
@@ -613,7 +627,25 @@ export default function AcceptanceSubmissionForm() {
 
       <fieldset className={styles.section}>
         <legend>{a.processingLegend}</legend>
-        <p className={styles.processing} data-decision={decision}>{a.processing[decision]}</p>
+        <p className={styles.processing} data-decision={decision} data-terms={processingTerms || undefined}>
+          {decision === 'automatic' ? a.processing.automaticBy[processingTerms] || a.processing.automaticBy.gemini_api_unpaid : a.processing.manual}
+        </p>
+        {decision === 'automatic' &&
+          ['automatic', 'manual'].map((choice) => (
+            <label key={choice} className={styles.radioOption}>
+              <input
+                type="radio"
+                name="processing"
+                value={choice}
+                checked={form.processing === choice}
+                onChange={() => update('processing', choice)}
+              />
+              <span>
+                <span className={styles.optionLabel}>{a.processingChoices[choice].label}</span>
+                <span className={styles.optionHint}>{a.processingChoices[choice].hint}</span>
+              </span>
+            </label>
+          ))}
       </fieldset>
 
       <fieldset className={styles.section}>
