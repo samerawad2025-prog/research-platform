@@ -54,3 +54,7 @@ node supabase/tests/submission-postgres.test.js
 # institutions, duplicates, legacy handling and documents, against a real
 # database (migration 0015 is applied twice inside the test).
 node supabase/tests/admin-postgres.test.js
+
+# M5: every public read in every review state, search, filters and
+# pagination, against a real database.
+node supabase/tests/public-postgres.test.js

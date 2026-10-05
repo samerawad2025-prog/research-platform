@@ -3,8 +3,6 @@
 # stack (start it first: supabase/tests/local-stack/start.sh). Builds the
 # app with local keys only, starts it on 127.0.0.1:3100 with the mock AI
 # provider (nothing is sent to Gemini), and runs admin-e2e.test.js.
-#   supabase/tests/run-browser-e2e.sh                 # before cutover
-#   E2E_PHASE=after-cutover supabase/tests/run-browser-e2e.sh
 # Needs Playwright with Chromium (NODE_PATH pointing at a global install is fine).
 set -euo pipefail
 cd "$(dirname "$0")/../.."

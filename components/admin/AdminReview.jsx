@@ -393,6 +393,8 @@ function Eligibility({ d, t, r }) {
   return (
     <Section id="el-h" title={r.eligibilityHeading}>
       <p className={s.muted}>{r.eligibilityIntro}</p>
+      {d.public_url && <p><strong>{r.publicLinkLabel}:</strong> <a href={d.public_url} target="_blank" rel="noopener noreferrer" dir="ltr">{r.publicLinkOpen}</a></p>}
+      {!d.public_url && e.record_public && d.public_site_enabled === false && <p className={s.muted}>{r.publicLinkOff}</p>}
       <p><strong>{r.eligibilityRecord}:</strong> {e.record_public ? r.eligibilityAllowed : r.eligibilityBlocked}</p>
       {!e.record_public && list(e.reasons)}
       <p><strong>{r.eligibilityFulltext}:</strong> {e.fulltext_public ? r.eligibilityAllowed : r.eligibilityBlocked}</p>

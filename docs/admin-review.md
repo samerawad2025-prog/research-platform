@@ -1,5 +1,7 @@
 # Admin review workflow (Phase 3 M4)
 
+> **Release order and steps live in [`docs/release-runbook.md`](release-runbook.md)** (authoritative since 2026-09-30). This file explains the reasoning; where the two differ, the runbook wins.
+
 The protected area where administrators and volunteer reviewers look at
 submissions, record what they checked, and make publication decisions.
 **Nothing here publishes anything.** There are no public pages yet (M5/M6).
@@ -322,6 +324,8 @@ dissemination version id and hash.
   decision.
 
 ### The shared rule for M5/M6
+
+M5 uses it for every public surface (`docs/public-research.md`). The review screen shows *Open the public page* only when the record is public right now and the public site is switched on.
 
 `publication_eligibility(paper)` returns:
 `review_approved`, `record_public`, `abstract_public`, `fulltext_public`,

@@ -1,5 +1,7 @@
 # PHASE_3_PLAN.md
 
+> **Release order and steps live in [`docs/release-runbook.md`](docs/release-runbook.md)** (authoritative since 2026-09-30). This file explains the reasoning; where the two differ, the runbook wins.
+
 **Prepared:** 2026-09-26, Phase 3 Milestone 0 (documentation only). Supersedes the forward-looking parts of `PHASE_2_PLAN.md` and the roadmap in `CLAUDE_CODE_HANDOVER.md` §13; both remain as history.
 
 **How to read this file.** Product intent comes from the founder's latest decisions (below). Implementation status comes only from code, migrations and deployment evidence. Every item carries one of four labels:
@@ -250,6 +252,8 @@ The bypass stays open between the two steps; keep that window short.
 
 ### M5 (E): Public research pages, approved downloads, withdrawal, browse/search
 
+> **Status: built, not deployed** (stacked PR on #20). Migration `0016_public_research.sql`, `/research`, `/research/[publicId]`, the approved-file route, `/api/research`, `sitemap.xml` and `robots.txt`, behind `PUBLIC_RESEARCH=enabled` (off). Every surface uses `publication_eligibility()` through four database functions returning an allowlist of fields. Files: the approved dissemination version only, private bucket, 60-second signed links; the full-text legal restriction stays active. Permanent links come only from `PUBLIC_SITE_ORIGIN` (unset until a domain is chosen: no canonical URL, no indexing). Reconciliations against the scope below: "institution" is not offered as a filter while one institution is public; `/confirm/*` is excluded by `robots.txt` (no analytics exist); citation export stays in M6. Details: `docs/public-research.md`.
+
 **Scope.**
 - **Public identifiers.** A separate public identifier per published record: random, stable, never the UUID or the confirmation token. The route is something like `/research/[publicId]`, with the site origin configurable so a later domain choice does not break links.
 - **One publication rule for every public path.** A record is public only when all of the following hold: publication approved, institution eligible, not withdrawn, embargo passed, and the accepted setting permits the content. The rule is enforced in the database or server layer and applies to:
@@ -280,6 +284,8 @@ In addition, a withdrawn record stops being served within the documented window,
 ---
 
 ### M6 (F): Citation export and truthful aggregate activity metrics
+
+> **Status: built, not deployed** (stacked PR on #21). Migration `0017_activity_metrics.sql`; *Cite this research* (text, RIS, BibTeX) and *Activity on this platform* on each public page, behind the same `PUBLIC_RESEARCH` flag (off). Four separately labelled counts (page views, requests to read online, download requests, citation exports), deduplicated per visitor per day, with obvious bots, previews, prefetch and staff (server-signed cookie) excluded, and document counts shown only while full text is public. No DOI is recorded in the schema, so none is exported. Details: `docs/public-research.md` §7a.
 
 **Scope.**
 - **Citation export.** Citation text plus RIS and BibTeX, generated from **confirmed local metadata only**, with the stable record URL. Missing authors or years are omitted or marked, never invented. An existing valid DOI is included if one is recorded; no DOIs are invented, and DOI registration is not part of Phase 3. External lookups (Crossref) are not required.

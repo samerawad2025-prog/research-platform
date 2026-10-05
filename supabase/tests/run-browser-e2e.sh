@@ -16,7 +16,16 @@ export SUPABASE_SERVICE_ROLE_KEY="$(key service)"
 export SUBMISSION_ACCEPTANCE_FLOW=enabled
 export SUBMISSION_TOKEN_SECRET="$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")"
 export EXTRACTION_MODE=automatic
+# The launch arrangement: Google's unpaid (free-tier) terms, agreement
+# version 4 (migration 0020): the document itself is read. The provider is still
+# the mock; it appends every request it receives to MOCK_RECORD so the test
+# can check exactly what would have left the server.
+export GEMINI_DATA_TERMS=unpaid
 export AI_PROVIDER=mock
+export MOCK_RECORD=/var/tmp/e2e-mock-requests.jsonl
+export MOCK_CONTROL_FILE=/var/tmp/e2e-mock-control.json
+rm -f "$MOCK_RECORD"
+echo "{\"recordTo\": \"$MOCK_RECORD\"}" > "$MOCK_CONTROL_FILE"
 unset GEMINI_API_KEY VERCEL_ENV || true
 if [ "${E2E_SKIP_BUILD:-}" != 1 ]; then npx next build > /var/tmp/e2e-build.log 2>&1; fi
 if curl -s -o /dev/null http://127.0.0.1:3100/; then echo "port 3100 is already in use; stop that server first" >&2; exit 1; fi
