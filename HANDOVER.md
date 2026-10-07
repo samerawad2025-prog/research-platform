@@ -51,8 +51,7 @@ Live and verified in production:
 - Admin review (`/admin`) and public site (`/research`) return 404 (flags off).
 
 Database (production), checked 2026-10-07:
-- Migrations applied and recorded: up to 0013, 0015, 0016, 0017, 0018, 0019, 0020.
-  **0014 is NOT applied.**
+- Migrations applied and recorded: 0011–0020 (0014 applied 2026-10-07, legacy anonymous path closed and verified).
 - Active agreement: `submission-terms-2026-10-04-v4-en` and `-v4-ar`. Versions 1–3 inactive
   (v2 = paid terms, superseded; v3 = excerpt-only, withdrawn — never activate either).
 - `extraction_policy.mode = automatic` (since 2026-10-05 05:40:50 UTC).
@@ -61,7 +60,7 @@ Database (production), checked 2026-10-07:
 
 ## 4. What to do next (in order)
 
-1. **Stage E — apply migration 0014 (closes the old anonymous upload/`submit_paper` path).**
+1. ~~Stage E~~ **DONE 2026-10-07.** (Kept for reference:) apply migration 0014 (closes the old anonymous upload/`submit_paper` path).**
    Until it runs, the legacy anonymous path is still open at the database level (the new
    UI no longer uses it). Files ready: `supabase/release/stage-e-production/`
    (`00_CHECKLIST.md`, `01_preflight.sql` → `PASS`, `02_migration_0014_…sql` (SHA-256
@@ -169,7 +168,7 @@ the bypass. Deactivating the agreement stops new offers; recorded acceptances st
 Submitter "Synthetic Release Check", emails `release-check-*@example.invalid`, documents stamped
 "SYNTHETIC TEST DOCUMENT" on page 1:
 papers `9505ce4f-ae79-4591-adef-b3d13af1fb38` (Gemini text PDF), `a513dc03-4991-445f-a827-26c8a7af4c02`
-(manual), `ee91732b-5f8d-4f19-9fe9-435d9218d5de` (Gemini scanned PDF). Kept on purpose (AI history is
+(manual), `ee91732b-5f8d-4f19-9fe9-435d9218d5de` (Gemini scanned PDF), `ee2d09ae-9be3-4e29-838e-fbaaaa3a051e` (manual, post-0014 check). Kept on purpose (AI history is
 append-only). Withdraw/reject them in admin review (stage F) so they are never published.
 
 ## 10. Working with the connectors (lessons learned)
@@ -231,7 +230,7 @@ Synthetic fixtures (invented people only): `scripts/fixtures/synthetic/`. Never 
 
 ## 13. Open items / known limitations
 
-- 0014 pending (above). Until then acceptance is enforced by the UI/server, not the database.
+- 0014 applied 2026-10-07; old code `f45dc690` can no longer be restored alone (§8).
 - Production service-role key was once exposed; founder decided not to rotate (runbook §7a).
 - Free-tier Gemini quota is shared by production; real Gemini tests consume it — keep them minimal.
 - `external_ai_permission` still returns `known_names` (from the withdrawn excerpt design); unused, harmless.

@@ -9,7 +9,8 @@
 ## Update 2026-10-05 — released (the runbook has the detail)
 
 - **Production release, 2026-10-05 05:44 UTC:** `15f94476` (the reviewed stack #16–#23, one production deploy, `dpl_HLAiNGzahHCpqG11DmhQN2LSYmP6`, `fra1`). Version 4 (EN + AR) is active; Gemini reads the document by default under the free tier (`gemini-3.5-flash-lite`), with "Enter details manually" as the alternative. Verified in production with three clearly marked synthetic submissions (text PDF, manual, scanned PDF): correct acceptance records, no provider call for manual entry, thank-you only after Confirm. Admin review and the public site stay off.
-- **Next:** stage E (migration 0014, closes the old anonymous path) — founder runs `supabase/release/stage-e-production/` in the SQL Editor (the connector timed out, nothing applied). Then administrator setup (stage F) and the public site (stage G).
+- **Stage E done 2026-10-07:** 0014 applied by the founder; anonymous upload and `submit_paper` refused from outside; a signed submission still completes.
+- **Next:** administrator setup (stage F) and the public site (stage G).
 
 ### Earlier on 2026-10-05
 
