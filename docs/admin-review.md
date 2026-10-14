@@ -4,9 +4,7 @@
 
 The protected area where administrators and volunteer reviewers look at
 submissions, record what they checked, and make publication decisions.
-**Nothing here publishes anything.** There are no public pages yet (M5/M6).
-An "approved" record is a recorded decision that M5 will read through one
-shared rule (`publication_eligibility`, below).
+Public pages are implemented, but remain disabled in production. While public publication is disabled, review decisions do not expose records. Once enabled separately, approved records are served only through the shared `publication_eligibility` rule below.
 
 Feature flag: `ADMIN_REVIEW=enabled`. Anything else (or unset) and every
 `/admin` page and `/api/admin/*` route answers 404.
@@ -77,6 +75,8 @@ is not an official translation.
 ---
 
 ## 2. First administrator (manual, once)
+
+**Current production state:** the founder-authorized first administrator is already bootstrapped and `ADMIN_REVIEW=enabled` is deployed. Do not rerun bootstrap. The founder reported disabling public Auth sign-ups. The steps below are the setup procedure for reference; the founder has confirmed that password sign-in and the review queue work.
 
 There is no bootstrap from a claimed email, and no callable role-assignment
 function. Steps, done by the project owner:
