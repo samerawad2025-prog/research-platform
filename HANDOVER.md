@@ -47,7 +47,7 @@ Live and verified in production:
   failure recovery offers manual entry; the premature "thank you" screen bug is fixed.
 - Verified with 3 clearly marked synthetic submissions (text PDF, manual, scanned PDF):
   correct acceptance records, no provider call for manual entry, thank-you only after Confirm.
-- Private admin is enabled. The live `/admin` page shows the staff login; one confirmed administrator exists. Founder sign-in verification is pending. The public catalogue flag remains off.
+- Private admin is enabled. The live `/admin` page shows the staff login; one confirmed administrator exists. The founder confirmed that password sign-in and the review queue work. The public catalogue flag remains off.
 
 Database (production), checked during this takeover:
 - Migrations applied and recorded: 0011–0020 (0014 applied 2026-10-07, legacy anonymous path closed and verified).
@@ -60,7 +60,7 @@ Database (production), checked during this takeover:
 
 1. Stage E is complete. Do not rerun migration 0014 or reopen the old submission path.
 2. The founder approved Stage F private administrator setup. The confirmed account was bootstrapped through the owner-only function, Production `ADMIN_REVIEW=enabled` was deployed, and the four synthetic records were withdrawn through the audited decision function.
-3. Complete the founder's password sign-in check. Never request the password in chat. The founder reported disabling public Auth sign-ups; the connector cannot independently inspect that dashboard setting.
+3. The founder's password sign-in and review queue check passed. Never request the password in chat. The founder reported disabling public Auth sign-ups; the connector cannot independently inspect that dashboard setting.
 4. Keep volunteers blocked until their confidentiality text is approved and activated. This does not block the sole founder administrator.
 5. Confirm the private request-log arrangement before processing requests. Do not put personal requests in this public repository.
 6. Stage G needs a separate public-launch decision, permanent origin and reviewed eligible University of Khartoum records. Public publication remains off. Do not lift the full-text release restriction.

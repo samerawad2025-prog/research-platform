@@ -76,7 +76,7 @@ is not an official translation.
 
 ## 2. First administrator (manual, once)
 
-**Current production state:** the founder-authorized first administrator is already bootstrapped and `ADMIN_REVIEW=enabled` is deployed. Do not rerun bootstrap. The founder reported disabling public Auth sign-ups. The steps below are the setup procedure for reference; the authenticated sign-in check is the remaining verification.
+**Current production state:** the founder-authorized first administrator is already bootstrapped and `ADMIN_REVIEW=enabled` is deployed. Do not rerun bootstrap. The founder reported disabling public Auth sign-ups. The steps below are the setup procedure for reference; the founder has confirmed that password sign-in and the review queue work.
 
 There is no bootstrap from a claimed email, and no callable role-assignment
 function. Steps, done by the project owner:

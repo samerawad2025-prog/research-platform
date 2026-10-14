@@ -8,9 +8,9 @@ Prepared 2026-09-30 against candidate commit `f433a37` (PR #22 head) plus the re
 
 ## Current rollout: 2026-10-15 (Khartoum)
 
-This dated state supersedes pending instructions in older sections. The founder approved the first administrator and private admin activation. The confirmed Auth account was bootstrapped using the owner-only function; one active administrator exists. The founder reported disabling public sign-ups and set the password privately. Auth dashboard configuration was not independently readable through the connector.
+This dated state supersedes pending instructions in older sections. The founder approved the first administrator and private admin activation. The confirmed Auth account was bootstrapped using the owner-only function; one active administrator exists. Stage F founder access is complete; volunteer onboarding remains deferred. The founder reported disabling public sign-ups and set the password privately. Auth dashboard configuration was not independently readable through the connector.
 
-Production `ADMIN_REVIEW=enabled` was deployed as `dpl_CgnfFgZNZ2hd7nzBuZHionJizAep` (application commit `15f94476`, `fra1`, READY). The live `/admin` page displays staff sign-in; the founder's authenticated queue check is pending. Four known synthetic release papers were withdrawn through the audited decision function, with their records and history preserved.
+Production `ADMIN_REVIEW=enabled` was deployed as `dpl_CgnfFgZNZ2hd7nzBuZHionJizAep` (application commit `15f94476`, `fra1`, READY). The live `/admin` page displays staff sign-in; the founder confirmed successful password sign-in and a working review queue. Four known synthetic release papers were withdrawn through the audited decision function, with their records and history preserved.
 
 Stages A, A2, B+D and E are complete. Version 4 EN/AR is active, extraction is automatic under the free tier, and manual entry remains available. There are 40 papers and 4 acceptances. Public publication remains disabled. Volunteer confidentiality activation (D3), the private request-log arrangement (D4), and public launch/domain (D6) remain separate items; D3 does not block the founder administrator.
 

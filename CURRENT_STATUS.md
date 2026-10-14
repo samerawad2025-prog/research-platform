@@ -7,12 +7,12 @@
 ## Current administrator rollout
 
 - Founder approved the first administrator and private admin activation. The confirmed Auth account was bootstrapped through the owner-only function; exactly one active administrator exists.
-- Production `ADMIN_REVIEW=enabled`; deployment `dpl_CgnfFgZNZ2hd7nzBuZHionJizAep` is READY on application commit `15f94476`, Frankfurt. The live `/admin` page displays the staff login. Founder sign-in verification is pending.
+- Production `ADMIN_REVIEW=enabled`; deployment `dpl_CgnfFgZNZ2hd7nzBuZHionJizAep` is READY on application commit `15f94476`, Frankfurt. The live `/admin` page displays the staff login. The founder signed in successfully and confirmed the review queue works.
 - The founder reported creating the password privately and disabling public Auth sign-ups. The connector independently verified the confirmed account, password presence and staff role; it cannot read Auth dashboard configuration.
 - Four synthetic release records are withdrawn using the audited review function. Research data, acceptance evidence and AI history are retained.
 - Version 4 EN/AR and automatic free-tier Gemini remain in force. Manual entry remains available. Stage E (0014) is complete. Public publication and volunteer access remain disabled.
 - Work is cloud-only through GitHub, Supabase, Vercel and hosted browser checks. The isolated test project is inactive; do not run test submissions against a Preview that points to production.
-- Next: verify the founder can open the queue; decide on a private request log, volunteer onboarding only if needed, and the public launch separately.
+- Stage F founder access is complete. Next: decide on a private request log and the public launch separately; volunteer onboarding can wait until needed.
 
 ---
 
