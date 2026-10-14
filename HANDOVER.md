@@ -1,7 +1,6 @@
 # HANDOVER — Sudanese Academic Research Platform
 
-Written 2026-10-07 for the next AI coding agent (ChatGPT Codex) with GitHub, Supabase and
-Vercel connectors. Every fact below was checked live on 2026-10-07 unless marked otherwise.
+Updated 2026-10-15 (Khartoum) during the Codex takeover. Use GitHub, Supabase and Vercel connectors and hosted checks; the founder requires cloud-only work. Historical release evidence is retained in the runbook.
 **Read this file first, then `AGENTS.md`, then `docs/release-runbook.md`.**
 
 > The repository is **PUBLIC**. Never commit a key, token, secret, `.env` file, a private
@@ -17,7 +16,7 @@ A low-budget platform for Sudanese research. A researcher submits a thesis or pa
 reads the document with **Google Gemini (free tier)** to suggest title, authors,
 supervisor, year, university, etc. The researcher checks and corrects the suggestions,
 then confirms. Manual entry is always available and sends nothing to Google. Later phases
-add an admin review workflow and a public research catalogue (both built, **switched off**).
+add an admin review workflow and a public research catalogue (both built; **private admin enabled, public catalogue off**).
 
 Owner: one non-technical founder (Samer, GitHub `samerawad2025-prog`). Near-zero budget:
 never propose paid services without stating the cost. Detailed vision: `docs/vision.md`.
@@ -28,16 +27,16 @@ never propose paid services without stating the cost. Detailed vision: `docs/vis
 |---|---|
 | GitHub repo | `samerawad2025-prog/research-platform` (public) |
 | Production / default branch | `research-platform` (head `15f94476`) |
-| Latest work branch | `claude/phase3-release-prep` (head = this handover; docs/scripts only beyond production) |
+| Handover source branch | `claude/phase3-release-prep` (post-release docs/scripts; reconcile through a reviewed PR into the default branch) |
 | Vercel team / project | `team_Yo4otDpDQshuzho9JhD8ykzD` (slug `samer22`) / `prj_4N8qhSrKCpNrM73qaYmErJa6cu90` (`research-platform-5zpu`) |
 | Live site | https://research-platform-5zpu.vercel.app (submission form: `/submit`) — no custom domain yet |
-| Current production deployment | `dpl_ApgkE3aRmCmiNSs4C58YhpdytbQZ` (commit `15f94476`, region `fra1`; a redeploy of the release deployment `dpl_HLAiNGzahHCpqG11DmhQN2LSYmP6`) |
+| Current production deployment | `dpl_CgnfFgZNZ2hd7nzBuZHionJizAep` (application commit `15f94476`, region `fra1`; private admin enabled). Documentation merges may create a newer deployment; verify the current alias. |
 | Old pre-release production | `dpl_AbLbM1G3PTBSWt6MSBbn4vTEUa3E` (`f45dc690`, `iad1`) — see rollback rules §8 |
 | Supabase PRODUCTION | project ref `mzpkiuovjppmavqkppem` (the only real database) |
 | Supabase TEST (isolated) | project ref `qwxfxckrabvuvuzidxuo` (`research-platform-test`, free plan) — used by the release branch's Previews |
 | Gemini model (prod) | `gemini-3.5-flash-lite` (Vercel shared var `GEMINI_MODEL`) |
 
-## 3. Current status (2026-10-07)
+## 3. Current status (2026-10-15, Khartoum)
 
 **Released to production on 2026-10-05 05:44 UTC** — the whole Phase 3 stack (PRs #16–#23)
 merged top-down in one production deploy (merge commit `15f94476`).
@@ -48,41 +47,23 @@ Live and verified in production:
   failure recovery offers manual entry; the premature "thank you" screen bug is fixed.
 - Verified with 3 clearly marked synthetic submissions (text PDF, manual, scanned PDF):
   correct acceptance records, no provider call for manual entry, thank-you only after Confirm.
-- Admin review (`/admin`) and public site (`/research`) return 404 (flags off).
+- Private admin is enabled. The live `/admin` page shows the staff login; one confirmed administrator exists. Founder sign-in verification is pending. The public catalogue flag remains off.
 
-Database (production), checked 2026-10-07:
+Database (production), checked during this takeover:
 - Migrations applied and recorded: 0011–0020 (0014 applied 2026-10-07, legacy anonymous path closed and verified).
 - Active agreement: `submission-terms-2026-10-04-v4-en` and `-v4-ar`. Versions 1–3 inactive
   (v2 = paid terms, superseded; v3 = excerpt-only, withdrawn — never activate either).
 - `extraction_policy.mode = automatic` (since 2026-10-05 05:40:50 UTC).
-- 39 papers, 3 acceptances (all synthetic), 0 staff, 0 auth users, 0 public records.
-  No genuine submission since the release.
+- 40 papers, 4 acceptances (synthetic release checks), 1 active administrator, 1 confirmed Auth user, 0 public records. The four synthetic papers are withdrawn in review and retained with their history.
 
-## 4. What to do next (in order)
+## 4. Next steps
 
-1. ~~Stage E~~ **DONE 2026-10-07.** (Kept for reference:) apply migration 0014 (closes the old anonymous upload/`submit_paper` path).**
-   Until it runs, the legacy anonymous path is still open at the database level (the new
-   UI no longer uses it). Files ready: `supabase/release/stage-e-production/`
-   (`00_CHECKLIST.md`, `01_preflight.sql` → `PASS`, `02_migration_0014_…sql` (SHA-256
-   `799c0207…583be`), `03_verify_0014.sql` → `PASS`, `04_record_0014.sql`).
-   **The Supabase connector timed out on this DDL (nothing applied); the founder runs these
-   in the Supabase SQL Editor.** Afterwards verify from outside:
-   `node scripts/production-verify-release.js` with `PV_ONLY=cutover`
-   (needs `PV_ORIGIN`, `PV_SUPABASE_URL`, `PV_ANON_KEY` = production public anon key), and
-   one signed submission with `PV_ONLY=manual` (no Gemini call). Record in
-   `docs/release-runbook.md` §7.
-2. **Merge the docs branch.** `claude/phase3-release-prep` holds docs/scripts written after
-   the release (release record, Stage E package, this handover). Merging into
-   `research-platform` triggers a production redeploy of identical app code — harmless.
-3. **Stage F — administrators** (`docs/admin-review.md`, runbook §4 F): founder decisions
-   D3 (volunteer confidentiality text, `docs/legal/volunteer-confidentiality.*`) and D4
-   (private request log). Then `ADMIN_REVIEW=enabled` (Production only), create the first
-   admin via the documented bootstrap. **Not yet authorized — ask the founder.**
-   Then withdraw/reject the 3 synthetic papers (§9) in review so they are never published.
-4. **Stage G — public site** (`docs/public-research.md`): domain decision (D6),
-   `PUBLIC_SITE_ORIGIN`, approved University of Khartoum records (metadata + abstract only),
-   then `PUBLIC_RESEARCH=enabled`. Full text stays OFF until Sudan-qualified legal advice
-   (`docs/legal/README.md`).
+1. Stage E is complete. Do not rerun migration 0014 or reopen the old submission path.
+2. The founder approved Stage F private administrator setup. The confirmed account was bootstrapped through the owner-only function, Production `ADMIN_REVIEW=enabled` was deployed, and the four synthetic records were withdrawn through the audited decision function.
+3. Complete the founder's password sign-in check. Never request the password in chat. The founder reported disabling public Auth sign-ups; the connector cannot independently inspect that dashboard setting.
+4. Keep volunteers blocked until their confidentiality text is approved and activated. This does not block the sole founder administrator.
+5. Confirm the private request-log arrangement before processing requests. Do not put personal requests in this public repository.
+6. Stage G needs a separate public-launch decision, permanent origin and reviewed eligible University of Khartoum records. Public publication remains off. Do not lift the full-text release restriction.
 
 ## 5. Rules that must not be broken
 
@@ -127,7 +108,7 @@ Founder decisions in force (2026-10-04/05):
   acceptance arrangement must equal `GEMINI_DATA_TERMS`.
 - Agreements: texts in `docs/legal/submission-terms.v*.{en,ar}.md`; registry with SHA-256 in
   `lib/submission/agreements.js`; DB table `agreement_versions` (hashes must match).
-- Admin (`/admin`, `/api/admin/*`, migration 0015) and public pages (`/research`, 0016–0017): built, OFF.
+- Admin (`/admin`, `/api/admin/*`, migration 0015): enabled for the founder. Public pages (`/research`, 0016–0017): built, OFF.
 - Key files: `lib/env.js` (env parsing), `lib/submission/acceptanceHandlers.js`,
   `lib/extraction/extractHandler.js`, `components/ConfirmationScreen.jsx`, `lib/i18n.jsx` (all UI text EN/AR).
 
@@ -138,7 +119,7 @@ Production (Vercel, Production target):
 (shared dev/preview/prod), `GEMINI_API_KEY` and `SUPABASE_SERVICE_ROLE_KEY` (Production only, sensitive),
 `EXTRACTION_MODE=automatic`, `GEMINI_DATA_TERMS=unpaid`, `SUBMISSION_ACCEPTANCE_FLOW=enabled`,
 `SUBMISSION_TOKEN_SECRET` (sensitive, ≥32 chars) — the last four added 2026-10-05.
-Unset in production (keep unset until their stage): `ADMIN_REVIEW`, `PUBLIC_RESEARCH`, `PUBLIC_SITE_ORIGIN`.
+Production `ADMIN_REVIEW=enabled` was added for the approved founder rollout. `PUBLIC_RESEARCH` and `PUBLIC_SITE_ORIGIN` remain unset.
 
 Preview, scoped to branch `claude/phase3-release-prep` only (isolated test setup): test-project
 Supabase URL/anon/service keys, `AI_PROVIDER=mock`, `EXTRACTION_MODE=automatic`,
@@ -169,7 +150,7 @@ Submitter "Synthetic Release Check", emails `release-check-*@example.invalid`, d
 "SYNTHETIC TEST DOCUMENT" on page 1:
 papers `9505ce4f-ae79-4591-adef-b3d13af1fb38` (Gemini text PDF), `a513dc03-4991-445f-a827-26c8a7af4c02`
 (manual), `ee91732b-5f8d-4f19-9fe9-435d9218d5de` (Gemini scanned PDF), `ee2d09ae-9be3-4e29-838e-fbaaaa3a051e` (manual, post-0014 check). Kept on purpose (AI history is
-append-only). Withdraw/reject them in admin review (stage F) so they are never published.
+append-only). All four were withdrawn through `admin_decide` during the founder-authorized setup. Preserve them and their append-only history; never publish them.
 
 ## 10. Working with the connectors (lessons learned)
 

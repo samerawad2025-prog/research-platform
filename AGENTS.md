@@ -6,9 +6,13 @@ This repository is public: never commit secrets, keys, `.env` files, private con
 
 ---
 
+## Current operating scope
+
+The founder approved private administrator setup on 2026-10-15 (Khartoum). One confirmed administrator is bootstrapped and `ADMIN_REVIEW=enabled` in production. Public publication and volunteer onboarding are separate decisions. Work through cloud connectors and hosted CI; do not require a local checkout, database or server. Check `CURRENT_STATUS.md` and the latest dated runbook entry before treating older release instructions as pending.
+
 ## What this is
 
-A low-budget platform for Sudanese research: a researcher submits a thesis or paper (PDF/DOCX), an AI extracts structured metadata, the researcher reviews and corrects it, then confirms it. The interface is bilingual (EN/AR). Submissions are accepted from any institution; public publication (Phase 3, not yet built) starts with approved University of Khartoum records only. One non-technical founder, near-zero budget — don't propose paid services or heavier dependencies without flagging the cost tradeoff explicitly. Full founding vision and product principles: `docs/vision.md`.
+A low-budget platform for Sudanese research: a researcher submits a thesis or paper (PDF/DOCX), an AI extracts structured metadata, the researcher reviews and corrects it, then confirms it. The interface is bilingual (EN/AR). Submissions are accepted from any institution; public publication (built, not yet enabled) starts with approved University of Khartoum records only. One non-technical founder, near-zero budget — don't propose paid services or heavier dependencies without flagging the cost tradeoff explicitly. Full founding vision and product principles: `docs/vision.md`.
 
 ---
 
@@ -51,11 +55,11 @@ Full methodology: `docs/troubleshooting.md`. If using Claude Code's command syst
 
 ## Load-bearing constraints — don't weaken these without a deliberate decision
 
-- **RLS is on for every table, fully locked to anonymous users.** The only way in is three `SECURITY DEFINER` RPCs. The confirmation flow's credential is a hashed token, **never the paper's UUID** — don't add a lookup path keyed on the bare id. (Storage is the exception: the `papers` bucket still allows anonymous inserts with no acceptance check. `PHASE_3_PLAN.md` M2 closes it; don't widen it meanwhile.)
+- **RLS is on for every public table.** Browser access is limited to the explicitly granted confirmation RPCs and signed submission flow. Migration 0014 closed anonymous Storage uploads and the old `submit_paper` RPC on 2026-10-07. The confirmation credential is a hashed token, **never the paper's UUID**. Do not reopen the legacy path.
 - **The private confirmation link is never a public link.** Public records (Phase 3) get their own separate identifier; a confirmation token must never appear in a public page, search index, sitemap, analytics or export.
 - **Publication restrictions apply on every path** — page, file, API response, search result, sitemap, citation export, activity count. Hiding a link is not access control.
 - **No acceptance is ever backdated or synthesized**, and no migration expands an existing permission. Legacy consent columns are evidence; keep them unchanged.
-- **Exactly two provider calls per extraction, enforced by the orchestrator's own control flow.** No loop should ever make this three.
+- **At most two provider calls per extraction, enforced by the orchestrator's own control flow.** A complete first pass needs no second call; never add a third.
 - **`ai_generations` is append-only.** Never overwritten, never deleted — that's how several of the bugs in `BUG_HISTORY.md` were actually diagnosable after the fact.
 - **A pass-2 failure must never discard a successful pass-1 result.** (`BUG_HISTORY.md` #10 — this already happened once.)
 - **A field's JSON key must be stated explicitly in the prompt if you add one**, not left for the model to infer from a section header. (`BUG_HISTORY.md` #15 — this already happened once too.)

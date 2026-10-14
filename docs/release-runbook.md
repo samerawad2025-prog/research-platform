@@ -6,7 +6,17 @@ Prepared 2026-09-30 against candidate commit `f433a37` (PR #22 head) plus the re
 
 ---
 
-## 0. Where things stand (updated 2026-10-04)
+## Current rollout: 2026-10-15 (Khartoum)
+
+This dated state supersedes pending instructions in older sections. The founder approved the first administrator and private admin activation. The confirmed Auth account was bootstrapped using the owner-only function; one active administrator exists. The founder reported disabling public sign-ups and set the password privately. Auth dashboard configuration was not independently readable through the connector.
+
+Production `ADMIN_REVIEW=enabled` was deployed as `dpl_CgnfFgZNZ2hd7nzBuZHionJizAep` (application commit `15f94476`, `fra1`, READY). The live `/admin` page displays staff sign-in; the founder's authenticated queue check is pending. Four known synthetic release papers were withdrawn through the audited decision function, with their records and history preserved.
+
+Stages A, A2, B+D and E are complete. Version 4 EN/AR is active, extraction is automatic under the free tier, and manual entry remains available. There are 40 papers and 4 acceptances. Public publication remains disabled. Volunteer confidentiality activation (D3), the private request-log arrangement (D4), and public launch/domain (D6) remain separate items; D3 does not block the founder administrator.
+
+No Preview Gemini key exists. The six historical cleanup targets were absent from the recent deployment listing during takeover. The isolated test database is inactive. No real Gemini call was made for this administrator rollout.
+
+## 0. Historical release preparation (2026-10-04)
 
 ### Founder decisions of 2026-10-04 (supersede the manual-only launch plan)
 1. **Gemini reading is the default** submission experience, with a clear secondary **"Enter details manually"** choice before anything is sent, and manual entry also offered when reading fails (no new upload). A manual choice prevents every Gemini call for that submission.
@@ -29,7 +39,7 @@ Test project `qwxfxckrabvuvuzidxuo` (`research-platform-test`, free plan, eu-cen
 - **Storage CORS preflight** observed (H3, partly).
 - **2026-10-02: H1–H11 complete.** Run against preview `dpl_AsGpKUfwJ4u7Y77DNHzfgoKJB2Bx` (`daed2b35`) after `check-isolation.js --live` passed; H11 re-run on `fra1` preview `dpl_68qKpVFHM4nKKdAW22QtCuj3YTd1` (`70d88ef3`) after the cross-region finding (30/30 events counted, 0 timeouts); H2's post-expiry upload refused by hosted Storage. All pass. Details in §7. Scripts: `scripts/hosted-verify-{submission,admin,public}.js`.
 
-### Currently deployed
+### Deployment snapshot from the original release (historical)
 - **Released 2026-10-05 05:44 UTC:** Vercel production serves **`15f94476`** (merge of the reviewed stack #16–#23, one production deploy), deployment **`dpl_HLAiNGzahHCpqG11DmhQN2LSYmP6`**, region **`fra1`**, on `research-platform-5zpu.vercel.app` (no custom domain). Previous production: `dpl_AbLbM1G3PTBSWt6MSBbn4vTEUa3E` (`f45dc690`, `iad1`) — a valid rollback target **only while 0014 is not applied** (see §4 stage E). Vercel SSO on previews.
 - Supabase `mzpkiuovjppmavqkppem` (the only project): **Stage A complete 2026-10-04** — 0011, 0012, 0013, 0015, 0016, 0017 applied (0014 **not** applied); **Stage A2 complete 2026-10-04 (23:50–23:51 UTC)**: 0018, 0019, 0020 applied and recorded, every agreement version (1–4) **inactive**, `extraction_policy` manual. 28 public tables. Legacy anonymous upload + `submit_paper` still **open** (by design until stage E). 36 papers, 0 Auth users. Details in §7.
 - Production variables added 2026-10-05 05:40 UTC (Production only): `EXTRACTION_MODE=automatic`, `GEMINI_DATA_TERMS=unpaid`, `SUBMISSION_ACCEPTANCE_FLOW=enabled`, `SUBMISSION_TOKEN_SECRET` (Sensitive, 48 random bytes). `AI_PROVIDER`, `GEMINI_API_KEY`, `GEMINI_MODEL` unchanged; `ADMIN_REVIEW`, `PUBLIC_RESEARCH`, `PUBLIC_SITE_ORIGIN` unset. Database: Version 4 (EN + AR) **active** and `extraction_policy` **automatic** since 2026-10-05 05:40:50 UTC (versions 1–3 inactive).
@@ -401,7 +411,7 @@ Smallest dependable release (revised 2026-10-04, free tier confirmed): stages A�
 | D7 | Authorize a free second Supabase project + branch-scoped preview variables (§2) | Done 2026-09-30/10-02 |
 | D8 | Rotate the exposed production service-role key (§7a) | **Decided 2026-10-02: no rotation; risk accepted (§7a)** |
 
-### Remaining blockers (2026-10-04)
+### Earlier blocker list (historical; use the current rollout section above)
 1. Stages A, A2 and the release session (B + D) are **done** (§7): production serves `15f94476` with Version 4 and Gemini reading by default.
 2. Stage E (0014) **done 2026-10-07**: the old anonymous path is closed. Rollback now never restores `f45dc690` alone (§4 stage E).
 2a. **Preview cleanup (founder, Vercel dashboard):** the Preview variable `2PBhcD9zqqab75xA` is gone (checked 2026-10-05); six Preview deployments built while a Gemini key applied to Previews remain to be deleted (list in `supabase/release/stage-e-production/00_CHECKLIST.md` §B). Production variables and deployments are not touched.
