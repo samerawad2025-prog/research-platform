@@ -12,9 +12,17 @@ This dated state supersedes pending instructions in older sections. The founder 
 
 Production `ADMIN_REVIEW=enabled` was deployed as `dpl_CgnfFgZNZ2hd7nzBuZHionJizAep` (application commit `15f94476`, `fra1`, READY). The live `/admin` page displays staff sign-in; the founder confirmed successful password sign-in and a working review queue. Four known synthetic release papers were withdrawn through the audited decision function, with their records and history preserved.
 
-Stages A, A2, B+D and E are complete. Version 4 EN/AR is active, extraction is automatic under the free tier, and manual entry remains available. There are 40 papers and 4 acceptances. Public publication remains disabled. Volunteer confidentiality activation (D3), the private request-log arrangement (D4), and public launch/domain (D6) remain separate items; D3 does not block the founder administrator.
+Stages A, A2, B+D and E are complete. Version 4 EN/AR is active, extraction is automatic under the free tier, and manual entry remains available. There are 40 papers and 4 acceptances. Public publication remains disabled. Volunteer confidentiality activation (D3) and public-launch activation remain separate items; D3 does not block the founder administrator. The later dated decisions below settle D4 and the initial-address part of D6.
 
 No Preview Gemini key exists. The six historical cleanup targets were absent from the recent deployment listing during takeover. The isolated test database is inactive. No real Gemini call was made for this administrator rollout.
+
+### Launch-preparation decisions, later on 2026-10-15
+
+- D4 is ready: the founder has a private manual request log with instructions and a separate launch-decisions tab. No request or private document is stored in this public repository.
+- D6 initial-address decision is approved: use the existing free Vercel address initially, leave `PUBLIC_SITE_ORIGIN` unset, and defer the permanent domain. Catalogue indexing and sitemap publication remain off.
+- The founder identified repeated UofK uploads as tests and asked to retain the most complete copy. Four confirmed copies tied for completeness; the newest was retained privately. The other 11 were withdrawn through the audited admin function. Paper contents, files and AI history were preserved. Together with the four earlier synthetic release records, 15 reviews are withdrawn.
+- There are no publication approvals or public records. The retained reference sample is not launch content. Genuine eligible UofK submissions, permission review and a separate founder publication decision remain before Stage G activation.
+- Use [launch-checklist.md](launch-checklist.md) for the founder's operating steps. No feature flag, origin, key, agreement or database schema was changed for this preparation.
 
 ## 0. Historical release preparation (2026-10-04)
 

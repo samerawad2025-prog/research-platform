@@ -26,7 +26,7 @@ never propose paid services without stating the cost. Detailed vision: `docs/vis
 | Thing | Value |
 |---|---|
 | GitHub repo | `samerawad2025-prog/research-platform` (public) |
-| Production / default branch | `research-platform` (head `15f94476`) |
+| Production / default branch | `research-platform` (application release `15f94476`; documentation merges advance the head, so inspect the branch for the current SHA) |
 | Handover source branch | `claude/phase3-release-prep` (post-release docs/scripts; reconcile through a reviewed PR into the default branch) |
 | Vercel team / project | `team_Yo4otDpDQshuzho9JhD8ykzD` (slug `samer22`) / `prj_4N8qhSrKCpNrM73qaYmErJa6cu90` (`research-platform-5zpu`) |
 | Live site | https://research-platform-5zpu.vercel.app (submission form: `/submit`) — no custom domain yet |
@@ -62,8 +62,8 @@ Database (production), checked during this takeover:
 2. The founder approved Stage F private administrator setup. The confirmed account was bootstrapped through the owner-only function, Production `ADMIN_REVIEW=enabled` was deployed, and the four synthetic records were withdrawn through the audited decision function.
 3. The founder's password sign-in and review queue check passed. Never request the password in chat. The founder reported disabling public Auth sign-ups; the connector cannot independently inspect that dashboard setting.
 4. Keep volunteers blocked until their confidentiality text is approved and activated. This does not block the sole founder administrator.
-5. Confirm the private request-log arrangement before processing requests. Do not put personal requests in this public repository.
-6. Stage G needs a separate public-launch decision, permanent origin and reviewed eligible University of Khartoum records. Public publication remains off. Do not lift the full-text release restriction.
+5. The private manual request log is ready in the founder's connected Google Drive. Do not put its link, personal requests or correspondence in this public repository.
+6. The founder approved the existing free Vercel address for the initial launch, with `PUBLIC_SITE_ORIGIN` unset and catalogue indexing off. Stage G still needs genuine reviewed eligible UofK records and a separate publication/launch decision. The test reference copy remains private. Do not lift the full-text release restriction. See `docs/launch-checklist.md`.
 
 ## 5. Rules that must not be broken
 
