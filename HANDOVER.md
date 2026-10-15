@@ -27,10 +27,10 @@ never propose paid services without stating the cost. Detailed vision: `docs/vis
 |---|---|
 | GitHub repo | `samerawad2025-prog/research-platform` (public) |
 | Production / default branch | `research-platform` (application release `15f94476`; documentation merges advance the head, so inspect the branch for the current SHA) |
-| Handover source branch | `claude/phase3-release-prep` (post-release docs/scripts; reconcile through a reviewed PR into the default branch) |
+| Historical handover source branch | `claude/phase3-release-prep` (reconciled into the default branch through PR #24) |
 | Vercel team / project | `team_Yo4otDpDQshuzho9JhD8ykzD` (slug `samer22`) / `prj_4N8qhSrKCpNrM73qaYmErJa6cu90` (`research-platform-5zpu`) |
 | Live site | https://research-platform-5zpu.vercel.app (submission form: `/submit`) — no custom domain yet |
-| Current production deployment | `dpl_CgnfFgZNZ2hd7nzBuZHionJizAep` (application commit `15f94476`, region `fra1`; private admin enabled). Documentation merges may create a newer deployment; verify the current alias. |
+| Administrator-activation deployment | `dpl_CgnfFgZNZ2hd7nzBuZHionJizAep` (application commit `15f94476`, region `fra1`; private admin enabled). Documentation merges may create a newer deployment; verify the current alias. |
 | Old pre-release production | `dpl_AbLbM1G3PTBSWt6MSBbn4vTEUa3E` (`f45dc690`, `iad1`) — see rollback rules §8 |
 | Supabase PRODUCTION | project ref `mzpkiuovjppmavqkppem` (the only real database) |
 | Supabase TEST (isolated) | project ref `qwxfxckrabvuvuzidxuo` (`research-platform-test`, free plan) — used by the release branch's Previews |
@@ -54,7 +54,7 @@ Database (production), checked during this takeover:
 - Active agreement: `submission-terms-2026-10-04-v4-en` and `-v4-ar`. Versions 1–3 inactive
   (v2 = paid terms, superseded; v3 = excerpt-only, withdrawn — never activate either).
 - `extraction_policy.mode = automatic` (since 2026-10-05 05:40:50 UTC).
-- 40 papers, 4 acceptances (synthetic release checks), 1 active administrator, 1 confirmed Auth user, 0 public records. The four synthetic papers are withdrawn in review and retained with their history.
+- 40 papers, 4 acceptances (synthetic release checks), 1 active administrator, 1 confirmed Auth user, 0 public records. The four synthetic release papers and 11 founder-identified repeated test copies are withdrawn in review and retained with their history. One complete reference sample stays private; none of these tests is launch content.
 
 ## 4. Next steps
 
@@ -178,7 +178,7 @@ append-only). All four were withdrawn through `admin_decide` during the founder-
 **GitHub**
 - CI: `.github/workflows/checks.yml` (job `test`: lint, build, unit suites) on every push and PR.
   No branch protection; gate merges on green CI yourself.
-- PR stack #16–#23 is merged. No open PRs.
+- PR stack #16–#23 and takeover PR #24 are merged. Inspect GitHub for current open PRs rather than relying on a saved count.
 
 ## 11. How to run and test
 
