@@ -26,11 +26,11 @@ never propose paid services without stating the cost. Detailed vision: `docs/vis
 | Thing | Value |
 |---|---|
 | GitHub repo | `samerawad2025-prog/research-platform` (public) |
-| Production / default branch | `research-platform` (head `15f94476`) |
-| Handover source branch | `claude/phase3-release-prep` (post-release docs/scripts; reconcile through a reviewed PR into the default branch) |
+| Production / default branch | `research-platform` (application release `15f94476`; documentation merges advance the head, so inspect the branch for the current SHA) |
+| Historical handover source branch | `claude/phase3-release-prep` (reconciled into the default branch through PR #24) |
 | Vercel team / project | `team_Yo4otDpDQshuzho9JhD8ykzD` (slug `samer22`) / `prj_4N8qhSrKCpNrM73qaYmErJa6cu90` (`research-platform-5zpu`) |
 | Live site | https://research-platform-5zpu.vercel.app (submission form: `/submit`) — no custom domain yet |
-| Current production deployment | `dpl_CgnfFgZNZ2hd7nzBuZHionJizAep` (application commit `15f94476`, region `fra1`; private admin enabled). Documentation merges may create a newer deployment; verify the current alias. |
+| Administrator-activation deployment | `dpl_CgnfFgZNZ2hd7nzBuZHionJizAep` (application commit `15f94476`, region `fra1`; private admin enabled). Documentation merges may create a newer deployment; verify the current alias. |
 | Old pre-release production | `dpl_AbLbM1G3PTBSWt6MSBbn4vTEUa3E` (`f45dc690`, `iad1`) — see rollback rules §8 |
 | Supabase PRODUCTION | project ref `mzpkiuovjppmavqkppem` (the only real database) |
 | Supabase TEST (isolated) | project ref `qwxfxckrabvuvuzidxuo` (`research-platform-test`, free plan) — used by the release branch's Previews |
@@ -54,7 +54,7 @@ Database (production), checked during this takeover:
 - Active agreement: `submission-terms-2026-10-04-v4-en` and `-v4-ar`. Versions 1–3 inactive
   (v2 = paid terms, superseded; v3 = excerpt-only, withdrawn — never activate either).
 - `extraction_policy.mode = automatic` (since 2026-10-05 05:40:50 UTC).
-- 40 papers, 4 acceptances (synthetic release checks), 1 active administrator, 1 confirmed Auth user, 0 public records. The four synthetic papers are withdrawn in review and retained with their history.
+- 40 papers, 4 acceptances (synthetic release checks), 1 active administrator, 1 confirmed Auth user, 0 public records. The four synthetic release papers and 11 founder-identified repeated test copies are withdrawn in review and retained with their history. One complete reference sample stays private; none of these tests is launch content.
 
 ## 4. Next steps
 
@@ -62,8 +62,8 @@ Database (production), checked during this takeover:
 2. The founder approved Stage F private administrator setup. The confirmed account was bootstrapped through the owner-only function, Production `ADMIN_REVIEW=enabled` was deployed, and the four synthetic records were withdrawn through the audited decision function.
 3. The founder's password sign-in and review queue check passed. Never request the password in chat. The founder reported disabling public Auth sign-ups; the connector cannot independently inspect that dashboard setting.
 4. Keep volunteers blocked until their confidentiality text is approved and activated. This does not block the sole founder administrator.
-5. Confirm the private request-log arrangement before processing requests. Do not put personal requests in this public repository.
-6. Stage G needs a separate public-launch decision, permanent origin and reviewed eligible University of Khartoum records. Public publication remains off. Do not lift the full-text release restriction.
+5. The private manual request log is ready in the founder's connected Google Drive. Do not put its link, personal requests or correspondence in this public repository.
+6. The founder approved the existing free Vercel address for the initial launch, with `PUBLIC_SITE_ORIGIN` unset and catalogue indexing off. Stage G still needs genuine reviewed eligible UofK records and a separate publication/launch decision. The test reference copy remains private. Do not lift the full-text release restriction. See `docs/launch-checklist.md`.
 
 ## 5. Rules that must not be broken
 
@@ -178,7 +178,7 @@ append-only). All four were withdrawn through `admin_decide` during the founder-
 **GitHub**
 - CI: `.github/workflows/checks.yml` (job `test`: lint, build, unit suites) on every push and PR.
   No branch protection; gate merges on green CI yourself.
-- PR stack #16–#23 is merged. No open PRs.
+- PR stack #16–#23 and takeover PR #24 are merged. Inspect GitHub for current open PRs rather than relying on a saved count.
 
 ## 11. How to run and test
 

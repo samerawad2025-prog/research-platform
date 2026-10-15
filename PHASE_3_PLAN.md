@@ -1,5 +1,16 @@
 # PHASE_3_PLAN.md
 
+## Current phase: 2026-10-15 (Khartoum)
+
+Phases 1 and 2 are complete. Phase 3 M0-M6 are implemented and merged. Submission, agreement Version 4, automatic free-tier Gemini, manual entry and private founder review are live. Public pages, search, citation exports and activity counts are built but remain switched off in production.
+
+We are preparing **Stage G, the public catalogue soft launch**. The private request log is ready. The founder approved using the existing free Vercel address initially, with `PUBLIC_SITE_ORIGIN` unset so catalogue indexing stays off. This address decision does not authorize publication.
+
+Repeated development uploads have been withdrawn through the audited workflow; one complete confirmed reference copy is retained privately as a test sample. No record has publication approval. Genuine eligible UofK submissions and their permission review are the remaining content requirement.
+
+Use [the launch checklist](docs/launch-checklist.md) for current operator work. The dated milestone notes below are historical design and verification evidence. In particular, their "not deployed", "agreement inactive", unverified provider arrangement and local-runtime instructions do not describe current operation. Current work is cloud-only. Version 4 and the latest runbook decisions supersede earlier agreement wording.
+
+
 > **Release order and steps live in [`docs/release-runbook.md`](docs/release-runbook.md)** (authoritative since 2026-09-30). This file explains the reasoning; where the two differ, the runbook wins.
 
 **Prepared:** 2026-09-26, Phase 3 Milestone 0 (documentation only). Supersedes the forward-looking parts of `PHASE_2_PLAN.md` and the roadmap in `CLAUDE_CODE_HANDOVER.md` §13; both remain as history.

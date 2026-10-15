@@ -4,7 +4,17 @@
 
 **Last updated:** 2026-10-15 (Khartoum). Phases 1 and 2 are closed. Phase 3 submission code is live; the founder administrator has been bootstrapped and the private admin area enabled. The public catalogue is still off. The dated entries below are historical evidence, not pending release instructions.
 
-## Current administrator rollout
+## Current launch preparation
+
+- Stage F founder access is complete. Stage G is preparing genuine UofK content; the catalogue remains disabled.
+- D4: a private manual request register is ready. Its private link and correspondence stay outside this repository.
+- D6: the founder approved the existing free Vercel address for the initial launch. Keep `PUBLIC_SITE_ORIGIN` unset until a permanent origin is chosen; catalogue indexing remains off.
+- Following the founder's instruction, 11 repeated development uploads were withdrawn through `admin_decide`. One latest equally complete confirmed reference copy remains private and marked in its review notes as a test sample. The earlier four synthetic release records also remain withdrawn.
+- The cleanup preserved paper contents, uploaded files and append-only AI history. There are 40 stored papers, 15 withdrawn reviews, zero approvals and zero public records as checked after cleanup. Counts are a dated snapshot, not a quota.
+- No genuine UofK publication candidate has been approved. Address approval is not publication approval.
+- Current operator steps: [launch checklist](docs/launch-checklist.md). Historical entries below remain for evidence.
+
+## Administrator rollout evidence
 
 - Founder approved the first administrator and private admin activation. The confirmed Auth account was bootstrapped through the owner-only function; exactly one active administrator exists.
 - Production `ADMIN_REVIEW=enabled`; deployment `dpl_CgnfFgZNZ2hd7nzBuZHionJizAep` is READY on application commit `15f94476`, Frankfurt. The live `/admin` page displays the staff login. The founder signed in successfully and confirmed the review queue works.
@@ -12,7 +22,7 @@
 - Four synthetic release records are withdrawn using the audited review function. Research data, acceptance evidence and AI history are retained.
 - Version 4 EN/AR and automatic free-tier Gemini remain in force. Manual entry remains available. Stage E (0014) is complete. Public publication and volunteer access remain disabled.
 - Work is cloud-only through GitHub, Supabase, Vercel and hosted browser checks. The isolated test project is inactive; do not run test submissions against a Preview that points to production.
-- Stage F founder access is complete. Next: decide on a private request log and the public launch separately; volunteer onboarding can wait until needed.
+- Stage F founder access is complete. The later launch-preparation section above records the request log and address decisions; volunteer onboarding remains deferred.
 
 ---
 
