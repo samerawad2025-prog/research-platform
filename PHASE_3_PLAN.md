@@ -1,5 +1,20 @@
 # PHASE_3_PLAN.md
 
+## Current launch status: 2026-10-18 (Khartoum)
+
+This dated update supersedes earlier statements that the catalogue is off, the origin is unset, or the full-text restriction must remain active.
+
+Phase 3 M0-M6 and the public launch are complete. Production serves the accepted submission flow, automatic free-tier Gemini with manual fallback, founder review, catalogue/search, citations and activity metrics. One genuine record is approved; development/test records remain private.
+
+On 2026-10-17 the founder explicitly authorized public full text and indexing. `PUBLIC_SITE_ORIGIN=https://research-platform-5zpu.vercel.app` is Production-only. Deployment `dpl_DpFPDNPrXvVkoYwkwPo1zzYiEacx` (application tree at `8a1967d7`, fra1) was READY with the production alias. Live record metadata showed `index, follow` and the correct canonical URL; PDF reading and download links appeared. On 2026-10-18 robots.txt and sitemap.xml both returned HTTP 200, with private routes disallowed and the public sitemap advertised.
+
+The founder lifted `fulltext_legal_advice` through an audited configuration change, superseding the earlier hold. **No claim is made that legal advice was obtained or that enforceability was certified.** Full text still requires the recorded permission, an eligible approved record, and an approved dissemination copy; embargo and withdrawal checks remain. The papers bucket stays private.
+
+The founder subsequently restored publication approval on 2026-10-18 after an admin action had marked the record reviewed/private. Read-only checks then confirmed one public record, with record, abstract and full text eligible. No acceptance was rewritten; no test record was published.
+
+Next: [Phase 4 plan](PHASE_4_PLAN.md), starting with launch usability and operational reliability, then a bounded research-directions pilot. Work remains cloud-only. No new provider, paid service, institution rollout, volunteer access or outbound campaign is authorized by this status update.
+
+
 ## Current phase: 2026-10-15 (Khartoum)
 
 Phases 1 and 2 are complete. Phase 3 M0-M6 are implemented and merged. Submission, agreement Version 4, automatic free-tier Gemini, manual entry and private founder review are live. Public pages, search, citation exports and activity counts are built but remain switched off in production.
