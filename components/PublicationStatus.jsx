@@ -39,6 +39,8 @@ export default function PublicationStatus({ token }) {
       {result.state === 'published' && result.publicUrl && <p><a className={styles.primaryLink} href={result.publicUrl} referrerPolicy="no-referrer">{t.open}</a></p>}
       <p>{t.privateLink}</p>
       <button type="button" className={styles.secondaryAction} disabled={result.state === 'loading'} onClick={() => { setResult({ state: 'loading' }); setAttempt((n) => n + 1) }}>{t.refresh}</button>
+      {/* Full navigation keeps the private confirmation URL out of router requests. */}
+      {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
       <p><a href="/research" referrerPolicy="no-referrer">{t.browse}</a></p>
     </section>
   )
