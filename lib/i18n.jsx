@@ -305,11 +305,22 @@ export const MESSAGES = {
     confirmation: {
       linkInvalid:
         'We couldn’t find a submission for this link. If you believe this is a mistake, please contact us directly.',
+      publication: {
+        heading: 'Publication status',
+        loading: 'Checking publication status…',
+        published: 'Your research is public. Use the public page below to share it.',
+        notPublic: 'Your research is not public at present. Publication requires review and approval.',
+        unavailable: 'Publication status could not be checked. Please try again.',
+        open: 'Open public research page',
+        refresh: 'Check status again',
+        browse: 'Browse published research',
+        privateLink: 'Keep this confirmation link private. Return here to check for a public page after review.',
+      },
       done: {
         heading: 'Thank you for confirming',
         lead: 'Your research details are recorded exactly as you approved them.',
         body:
-          'Your work now enters the platform’s review process, where it will be prepared for publication. We’ll reach out using the details you provided if anything else is needed.',
+          'Your details are ready for administrative review. Confirmation does not automatically publish your research.',
         closing: `Thank you for contributing your work to the ${OFFICIAL_NAME.en}.`,
       },
       notResearch: {
@@ -666,11 +677,22 @@ export const MESSAGES = {
     confirmation: {
       linkInvalid:
         'لم نتمكن من العثور على طلب تقديم مرتبط بهذا الرابط. إذا كنت تعتقد أن هناك خطأ، يرجى التواصل معنا مباشرةً.',
+      publication: {
+        heading: 'حالة النشر',
+        loading: 'جارٍ التحقق من حالة النشر…',
+        published: 'بحثك منشور للعامة. استخدم الصفحة العامة أدناه لمشاركته.',
+        notPublic: 'بحثك غير منشور للعامة حالياً. يتطلب النشر المراجعة والاعتماد.',
+        unavailable: 'تعذر التحقق من حالة النشر. يرجى المحاولة مجدداً.',
+        open: 'فتح صفحة البحث العامة',
+        refresh: 'التحقق من الحالة مجدداً',
+        browse: 'تصفح البحوث المنشورة',
+        privateLink: 'احتفظ برابط التأكيد هذا لنفسك. عد إليه بعد المراجعة للتحقق من توفر صفحة عامة.',
+      },
       done: {
         heading: 'شكراً لتأكيد التفاصيل',
         lead: 'تم تسجيل تفاصيل بحثك كما وافقت عليها تماماً.',
         body:
-          'ينتقل بحثك الآن إلى مرحلة المراجعة في المنصة تمهيداً لإعداده للنشر. سنتواصل معك باستخدام البيانات التي قدمتها إذا احتجنا إلى أي معلومات إضافية.',
+          'أصبحت تفاصيل بحثك جاهزة للمراجعة الإدارية. تأكيد التفاصيل لا ينشر البحث تلقائياً.',
         closing: `شكراً لمساهمتك ببحثك في ${OFFICIAL_NAME.ar}.`,
       },
       notResearch: {

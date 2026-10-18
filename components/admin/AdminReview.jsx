@@ -83,7 +83,8 @@ export default function AdminReview({ paperId }) {
           <li><strong>{t.states.approval_recorded}</strong><br />{d.states.approval_recorded ? t.yes : t.no}</li>
           <li><strong>{t.states.publication_approved}</strong><br />{d.states.publication_approved ? t.states.approval_in_effect : d.states.approval_recorded ? t.states.approval_not_in_effect : t.no}</li>
         </ul>
-        <p className={s.muted}>{r.notPublic}</p>
+        <p className={s.muted}>{d.public_site_enabled && d.eligibility?.record_public ? r.isPublic : r.notPublic}</p>
+        {d.public_url && <a href={d.public_url} target="_blank" rel="noopener noreferrer">{r.publicLinkOpen}</a>}
       </Section>
 
       <div className={s.two}>
@@ -174,7 +175,7 @@ export default function AdminReview({ paperId }) {
             )}
           </Section>
 
-          {isAdmin && <Decide {...{ d, t, r, act, busy, paperId, msg, fullText }} />}
+          {isAdmin && <Decide key={`${paperId}:${d.revision}`} {...{ d, t, r, act, busy, paperId, msg, fullText }} />}
 
           <InstitutionBox {...{ d, t, r, institutions, act, busy, paperId, msg, isAdmin, instName, lang: locale }} />
           {isAdmin && isLegacy && <LegacyBox {...{ d, t, r, act, busy, paperId, msg }} />}
@@ -268,22 +269,32 @@ function Recommend({ t, r, act, busy, paperId, msg }) {
 }
 
 function Decide({ d, t, r, act, busy, paperId, msg, fullText }) {
-  const [f, setF] = useState({ decision: 'reviewed', reason: '', version: '' })
+  const [f, setF] = useState({ decision: '', reason: '', version: '' })
+  const [removalConfirmed, setRemovalConfirmed] = useState(false)
+  const removesApproval = d.review.status === 'approved' && f.decision && f.decision !== 'approved'
   const needReason = ['needs_changes', 'declined', 'withdrawn'].includes(f.decision)
   const versions = d.documents.versions.filter((v) => ['proposed', 'approved'].includes(v.state))
-  const [note, setNote] = useState(null)
+  const cannotSubmit = !f.decision || (needReason && !f.reason.trim()) || (f.decision === 'approved' && fullText && !f.version) || (removesApproval && !removalConfirmed)
   async function submit(e) {
     e.preventDefault()
-    setNote(null)
+    if (cannotSubmit || busy === 'decide') return
     const body = { decision: f.decision, reason: f.reason || null, expectedRevision: d.revision, disseminationVersionId: f.decision === 'approved' && fullText ? f.version || null : null }
     const x = await act('decide', () => api('POST', `reviews/${paperId}/decision`, body), r.decided(r.decideOptions[f.decision]))
-    if (x.ok) setNote(f.decision)
+    if (x.ok) { setF({ decision: '', reason: '', version: '' }); setRemovalConfirmed(false) }
   }
   return (
     <Section id="dc-h" title={r.decideHeading}>
       <form className={s.form} onSubmit={submit}>
         <label className={s.field}><span>{r.decideHeading}</span>
-          <select value={f.decision} onChange={(e) => setF({ ...f, decision: e.target.value })}>{Object.entries(r.decideOptions).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label>
+          <select value={f.decision} required onChange={(e) => { setF({ ...f, decision: e.target.value }); setRemovalConfirmed(false) }}>
+            <option value="">{r.decideChoose}</option>
+            {Object.entries(r.decideOptions).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+          </select></label>
+        <p className={s.muted}>{r.decideHelp}</p>
+        {removesApproval && <div className={s.banner}>
+          <p>{r.removalWarning}</p>
+          <label className={s.check}><input type="checkbox" checked={removalConfirmed} onChange={(e) => setRemovalConfirmed(e.target.checked)} /><span>{r.removalConfirm}</span></label>
+        </div>}
         <label className={s.field}><span>{r.decideReason}{needReason ? ` (${t.required})` : ` (${t.optional})`}</span>
           <textarea value={f.reason} maxLength={2000} onChange={(e) => setF({ ...f, reason: e.target.value })} aria-required={needReason} /></label>
         {f.decision === 'approved' && fullText && (
@@ -293,11 +304,9 @@ function Decide({ d, t, r, act, busy, paperId, msg, fullText }) {
               {versions.map((v) => <option key={v.id} value={v.id}>{r.versionOrigins[v.origin]} · {(v.sha256 || '').slice(0, 10)}</option>)}
             </select></label>
         )}
-        <div><button className={s.primary} disabled={busy === 'decide' || (needReason && !f.reason.trim())}>{busy === 'decide' ? r.decideWorking : r.decideSubmit}</button></div>
+        <div><button className={s.primary} disabled={busy === 'decide' || cannotSubmit}>{busy === 'decide' ? r.decideWorking : r.decideSubmit}</button></div>
         <Msg m={msg.decide} />
         {msg.decide?.ok && <p className={s.banner}>{r.notNotified}</p>}
-        {note === 'approved' && <p className={s.muted}>{r.approvedNote}</p>}
-        {note === 'withdrawn' && <p className={s.muted}>{r.withdrawnNote}</p>}
       </form>
     </Section>
   )
@@ -395,9 +404,9 @@ function Eligibility({ d, t, r }) {
       <p className={s.muted}>{r.eligibilityIntro}</p>
       {d.public_url && <p><strong>{r.publicLinkLabel}:</strong> <a href={d.public_url} target="_blank" rel="noopener noreferrer" dir="ltr">{r.publicLinkOpen}</a></p>}
       {!d.public_url && e.record_public && d.public_site_enabled === false && <p className={s.muted}>{r.publicLinkOff}</p>}
-      <p><strong>{r.eligibilityRecord}:</strong> {e.record_public ? r.eligibilityAllowed : r.eligibilityBlocked}</p>
+      <p><strong>{r.eligibilityRecord}:</strong> {e.record_public && d.public_site_enabled ? r.eligibilityAllowed : r.eligibilityBlocked}</p>
       {!e.record_public && list(e.reasons)}
-      <p><strong>{r.eligibilityFulltext}:</strong> {e.fulltext_public ? r.eligibilityAllowed : r.eligibilityBlocked}</p>
+      <p><strong>{r.eligibilityFulltext}:</strong> {e.fulltext_public && d.public_site_enabled ? r.eligibilityAllowed : r.eligibilityBlocked}</p>
       {!e.fulltext_public && list(e.fulltext_reasons)}
     </Section>
   )

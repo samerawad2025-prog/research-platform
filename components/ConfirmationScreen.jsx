@@ -21,6 +21,7 @@ import { takeReceived } from '../lib/submission/clientFlow'
 import { deriveView } from '../lib/fields/confirmationView'
 import { mark, report } from '../lib/timing'
 import Button from './ui/Button'
+import PublicationStatus from './PublicationStatus'
 import { useLocale } from './LocaleProvider'
 import { dirFor, messagesFor } from '../lib/i18n'
 import styles from './ConfirmationScreen.module.css'
@@ -715,6 +716,7 @@ export default function ConfirmationScreen({ token, manualMode = false }) {
         <p className={styles.completionLead}>{t.done.lead}</p>
         <p>{t.done.body}</p>
         <p className={styles.completionClosing}>{t.done.closing}</p>
+        <PublicationStatus key={token} token={token} />
       </div>
     )
   }
@@ -879,6 +881,7 @@ export default function ConfirmationScreen({ token, manualMode = false }) {
         )}
         {!extracting && !manual && partial && <p className={styles.attentionBanner}>{t.partial}</p>}
         <p className={styles.privateLink}>{t.privateLink}</p>
+        {paper?.metadata_confirmed_at && <PublicationStatus key={token} token={token} />}
       </header>
 
       <section className={styles.section}>

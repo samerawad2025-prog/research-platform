@@ -90,3 +90,20 @@ jobs:
 
       - name: Citations and activity counts (Phase 3 M6)
         run: node scripts/test-citations-activity.js
+
+      - name: Private publication status
+        run: node scripts/test-publication-status.js
+
+      - name: Install pinned browser test runtime
+        run: |
+          npm install --prefix "$RUNNER_TEMP/sarp-browser" --no-package-lock --ignore-scripts playwright@1.58.2
+          node "$RUNNER_TEMP/sarp-browser/node_modules/playwright/cli.js" install --with-deps chromium
+
+      - name: Publication workflow browser checks (synthetic, hosted runner)
+        run: NODE_PATH="$RUNNER_TEMP/sarp-browser/node_modules" node scripts/browser-phase4.cjs
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
+          ADMIN_REVIEW: enabled
+          PUBLIC_RESEARCH: enabled
+          EXTRACTION_MODE: manual

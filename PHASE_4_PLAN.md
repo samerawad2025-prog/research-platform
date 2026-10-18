@@ -14,6 +14,8 @@ Show a public record link when eligible, and ensure the private confirmation/sta
 
 Acceptance: bilingual EN/AR; mobile and keyboard usable; reviewed/private stays unpublished; approved eligible records link correctly; withdrawing or making private removes public access. Verify in hosted CI and an isolated preview. Do not use a production-connected preview to submit fixtures.
 
+M1 implementation is in PR #27: explicit publication decisions with removal confirmation, current publication wording, and a token-authenticated author status panel. Hosted checks cover EN/AR, mobile, keyboard use and failure states. Merge only after the checks pass, then verify the production deployment and public record. No database migration or production-data edits are required.
+
 ## M2: validate the service with a small genuine collection
 
 Founder-led outreach to a small UofK cohort. An initial target of 10-20 permission-reviewed records is a planning target, not a launch requirement or a promise. Track confirmed submissions, approved records, missing-data reasons, review backlog and founder/volunteer time. Do not treat volunteer time as a cash expense or platform activity as academic citations.

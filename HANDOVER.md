@@ -1,5 +1,11 @@
 # HANDOVER — Sudanese Academic Research Platform
 
+## Phase 4 M1 implementation: 2026-10-18
+
+PR #27 adds explicit admin publication decisions and confirmation before removing an approval. Current public availability replaces outdated pre-launch wording. Authors can check publication status from their private confirmation page and open the separate public link only while eligible. Both languages are supported; failures show unavailable rather than a misleading publication state.
+
+Hosted GitHub checks on `bfc71600` passed lint, production build, existing regression suites, private-status handler cases and Chromium EN desktop/AR mobile workflows with synthetic intercepted APIs. The Vercel Preview build is READY. No production data, schema, agreements, extraction settings or keys changed. Release requires green checks on the final PR head; verify the production alias after merging. Phase 4 M2 is the next milestone; the research-directions pilot remains later work.
+
 ## Current launch status: 2026-10-18 (Khartoum)
 
 This dated update supersedes earlier statements that the catalogue is off, the origin is unset, or the full-text restriction must remain active.
