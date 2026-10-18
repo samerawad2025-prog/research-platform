@@ -84,7 +84,7 @@ export default function AdminReview({ paperId }) {
           <li><strong>{t.states.publication_approved}</strong><br />{d.states.publication_approved ? t.states.approval_in_effect : d.states.approval_recorded ? t.states.approval_not_in_effect : t.no}</li>
         </ul>
         <p className={s.muted}>{d.public_site_enabled && d.eligibility?.record_public ? r.isPublic : r.notPublic}</p>
-        {d.public_url && <a href={d.public_url} target="_blank" rel="noopener noreferrer">{r.publicLinkOpen}</a>
+        {d.public_url && <a href={d.public_url} target="_blank" rel="noopener noreferrer">{r.publicLinkOpen}</a>}
       </Section>
 
       <div className={s.two}>
@@ -294,7 +294,7 @@ function Decide({ d, t, r, act, busy, paperId, msg, fullText }) {
         {removesApproval && <div className={s.banner}>
           <p>{r.removalWarning}</p>
           <label className={s.check}><input type="checkbox" checked={removalConfirmed} onChange={(e) => setRemovalConfirmed(e.target.checked)} /><span>{r.removalConfirm}</span></label>
-        </div>
+        </div>}
         <label className={s.field}><span>{r.decideReason}{needReason ? ` (${t.required})` : ` (${t.optional})`}</span>
           <textarea value={f.reason} maxLength={2000} onChange={(e) => setF({ ...f, reason: e.target.value })} aria-required={needReason} /></label>
         {f.decision === 'approved' && fullText && (
