@@ -1,5 +1,20 @@
 # Phase 3 release runbook
 
+## Current launch status: 2026-10-18 (Khartoum)
+
+This dated update supersedes earlier statements that the catalogue is off, the origin is unset, or the full-text restriction must remain active.
+
+Phase 3 M0-M6 and the public launch are complete. Production serves the accepted submission flow, automatic free-tier Gemini with manual fallback, founder review, catalogue/search, citations and activity metrics. One genuine record is approved; development/test records remain private.
+
+On 2026-10-17 the founder explicitly authorized public full text and indexing. `PUBLIC_SITE_ORIGIN=https://research-platform-5zpu.vercel.app` is Production-only. Deployment `dpl_DpFPDNPrXvVkoYwkwPo1zzYiEacx` (application tree at `8a1967d7`, fra1) was READY with the production alias. Live record metadata showed `index, follow` and the correct canonical URL; PDF reading and download links appeared. On 2026-10-18 robots.txt and sitemap.xml both returned HTTP 200, with private routes disallowed and the public sitemap advertised.
+
+The founder lifted `fulltext_legal_advice` through an audited configuration change, superseding the earlier hold. **No claim is made that legal advice was obtained or that enforceability was certified.** Full text still requires the recorded permission, an eligible approved record, and an approved dissemination copy; embargo and withdrawal checks remain. The papers bucket stays private.
+
+The founder subsequently restored publication approval on 2026-10-18 after an admin action had marked the record reviewed/private. Read-only checks then confirmed one public record, with record, abstract and full text eligible. No acceptance was rewritten; no test record was published.
+
+Next: [Phase 4 plan](../PHASE_4_PLAN.md), starting with launch usability and operational reliability, then a bounded research-directions pilot. Work remains cloud-only. No new provider, paid service, institution rollout, volunteer access or outbound campaign is authorized by this status update.
+
+
 **This is the one authoritative release procedure for Phase 3 (M1–M6).** Where `docs/deployment.md`, `docs/submission-flow.md` ("Cutover"), `docs/admin-review.md` (§2, §9), `docs/public-research.md` (§8), `docs/legal/README.md` or `supabase/migrations/README.md` describe release steps, they explain *why*; this file says *what, in which order*. If they disagree, this file wins and the other one should be corrected.
 
 Prepared 2026-09-30 against candidate commit `f433a37` (PR #22 head) plus the release-prep PR. Production observations below were read-only.
