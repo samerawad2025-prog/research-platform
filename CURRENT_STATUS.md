@@ -1,5 +1,11 @@
 # CURRENT_STATUS.md
 
+## Phase 4 M2 preparation: 2026-10-20
+
+Phase 4 M1 is released through PR #27, merge `139ca803`. The final PR head passed both hosted test jobs and the Vercel build. Production deployment `dpl_C7cCMNegTZEbU7jpxd8qUrSwUxiZ` is READY with the live alias and matching commit, rechecked on 2026-10-20. The live admin decision form and public paper were verified on 2026-10-18 after release. This supersedes the pending-release wording below.
+
+M2 preparation is ready in [the pilot kit](docs/pilot-kit.md), with bilingual invitation drafts, session tasks, a private-note template and scorecard definitions. Recruitment, participant sessions and findings are still pending. No invitations were sent, participant data collected, or new services enabled. The founder should select five willing participants, including three authors with eligible genuine deposits, before expanding toward the optional 10–20 record target. Keep completed notes private; this repository contains blank templates only. M3 research directions remains subsequent work.
+
 ## Phase 4 M1 implementation: 2026-10-18
 
 PR #27 adds explicit admin publication decisions and confirmation before removing an approval. Current public availability replaces outdated pre-launch wording. Authors can check publication status from their private confirmation page and open the separate public link only while eligible. Both languages are supported; failures show unavailable rather than a misleading publication state.

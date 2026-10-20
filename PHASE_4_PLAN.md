@@ -14,13 +14,15 @@ Show a public record link when eligible, and ensure the private confirmation/sta
 
 Acceptance: bilingual EN/AR; mobile and keyboard usable; reviewed/private stays unpublished; approved eligible records link correctly; withdrawing or making private removes public access. Verify in hosted CI and an isolated preview. Do not use a production-connected preview to submit fixtures.
 
-M1 implementation is in PR #27: explicit publication decisions with removal confirmation, current publication wording, and a token-authenticated author status panel. Hosted checks cover EN/AR, mobile, keyboard use and failure states. Merge only after the checks pass, then verify the production deployment and public record. No database migration or production-data edits are required.
+M1 is released through PR #27 (merge `139ca803`), with passing hosted tests and a verified production deployment. It includes explicit publication decisions, removal confirmation and a private author status panel. No database migration was needed.
 
 ## M2: validate the service with a small genuine collection
 
 Founder-led outreach to a small UofK cohort. An initial target of 10-20 permission-reviewed records is a planning target, not a launch requirement or a promise. Track confirmed submissions, approved records, missing-data reasons, review backlog and founder/volunteer time. Do not treat volunteer time as a cash expense or platform activity as academic citations.
 
 Ask users to complete three tasks: submit and confirm a paper, find a relevant record, obtain a citation/document. Record friction before expanding features. External invitations or messages need explicit authorization; no campaign is sent by this plan. Participation remains free.
+
+M2 preparation (2026-10-20): [pilot kit](docs/pilot-kit.md) and [EN/AR invitation drafts](docs/pilot-invitations.md) are ready. No recruitment or participant testing has occurred. Complete the real sessions and review findings before marking M2 complete.
 
 ## M3: Explore research directions, a bounded pilot
 
