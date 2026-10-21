@@ -4,6 +4,7 @@ const assert = require('node:assert/strict')
 const { spawn } = require('node:child_process')
 const { mkdirSync } = require('node:fs')
 const { chromium } = require('playwright')
+const { KNOWLEDGE_MESSAGES } = require('../lib/i18nKnowledge')
 const { ADMIN_MESSAGES } = require('../lib/i18nAdmin')
 const APP = 'http://127.0.0.1:3100'
 const PAPER = '22222222-2222-4222-8222-222222222222'
@@ -48,13 +49,14 @@ async function run() {
           user: { id: '11111111-1111-4111-8111-111111111111', email: 'synthetic@example.invalid' },
         }))
       })
+      let granted = false
       let d = detail(), saves = [], publication = 'published', publicationCalls = 0
       const failures = []
       const page = await ctx.newPage()
       page.on('pageerror', e => failures.push(e.message))
       await page.route('**/*', async route => {
         const req = route.request(), u = new URL(req.url())
-        if (u.hostname === 'placeholder.supabase.co') {
+        if (u.origin === 'http://127.0.0.1:3199') {
           if (u.pathname.endsWith('/get_paper_for_confirmation')) return json(route, {
             paper_id: PAPER, title: 'Synthetic study', year: 2026, metadata_confirmed_at: '2026-01-01',
             extraction_status: 'completed', researchers: [{ full_name: 'Synthetic Author', author_order: 1 }],
@@ -73,6 +75,13 @@ async function run() {
           saves.push(req.postDataJSON())
           d = detail(saves.at(-1).decision, 'r' + (saves.length + 1))
           return json(route, { ok: true })
+        }
+        if (u.pathname === '/api/knowledge') {
+          const b=req.postDataJSON()
+          assert.equal(b.token,TOKEN)
+          assert.ok(!req.headers().referer)
+          if(b.granted!==undefined)granted=b.granted
+          return json(route,{granted,text:'Synthetic optional permission',hash:'b'.repeat(64),version:'synthetic'})
         }
         if (u.pathname === '/api/submissions/publication-status') {
           publicationCalls++
@@ -133,6 +142,16 @@ async function run() {
       const panel = page.locator('section[aria-labelledby="publication-status-heading"]')
       const link = panel.locator('a[href="' + PUBLIC + '"]')
       await link.waitFor()
+      const kt=KNOWLEDGE_MESSAGES[lang]
+      const consent=page.getByRole('checkbox',{name:kt.agree,exact:true})
+      await consent.waitFor()
+      assert.equal(await consent.isChecked(),false)
+      assert.equal(await page.getByRole('button',{name:kt.enable,exact:true}).isEnabled(),false)
+      await consent.check()
+      await page.getByRole('button',{name:kt.enable,exact:true}).click()
+      await page.getByRole('button',{name:kt.revoke,exact:true}).click()
+      await page.getByRole('button',{name:kt.enable,exact:true}).waitFor()
+      assert.equal(granted,false)
       assert.equal(await link.getAttribute('referrerpolicy'), 'no-referrer')
       assert.ok(!(await link.getAttribute('href')).includes(TOKEN))
       assert.equal(await page.locator('meta[name="robots"]').getAttribute('content').then(x => x.includes('noindex')), true)

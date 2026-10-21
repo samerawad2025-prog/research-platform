@@ -21,7 +21,11 @@ function setup() {
   execFileSync('createdb', [DB])
   const run = (file) => execFileSync('psql', ['-X', '-q', '-v', 'ON_ERROR_STOP=1', '-d', DB, '-f', file], { stdio: ['ignore', 'ignore', 'pipe'] })
   run(path.join(__dirname, 'supabase-stubs.sql'))
-  run(path.join(ROOT, 'supabase/schema.sql'))
+  if(process.env.KNOWLEDGE_UPGRADE === '1'){
+    const old=execFileSync('git',['show','00551a440879870bc21a357d9f3449be74ddf380:supabase/schema.sql'],{encoding:'utf8'})
+    execFileSync('psql',['-X','-q','-v','ON_ERROR_STOP=1','-d',DB],{input:old,stdio:['pipe','ignore','pipe']})
+    run(path.join(ROOT,'supabase/migrations/0021_reader_articles.sql'))
+  }else run(path.join(ROOT, 'supabase/schema.sql'))
 }
 
 const A = crypto.randomUUID()

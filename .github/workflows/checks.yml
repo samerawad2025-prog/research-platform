@@ -41,7 +41,7 @@ jobs:
           # The build imports modules that read these. Placeholders are
           # enough to compile; nothing here reaches a real service, and
           # no real key belongs in a workflow file.
-          NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
+          NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:3199
           NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
 
       # Each suite runs on its own step so a failure names itself in
@@ -105,10 +105,22 @@ jobs:
       - name: Publication workflow browser checks (synthetic, hosted runner)
         run: NODE_PATH="$RUNNER_TEMP/sarp-browser/node_modules" node scripts/browser-phase4.cjs
         env:
-          NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
+          NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:3199
           NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
           ADMIN_REVIEW: enabled
           PUBLIC_RESEARCH: enabled
+          EXTRACTION_MODE: manual
+
+      - name: Reader, permission and article browser checks (synthetic only)
+        run: NODE_PATH="$RUNNER_TEMP/sarp-browser/node_modules" node scripts/browser-knowledge.cjs
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:3199
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
+          SUPABASE_SERVICE_ROLE_KEY: synthetic-server-only
+          ADMIN_REVIEW: enabled
+          PUBLIC_RESEARCH: enabled
+          RESEARCH_KNOWLEDGE: enabled
+          SUBMISSION_TOKEN_SECRET: synthetic-test-only-secret
           EXTRACTION_MODE: manual
 
       - name: Save synthetic interface screenshots
@@ -141,6 +153,8 @@ jobs:
       PGPASSWORD: synthetic-ci-only
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -148,3 +162,5 @@ jobs:
       - run: npm ci
       - name: Optional permission and editorial publication, real Postgres
         run: node supabase/tests/knowledge-postgres.test.js
+      - name: Upgrade existing schema without rewriting existing records
+        run: KNOWLEDGE_UPGRADE=1 node supabase/tests/knowledge-postgres.test.js
