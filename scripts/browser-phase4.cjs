@@ -2,6 +2,7 @@
 // No real credentials or hosted database; unexpected remote requests fail.
 const assert = require('node:assert/strict')
 const { spawn } = require('node:child_process')
+const { mkdirSync } = require('node:fs')
 const { chromium } = require('playwright')
 const { ADMIN_MESSAGES } = require('../lib/i18nAdmin')
 const APP = 'http://127.0.0.1:3100'
@@ -36,6 +37,7 @@ async function run() {
     }
     assert.ok(ready, 'built app starts')
     browser = await chromium.launch()
+    mkdirSync('artifacts/ui', { recursive: true })
     for (const [lang, width] of [['en', 1280], ['ar', 390]]) {
       const ctx = await browser.newContext({ viewport: { width, height: 900 } })
       await ctx.addCookies([{ name: 'sarp_lang', value: lang, url: APP }])
@@ -93,6 +95,16 @@ async function run() {
       assert.equal(await choice.inputValue(), '')
       assert.equal(await save.isEnabled(), false)
       assert.equal(await page.getByText(t.review.isPublic, { exact: true }).isVisible(), true)
+      assert.equal(await page.locator('[data-section="hi-h"]').getAttribute('open'), null)
+      assert.equal(await page.locator('[data-section="sub-h"]').getAttribute('open'), null)
+      assert.equal(await page.locator('[data-section="rc-h"]').count(), 0, 'founder does not see volunteer recommendation')
+      assert.equal(await page.locator('[data-section="as-h"]').count(), 0, 'no assignment form without volunteers')
+      await page.locator('[data-section="hi-h"] summary').focus()
+      await page.keyboard.press('Enter')
+      assert.equal(await page.locator('[data-section="hi-h"]').getAttribute('open'), '')
+      await page.keyboard.press('Enter')
+      assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'review fits viewport')
+      await page.screenshot({ path: 'artifacts/ui/admin-' + lang + '.png', fullPage: true })
       // The previous accidental path is now impossible without both choices.
       await choice.selectOption('reviewed')
       assert.equal(await save.isEnabled(), false)
@@ -141,6 +153,10 @@ async function run() {
       await link.click()
       await page.getByRole('heading', { name: 'Synthetic public record' }).waitFor()
       assert.equal(new URL(page.url()).pathname, PUBLIC)
+      await page.goto(APP)
+      await page.getByRole('link', { name: lang === 'ar' ? 'تصفّح البحوث' : 'Browse research', exact: true }).first().waitFor()
+      assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'landing fits viewport')
+      await page.screenshot({ path: 'artifacts/ui/home-' + lang + '.png', fullPage: true })
       assert.deepEqual(failures, [])
       console.log('PASS publication workflow ' + lang + ' at ' + width + 'px')
       await ctx.close()

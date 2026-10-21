@@ -107,3 +107,11 @@ jobs:
           ADMIN_REVIEW: enabled
           PUBLIC_RESEARCH: enabled
           EXTRACTION_MODE: manual
+
+      - name: Save synthetic interface screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: interface-screenshots
+          path: artifacts/ui/
+          retention-days: 7

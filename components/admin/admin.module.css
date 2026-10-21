@@ -59,3 +59,14 @@ button:disabled { opacity: 0.55; cursor: not-allowed; }
 .table th, .table td { text-align: start; padding: var(--space-2); border-block-end: 1px solid var(--line); vertical-align: top; }
 @media (min-width: 60rem) { .two { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); align-items: start; } }
 @media (max-width: 36rem) { .dl { grid-template-columns: minmax(0, 1fr); gap: 0; } .dl dd { margin-block-end: var(--space-2); } .wrap { padding: var(--space-3); } }
+
+/* Phase 4: a short review path; supporting evidence stays available. */
+.reviewOverview { border-inline-start: 4px solid var(--identity-gold); padding: var(--space-3) var(--space-4); margin-block: var(--space-4); background: var(--surface-raised); }
+.statusLine { font-weight: 700; font-size: var(--text-lg); margin: 0; color: var(--identity-navy); }
+.quickLinks { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-4); }
+.quickLinks a { min-height: 44px; display: inline-flex; align-items: center; font-weight: 600; }
+.summary { cursor: pointer; min-height: 44px; align-content: center; font-weight: 600; color: var(--ink); }
+.summaryHeading { display: inline; font-size: var(--text-base); line-height: var(--leading-body); }
+.sectionBody { padding-block-start: var(--space-3); }
+.documentDetails { margin-block-start: var(--space-4); border-block-start: 1px solid var(--line); }
+.section [id] { scroll-margin-block-start: 1rem; }

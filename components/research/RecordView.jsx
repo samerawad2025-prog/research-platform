@@ -63,14 +63,14 @@ export default function RecordView({ record: r, citation, hasUrl, activity, acti
         )}
 
         {abstracts.map((a) => (
-          <section key={a.lang}>
+          <section key={a.lang} id={`abstract-${a.lang}`}>
             <h2 className={s.h2}>{abstracts.length > 1 ? a.label : rt.abstract}</h2>
             <p className={s.abstract} lang={a.lang} dir={a.lang === 'ar' ? 'rtl' : 'ltr'}>{a.text}</p>
           </section>
         ))}
 
         {details.length > 0 && (
-          <section>
+          <section id="research-details">
             <h2 className={s.h2}>{rt.details}</h2>
             <dl className={s.dl}>
               {details.map(([k, v]) => (<div key={k} style={{ display: 'contents' }}><dt>{k}</dt><dd><bdi>{v}</bdi></dd></div>))}
@@ -80,15 +80,15 @@ export default function RecordView({ record: r, citation, hasUrl, activity, acti
 
         <CitePanel publicId={r.public_id} text={citation} hasUrl={hasUrl} />
 
-        <section>
-          <h2 className={s.h2}>{rt.rightsTitle}</h2>
+        <details className={s.cite}>
+          <summary className={s.citeSummary}>{rt.rightsTitle}</summary>
           <div className={s.rights}>
             <p>{r.setting !== 'record_abstract_fulltext' ? rt.rightsRecord : ft ? rt.rightsFull : rt.rightsHeld}</p>
             <p>{rt.rightsCommon}</p>
             <p>{rt.notEndorsed}</p>
             <p>{rt.concern} <a className={s.link} href={`mailto:${CONTACT_EMAIL}`} dir="ltr">{CONTACT_EMAIL}</a>.</p>
           </div>
-        </section>
+        </details>
         <ActivityPanel activity={activity} error={activityError} />
         <PageViewBeacon publicId={r.public_id} />
       </article>
