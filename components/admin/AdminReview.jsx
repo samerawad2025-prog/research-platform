@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
+import { KNOWLEDGE_MESSAGES } from '../../lib/i18nKnowledge'
 import { api, authClient } from '../../lib/admin/adminClient'
 import { useAdmin, errorText } from './AdminProvider'
 import s from './admin.module.css'
@@ -21,7 +22,7 @@ function Dl({ rows }) {
   return <dl className={s.dl}>{rows.filter((r) => r[1] !== undefined && r[1] !== null && r[1] !== '').map(([k, val]) => (<div key={k} style={{ display: 'contents' }}><dt>{k}</dt><dd className={s.bidi}>{val}</dd></div>))}</dl>
 }
 
-export default function AdminReview({ paperId }) {
+export default function AdminReview({ paperId, knowledgeEnabled = false }) {
   const { me, t, locale } = useAdmin()
   const r = t.review
   const isAdmin = me.role === 'administrator'
@@ -80,6 +81,7 @@ export default function AdminReview({ paperId }) {
         <nav className={s.quickLinks} aria-label={r.reviewNavigation}>
           <a href="#md-h">{r.metadataHeading}</a>
           <a href="#dm-h">{r.documentsHeading}</a>
+          {isAdmin && knowledgeEnabled && <Link href={`/admin/review/${paperId}/article`}>{KNOWLEDGE_MESSAGES[locale].link}</Link>}
           {isAdmin && <a href="#dc-h">{r.decideHeading}</a>}
           {d.public_url && <a href={d.public_url} target="_blank" rel="noopener noreferrer">{r.publicLinkOpen}</a>}
         </nav>

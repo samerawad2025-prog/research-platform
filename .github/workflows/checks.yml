@@ -91,6 +91,9 @@ jobs:
       - name: Citations and activity counts (Phase 3 M6)
         run: node scripts/test-citations-activity.js
 
+      - name: Source-grounded reader and article handlers
+        run: node scripts/test-knowledge.js
+
       - name: Private publication status
         run: node scripts/test-publication-status.js
 
@@ -115,3 +118,33 @@ jobs:
           name: interface-screenshots
           path: artifacts/ui/
           retention-days: 7
+
+  knowledge-database:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: synthetic-ci-only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: 5432
+      PGUSER: postgres
+      PGPASSWORD: synthetic-ci-only
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Optional permission and editorial publication, real Postgres
+        run: node supabase/tests/knowledge-postgres.test.js

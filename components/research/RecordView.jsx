@@ -5,6 +5,7 @@
 // language, the research text is shown exactly as confirmed.
 
 import Link from 'next/link'
+import KnowledgeReader from './KnowledgeReader'
 import { useLocale } from '../LocaleProvider'
 import { CONTACT_EMAIL, messagesFor } from '../../lib/i18n'
 import { titles, named, fileSize } from './format'
@@ -77,6 +78,8 @@ export default function RecordView({ record: r, citation, hasUrl, activity, acti
             </dl>
           </section>
         )}
+
+        <KnowledgeReader publicId={r.public_id} />
 
         <CitePanel publicId={r.public_id} text={citation} hasUrl={hasUrl} />
 
