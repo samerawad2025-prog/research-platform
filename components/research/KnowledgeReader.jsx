@@ -5,11 +5,11 @@ import { KNOWLEDGE_MESSAGES } from '../../lib/i18nKnowledge'
 import s from './knowledge.module.css'
 export default function KnowledgeReader({publicId}) {
   const {locale}=useLocale(),t=KNOWLEDGE_MESSAGES[locale]
-  const [available,setAvailable]=useState(false),[article,setArticle]=useState(null),[question,setQuestion]=useState(''),[answer,setAnswer]=useState(null),[busy,setBusy]=useState(false),[error,setError]=useState('')
+  const [available,setAvailable]=useState(false),[article,setArticle]=useState(null),[sourceAnchor,setSourceAnchor]=useState('abstract-en'),[question,setQuestion]=useState(''),[answer,setAnswer]=useState(null),[busy,setBusy]=useState(false),[error,setError]=useState('')
   useEffect(()=>{
     let live=true;const ac=new AbortController()
     fetch('/api/knowledge',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'source',publicId,language:locale}),cache:'no-store',signal:ac.signal})
-      .then(async r=>{const data=await r.json();if(live){setAvailable(r.ok);setArticle(r.ok?data.article:null);setAnswer(null)}}).catch(()=>{if(live)setAvailable(false)})
+      .then(async r=>{const data=await r.json();if(live){setAvailable(r.ok);setArticle(r.ok?data.article:null);setSourceAnchor((data.sources||[]).find(s=>s.id===(locale==='ar'?'abstract_ar':'abstract'))?.anchor||data.sources?.[0]?.anchor||'abstract-en');setAnswer(null)}}).catch(()=>{if(live)setAvailable(false)})
     return()=>{live=false;ac.abort()}
   },[publicId,locale])
   async function ask(e){
@@ -26,13 +26,13 @@ export default function KnowledgeReader({publicId}) {
       <p className={s.label}>{t.article}</p><h2 id="explainer-heading" dir="auto">{locale==='ar'?article.headline_ar:article.headline}</h2>
       <p className={s.hint}>{t.articleLabel}</p>
       <div className={s.prose} dir={locale==='ar'?'rtl':'ltr'}>{(locale==='ar'?article.body_ar:article.body_en).split(/\n\n+/).map((p,i)=><p key={i}>{p}</p>)}</div>
-      <a href={locale==='ar'?'#abstract-ar':'#abstract-en'}>{t.source}</a>
+      <a href={'#'+sourceAnchor}>{t.source}</a>
     </section>}
     <section className={s.panel} aria-labelledby="reader-heading">
       <h2 id="reader-heading">{t.reader}</h2><p>{t.scope}</p>
       <p className={s.hint}>{t.privacy} <a href="https://ai.google.dev/gemini-api/terms" target="_blank" rel="noopener noreferrer">{locale==='ar'?'شروط Google':'Google terms'}</a></p>
       <form onSubmit={ask}>
-        <label className={s.field}>{t.question}<textarea dir="auto" value={question} onChange={e=>setQuestion(e.target.value)} maxLength={600} required minLength={3}/></label>
+        <div className={s.field}><label htmlFor="research-question">{t.question}</label><textarea id="research-question" dir="auto" value={question} onChange={e=>setQuestion(e.target.value)} maxLength={600} required minLength={3}/></div>
         <button className={s.button} disabled={busy||question.trim().length<3}>{busy?t.working:t.ask}</button>
       </form>
       {error&&<p role="alert">{error}</p>}
