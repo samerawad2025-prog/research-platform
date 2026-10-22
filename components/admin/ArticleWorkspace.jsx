@@ -49,11 +49,11 @@ export default function ArticleWorkspace({paperId}) {
       {form?<div>
         <p className={s.hint}>{t.editHint}</p>
         <p>{t.version}: {state.draft.version_number}</p>
-        {['headline','headline_ar','body_en','body_ar'].map((k,i)=><label className={s.field} key={k} htmlFor={'article-'+k}>
-          {[t.headline,t.headlineAr,t.body,t.bodyAr][i]}
+        {['headline','headline_ar','body_en','body_ar'].map((k,i)=><div className={s.field} key={k}>
+          <label htmlFor={'article-'+k}>{[t.headline,t.headlineAr,t.body,t.bodyAr][i]}</label>
           {i<2?<input id={'article-'+k} dir={k.endsWith('_ar')?'rtl':'ltr'} value={form[k]} maxLength={250} onChange={ev=>{setForm({...form,[k]:ev.target.value});setDirty(true);setReviewed(false)}}/>:
           <textarea id={'article-'+k} dir={k.endsWith('_ar')?'rtl':'ltr'} value={form[k]} maxLength={12000} onChange={ev=>{setForm({...form,[k]:ev.target.value});setDirty(true);setReviewed(false)}}/>}
-        </label>)}
+        </div>)}
         <button className={s.button} disabled={busy||!dirty} onClick={()=>act('save')}>{t.save}</button>
         <label className={s.check}><input type="checkbox" checked={reviewed} onChange={ev=>setReviewed(ev.target.checked)}/>{t.review}</label>
         <button className={s.button} disabled={busy||dirty||!reviewed||state.draft.source_hash!==state.source.hash} onClick={()=>act('publish')}>{t.publish}</button>
