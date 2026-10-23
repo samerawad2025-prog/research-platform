@@ -65,3 +65,14 @@
 .stat { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: var(--space-2) var(--space-3); background: var(--surface-raised); }
 .stat dt { font-size: var(--text-xs); color: var(--ink-muted); }
 .stat dd { margin: 0; font-size: var(--text-lg); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+.catalogueHero { position: relative; overflow: hidden; padding: clamp(1.25rem, 4vw, 2.5rem); margin-block-end: var(--space-5); background: var(--identity-navy); color: white; border-radius: var(--radius-lg); border-block-end: 3px solid var(--identity-gold); }
+.catalogueHero .h1, .catalogueHero .lead { position: relative; }
+.catalogueHero .lead { color: #e4edf2; margin: 0; }
+.confluence { position: absolute; width: 19rem; max-width: 55%; inset-inline-end: -3rem; inset-block-end: -4rem; color: var(--identity-light); opacity: .14; pointer-events: none; }
+.resultsOnly { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-3); }
+.article { margin-inline: auto; }
+.article > .h1 { color: var(--identity-navy); font-size: clamp(1.75rem, 3vw, 2.25rem); line-height: 1.35; }
+.article section[id] { scroll-margin-block-start: 1.5rem; }
+.result { padding: var(--space-5); }
+.resultTitle { line-height: 1.5; }

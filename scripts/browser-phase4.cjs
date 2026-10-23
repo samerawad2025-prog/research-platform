@@ -2,7 +2,9 @@
 // No real credentials or hosted database; unexpected remote requests fail.
 const assert = require('node:assert/strict')
 const { spawn } = require('node:child_process')
+const { mkdirSync } = require('node:fs')
 const { chromium } = require('playwright')
+const { KNOWLEDGE_MESSAGES } = require('../lib/i18nKnowledge')
 const { ADMIN_MESSAGES } = require('../lib/i18nAdmin')
 const APP = 'http://127.0.0.1:3100'
 const PAPER = '22222222-2222-4222-8222-222222222222'
@@ -36,6 +38,7 @@ async function run() {
     }
     assert.ok(ready, 'built app starts')
     browser = await chromium.launch()
+    mkdirSync('artifacts/ui', { recursive: true })
     for (const [lang, width] of [['en', 1280], ['ar', 390]]) {
       const ctx = await browser.newContext({ viewport: { width, height: 900 } })
       await ctx.addCookies([{ name: 'sarp_lang', value: lang, url: APP }])
@@ -46,13 +49,14 @@ async function run() {
           user: { id: '11111111-1111-4111-8111-111111111111', email: 'synthetic@example.invalid' },
         }))
       })
+      let granted = false
       let d = detail(), saves = [], publication = 'published', publicationCalls = 0
       const failures = []
       const page = await ctx.newPage()
       page.on('pageerror', e => failures.push(e.message))
       await page.route('**/*', async route => {
         const req = route.request(), u = new URL(req.url())
-        if (u.hostname === 'placeholder.supabase.co') {
+        if (u.origin === 'http://127.0.0.1:3199') {
           if (u.pathname.endsWith('/get_paper_for_confirmation')) return json(route, {
             paper_id: PAPER, title: 'Synthetic study', year: 2026, metadata_confirmed_at: '2026-01-01',
             extraction_status: 'completed', researchers: [{ full_name: 'Synthetic Author', author_order: 1 }],
@@ -71,6 +75,13 @@ async function run() {
           saves.push(req.postDataJSON())
           d = detail(saves.at(-1).decision, 'r' + (saves.length + 1))
           return json(route, { ok: true })
+        }
+        if (u.pathname === '/api/knowledge') {
+          const b=req.postDataJSON()
+          assert.equal(b.token,TOKEN)
+          assert.ok(!req.headers().referer)
+          if(b.granted!==undefined)granted=b.granted
+          return json(route,{granted,text:'Synthetic optional permission',hash:'b'.repeat(64),version:'synthetic'})
         }
         if (u.pathname === '/api/submissions/publication-status') {
           publicationCalls++
@@ -93,6 +104,16 @@ async function run() {
       assert.equal(await choice.inputValue(), '')
       assert.equal(await save.isEnabled(), false)
       assert.equal(await page.getByText(t.review.isPublic, { exact: true }).isVisible(), true)
+      assert.equal(await page.locator('[data-section="hi-h"]').getAttribute('open'), null)
+      assert.equal(await page.locator('[data-section="sub-h"]').getAttribute('open'), null)
+      assert.equal(await page.locator('[data-section="rc-h"]').count(), 0, 'founder does not see volunteer recommendation')
+      assert.equal(await page.locator('[data-section="as-h"]').count(), 0, 'no assignment form without volunteers')
+      await page.locator('[data-section="hi-h"] summary').focus()
+      await page.keyboard.press('Enter')
+      assert.equal(await page.locator('[data-section="hi-h"]').getAttribute('open'), '')
+      await page.keyboard.press('Enter')
+      assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'review fits viewport')
+      await page.screenshot({ path: 'artifacts/ui/admin-' + lang + '.png', fullPage: true })
       // The previous accidental path is now impossible without both choices.
       await choice.selectOption('reviewed')
       assert.equal(await save.isEnabled(), false)
@@ -121,6 +142,16 @@ async function run() {
       const panel = page.locator('section[aria-labelledby="publication-status-heading"]')
       const link = panel.locator('a[href="' + PUBLIC + '"]')
       await link.waitFor()
+      const kt=KNOWLEDGE_MESSAGES[lang]
+      const consent=page.getByRole('checkbox',{name:kt.agree,exact:true})
+      await consent.waitFor()
+      assert.equal(await consent.isChecked(),false)
+      assert.equal(await page.getByRole('button',{name:kt.enable,exact:true}).isEnabled(),false)
+      await consent.check()
+      await page.getByRole('button',{name:kt.enable,exact:true}).click()
+      await page.getByRole('button',{name:kt.revoke,exact:true}).click()
+      await page.getByRole('button',{name:kt.enable,exact:true}).waitFor()
+      assert.equal(granted,false)
       assert.equal(await link.getAttribute('referrerpolicy'), 'no-referrer')
       assert.ok(!(await link.getAttribute('href')).includes(TOKEN))
       assert.equal(await page.locator('meta[name="robots"]').getAttribute('content').then(x => x.includes('noindex')), true)
@@ -141,6 +172,10 @@ async function run() {
       await link.click()
       await page.getByRole('heading', { name: 'Synthetic public record' }).waitFor()
       assert.equal(new URL(page.url()).pathname, PUBLIC)
+      await page.goto(APP)
+      await page.getByRole('link', { name: lang === 'ar' ? 'تصفّح البحوث' : 'Browse research', exact: true }).first().waitFor()
+      assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'landing fits viewport')
+      await page.screenshot({ path: 'artifacts/ui/home-' + lang + '.png', fullPage: true })
       assert.deepEqual(failures, [])
       console.log('PASS publication workflow ' + lang + ' at ' + width + 'px')
       await ctx.close()

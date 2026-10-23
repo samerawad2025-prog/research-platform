@@ -338,3 +338,11 @@ a {
     scroll-behavior: auto !important;
   }
 }
+
+/* Founder-approved editorial identity, 2026-10-21.
+   Navy and gold belong to identity surfaces; accessible teal controls remain. */
+:root {
+  --identity-navy: #122c42;
+  --identity-gold: #b88b43;
+  --identity-light: #bfd6df;
+}

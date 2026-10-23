@@ -1,0 +1,18 @@
+.panel { margin-block: var(--space-5); padding: var(--space-5); border: 1px solid var(--line); border-block-start: 3px solid var(--identity-gold); border-radius: var(--radius-md); background: var(--surface-raised); line-height: 1.65; overflow-wrap: anywhere; }
+.panel h2 { font-size: var(--text-xl); color: var(--identity-navy); }
+.panel summary { cursor: pointer; min-height: 44px; align-content: center; font-weight: 600; }
+.notice,.prose { white-space: pre-line; }
+.hint { font-size: var(--text-sm); color: var(--ink-muted); }
+.field { display: grid; gap: var(--space-2); font-weight: 600; margin-block: var(--space-3); }
+.field textarea,.field input { width: 100%; min-height: 48px; padding: var(--space-3); font: inherit; font-size: 16px; font-weight: 400; color: var(--ink); background: white; border: 1px solid var(--line-control); border-radius: var(--radius-sm); }
+.field textarea { min-height: 100px; resize: vertical; }
+.button { min-height: 44px; padding: var(--space-2) var(--space-4); background: var(--accent); color: white; border: 1px solid var(--accent); border-radius: var(--radius-sm); font: inherit; font-weight: 600; cursor: pointer; }
+.button:disabled { opacity: .55; cursor: not-allowed; }
+.check { display: flex; gap: var(--space-2); margin-block: var(--space-3); }
+.check input { flex: none; width: 20px; height: 20px; }
+.claim { margin-block: var(--space-4); }
+.claim blockquote { border-inline-start: 3px solid var(--line-control); margin-inline: 0; padding-inline-start: var(--space-3); }
+.label { font-weight: 700; color: var(--accent-strong); font-size: var(--text-sm); }
+.actions { display: flex; flex-wrap: wrap; gap: var(--space-3); margin-block: var(--space-4); }
+.editor { max-width: 52rem; margin-inline: auto; }
+.editor textarea { min-height: 16rem; }

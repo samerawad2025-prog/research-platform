@@ -6,6 +6,7 @@
 // the wording follows the reader's language choice.
 
 import Link from 'next/link'
+import Confluence from '../Confluence'
 import { useLocale } from '../LocaleProvider'
 import { messagesFor } from '../../lib/i18n'
 import { titles, named } from './format'
@@ -24,6 +25,7 @@ export default function Catalogue({ data, filters, error }) {
   const t = messagesFor(locale).research
   const c = t.catalogue
   const facets = data?.facets || { unit: [], year: [], degree: [], type: [] }
+  const hasFacets = ['unit', 'year', 'degree', 'type'].some((key) => facets[key].length > 1 || filters[key] !== undefined)
   const total = data?.total || 0
   const page = data?.page || 1
   const pages = Math.max(1, Math.ceil(total / (data?.limit || 20)))
@@ -43,8 +45,11 @@ export default function Catalogue({ data, filters, error }) {
 
   return (
     <div className={s.wrap}>
-      <h1 className={s.h1}>{c.title}</h1>
-      <p className={s.lead}>{c.intro}</p>
+      <header className={s.catalogueHero}>
+        <Confluence className={s.confluence} />
+        <h1 className={s.h1}>{c.title}</h1>
+        <p className={s.lead}>{c.intro}</p>
+      </header>
 
       <form action="/research" method="get" role="search" aria-label={c.searchLabel}>
         <div className={s.search}>
@@ -52,7 +57,7 @@ export default function Catalogue({ data, filters, error }) {
           <input id="research-q" type="search" name="q" defaultValue={filters.q || ''} placeholder={c.searchPlaceholder} maxLength={200} dir="auto" />
           <button className={s.button} type="submit">{c.submit}</button>
         </div>
-        <div className={s.layout}>
+        <div className={hasFacets ? s.layout : s.resultsOnly}>
           {(() => {
             const selects = [
               select('unit', c.unit, facets.unit.map((u) => <option key={u.id} value={u.id}>{withCount(named(u, locale), u.count)}</option>), filters.unit),
@@ -61,7 +66,7 @@ export default function Catalogue({ data, filters, error }) {
               select('type', c.type, facets.type.map((d) => <option key={d.value} value={d.value}>{withCount(c.types[d.value] || d.value, d.count)}</option>), filters.type),
             ].filter(Boolean)
             // No panel when the public records offer no real choice.
-            if (selects.length === 0) return anyFilter ? <p><Link className={s.link} href="/research">{c.clear}</Link></p> : <div />
+            if (selects.length === 0) return anyFilter ? <p><Link className={s.link} href="/research">{c.clear}</Link></p> : null
             return (
               <fieldset className={s.filters}>
                 <legend>{c.filters}</legend>

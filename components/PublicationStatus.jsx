@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import KnowledgePermission from './KnowledgePermission'
 import { useLocale } from './LocaleProvider'
 import { messagesFor } from '../lib/i18n'
 import styles from './ConfirmationScreen.module.css'
@@ -33,6 +34,7 @@ export default function PublicationStatus({ token }) {
     return () => { live = false; clearTimeout(timeout); controller.abort() }
   }, [token, attempt])
   return (
+    <>
     <section className={styles.receipt} aria-labelledby="publication-status-heading">
       <h2 id="publication-status-heading">{t.heading}</h2>
       <p role="status">{result.state === 'loading' ? t.loading : result.state === 'published' ? t.published : result.state === 'not_public' ? t.notPublic : t.unavailable}</p>
@@ -43,5 +45,7 @@ export default function PublicationStatus({ token }) {
       {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
       <p><a href="/research" referrerPolicy="no-referrer">{t.browse}</a></p>
     </section>
+    <KnowledgePermission token={token} />
+    </>
   )
 }

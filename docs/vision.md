@@ -80,3 +80,11 @@ This is the standard the current metadata-extraction pipeline was built against 
 *(Historical wording below, from before Phase 2. As of 2026-09-26: Phase 1 delivered the loop described here, and Phase 2 delivered the bilingual EN/AR interface, the accessibility work and the brand. Public pages, review and publication are Phase 3 (`PHASE_3_PLAN.md`). Article generation and social-media assets are not scheduled.)*
 
 The platform today implements the **submission → AI extraction → human confirmation** loop (referred to elsewhere as "Step 3"). Turning confirmed metadata into a public, accessible article; generating social-media communication assets; and public search/discovery are all future work — see `prompts/article-generation.md` for the closest thing to a starting point on the first of these, and `CLAUDE_CODE_HANDOVER.md` for the fuller roadmap.
+
+## Cumulative research: founder direction, 24 October 2026
+
+The platform should help knowledge build on knowledge. Preserve scattered studies, make their findings understandable to the public, and help later researchers use that evidence as a foundation for further discovery.
+
+This is a product objective, not a claim that uploading papers or generating summaries alone produces cumulative science. Future evidence syntheses must connect relevant studies, retain their methods, contexts, uncertainty and limitations, and show agreements as well as contradictions. Attribute every finding to its source and distinguish a reported limitation from an AI-inferred opportunity. Replication, verification and well-designed extensions are valuable contributions; repetition is not automatically waste.
+
+Deliver this progressively: reliable records and individual explanations first; linked study comparisons and accessible, reviewable evidence summaries next; then Explore research directions grounded in those sources. Show the scope and date of the evidence reviewed. Do not claim a comprehensive literature review, consensus, novelty or causation without supporting evidence. Keep the existing consent and publication boundaries.

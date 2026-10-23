@@ -129,3 +129,18 @@
     font-size: var(--text-xl);
   }
 }
+
+/* Editorial identity taken from the founder's platform overview. */
+.page { max-width: 68rem; }
+.hero { position: relative; overflow: hidden; background: var(--identity-navy); color: white; border-radius: var(--radius-lg); border-block-end: 4px solid var(--identity-gold); padding: clamp(1.5rem, 5vw, 4rem); margin-block-end: var(--space-6); }
+.heroContent { position: relative; max-width: 42rem; }
+.hero .title { font-size: clamp(1.75rem, 4vw, 3rem); }
+.hero .lead { color: #e4edf2; }
+.heroActions { display: flex; flex-wrap: wrap; gap: var(--space-3); }
+.hero .cta { background: white; color: var(--identity-navy); }
+.hero .cta:hover { background: #e4edf2; }
+.secondary { min-height: 44px; padding: var(--space-3) var(--space-5); border: 1px solid #bfd6df; border-radius: var(--radius-md); color: white; text-decoration: none; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; }
+.hero a:focus-visible { outline: 3px solid white; outline-offset: 4px; }
+.confluence { position: absolute; width: 24rem; max-width: 70%; inset-inline-end: -4rem; inset-block-end: -2rem; color: var(--identity-light); opacity: .12; pointer-events: none; }
+.steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-5); padding-inline-start: var(--space-5); }
+@media (max-width: 42rem) { .steps { grid-template-columns: minmax(0, 1fr); gap: var(--space-2); } .heroActions > a { width: 100%; } }

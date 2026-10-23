@@ -16,6 +16,19 @@ Acceptance: bilingual EN/AR; mobile and keyboard usable; reviewed/private stays 
 
 M1 is released through PR #27 (merge `139ca803`), with passing hosted tests and a verified production deployment. It includes explicit publication decisions, removal confirmation and a private author status panel. No database migration was needed.
 
+## Approved value-feature package: 2026-10-21
+
+The founder approved this implementation order. It supersedes the earlier sequence below; optional recruitment is not a prerequisite.
+1. Simplify admin review with progressive disclosure, preserve all server publication checks.
+2. Apply the overview's navy/gold identity and Nile-confluence motif selectively to public editorial surfaces; improve mobile navigation and reading.
+3. Intelligent reader in Arabic and English, grounded in identified source passages.
+4. Bilingual accessible article drafts, explicitly reviewed before publication.
+5. Later: question search, study comparisons and Explore research directions.
+
+Separate optional permission for the intelligent reader and articles was approved on 2026-10-21. Existing agreement acceptances must remain unchanged. Current Version 4 explicitly excludes public AI summaries/translations, so the new uses require a new recorded opt-in before processing or publication. Do not silently infer permission from existing public status. This is an implementation requirement, not a blocker to usability improvements.
+
+No provider change, paid service, required participant contact or invitation campaign is included. Continue cloud-only. The first interface change is being verified in hosted CI; the reader, articles and optional permission are not yet released.
+
 ## M2: validate the service with a small genuine collection
 
 Founder-led outreach to a small UofK cohort. An initial target of 10-20 permission-reviewed records is a planning target, not a launch requirement or a promise. Track confirmed submissions, approved records, missing-data reasons, review backlog and founder/volunteer time. Do not treat volunteer time as a cash expense or platform activity as academic citations.
@@ -51,3 +64,9 @@ Official sources checked 2026-10-18:
 - MIT Open Scholarship: https://dspace.mit.edu/home . Study research collections and permanent records. MIT thesis access guide: https://libguides.mit.edu/diss .
 
 These validate the repository model, not demand for SARP specifically. Sudan already has repositories. SARP should demonstrate easier bilingual submission/discovery and useful connections between research. Do not copy institutional branding or import their documents without checking rights.
+
+## Cumulative research requirement: 24 October 2026
+
+The founder reaffirmed cumulative science as a central benefit: make scattered findings understandable and reusable as foundations for subsequent research. M3 should connect studies through source-linked evidence summaries, not merely suggest attractive titles.
+
+For the later cross-study pilot, include the research question, method, population/context, findings and limitations where the permitted sources actually contain them. Show supporting and conflicting evidence, distinguish replication from extension, and label missing information. Each suggestion must identify which earlier result or limitation it builds upon. An abstract-only source must be labeled as such; never infer a missing method or limitation. Track evidence coverage and useful, supervisor-reviewed follow-on questions rather than treating AI output volume as scientific progress. The current single-paper abstract reader is groundwork, not a completed evidence-synthesis engine.

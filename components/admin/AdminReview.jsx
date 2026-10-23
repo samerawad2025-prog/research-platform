@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
+import { KNOWLEDGE_MESSAGES } from '../../lib/i18nKnowledge'
 import { api, authClient } from '../../lib/admin/adminClient'
 import { useAdmin, errorText } from './AdminProvider'
 import s from './admin.module.css'
@@ -9,7 +10,8 @@ import s from './admin.module.css'
 const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const FILE_TYPES = { pdf: 'application/pdf', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }
 
-function Section({ id, title, children }) {
+function Section({ id, title, children, collapsible = false, expanded = false }) {
+  if (collapsible) return <details className={s.section} open={expanded} data-section={id}><summary className={s.summary}><h2 id={id} className={s.summaryHeading}>{title}</h2></summary><div className={s.sectionBody}>{children}</div></details>
   return <section className={s.section} aria-labelledby={id} data-section={id}><h2 id={id} className={s.h2}>{title}</h2>{children}</section>
 }
 function Msg({ m }) {
@@ -20,7 +22,7 @@ function Dl({ rows }) {
   return <dl className={s.dl}>{rows.filter((r) => r[1] !== undefined && r[1] !== null && r[1] !== '').map(([k, val]) => (<div key={k} style={{ display: 'contents' }}><dt>{k}</dt><dd className={s.bidi}>{val}</dd></div>))}</dl>
 }
 
-export default function AdminReview({ paperId }) {
+export default function AdminReview({ paperId, knowledgeEnabled = false }) {
   const { me, t, locale } = useAdmin()
   const r = t.review
   const isAdmin = me.role === 'administrator'
@@ -73,9 +75,19 @@ export default function AdminReview({ paperId }) {
     <div>
       <p><Link href="/admin">{t.back}</Link></p>
       <h1 className={`${s.h1} ${s.bidi}`}>{p.title || p.title_ar || t.queue.untitled}</h1>
-      <p className={s.banner}>{r.banner}</p>
+      <div className={s.reviewOverview}>
+        <p className={s.statusLine}>{d.public_site_enabled && d.eligibility?.record_public ? r.isPublic : r.notPublic}</p>
+        <p className={s.muted}>{t.status[d.review.status]}</p>
+        <nav className={s.quickLinks} aria-label={r.reviewNavigation}>
+          <a href="#md-h">{r.metadataHeading}</a>
+          <a href="#dm-h">{r.documentsHeading}</a>
+          {isAdmin && knowledgeEnabled && <Link href={`/admin/review/${paperId}/article`}>{KNOWLEDGE_MESSAGES[locale].link}</Link>}
+          {isAdmin && <a href="#dc-h">{r.decideHeading}</a>}
+          {d.public_url && <a href={d.public_url} target="_blank" rel="noopener noreferrer">{r.publicLinkOpen}</a>}
+        </nav>
+      </div>
 
-      <Section id="st-h" title={r.statesHeading}>
+      <Section collapsible id="st-h" title={r.statesHeading}>
         <ul className={s.states}>
           <li><strong>{t.states.submitted}</strong><br />{fmt(p.submitted_at)}</li>
           <li><strong>{t.states.confirmed}</strong><br />{d.states.confirmed ? fmt(d.states.confirmed_at) : t.no}</li>
@@ -83,8 +95,7 @@ export default function AdminReview({ paperId }) {
           <li><strong>{t.states.approval_recorded}</strong><br />{d.states.approval_recorded ? t.yes : t.no}</li>
           <li><strong>{t.states.publication_approved}</strong><br />{d.states.publication_approved ? t.states.approval_in_effect : d.states.approval_recorded ? t.states.approval_not_in_effect : t.no}</li>
         </ul>
-        <p className={s.muted}>{d.public_site_enabled && d.eligibility?.record_public ? r.isPublic : r.notPublic}</p>
-        {d.public_url && <a href={d.public_url} target="_blank" rel="noopener noreferrer">{r.publicLinkOpen}</a>}
+        
       </Section>
 
       <div className={s.two}>
@@ -100,7 +111,7 @@ export default function AdminReview({ paperId }) {
             {d.authors.length === 0 ? <p>{r.authorsNone}</p> : <ol>{d.authors.map((a, i) => <li key={i} className={s.bidi}>{a.name}</li>)}</ol>}
           </Section>
 
-          <Section id="sub-h" title={r.submitter}>
+          <Section collapsible id="sub-h" title={r.submitter}>
             {isAdmin
               ? <Dl rows={[[r.submitterName, d.submitter.name], [r.submitterEmail, d.submitter.email], [r.submitterWhatsapp, d.submitter.whatsapp_number]]} />
               : <p className={s.muted}>{r.contactHidden}</p>}
@@ -108,7 +119,7 @@ export default function AdminReview({ paperId }) {
             <p className={s.muted}>{r.identityNotVerified}</p>
           </Section>
 
-          <Section id="ev-h" title={r.evidenceHeading}>
+          <Section collapsible id="ev-h" title={r.evidenceHeading}>
             {isLegacy ? <p>{r.evidenceLegacy}</p> : (
               <Dl rows={[
                 [r.acceptedAt, fmt(d.acceptance.accepted_at)], [r.agreement, d.acceptance.agreement_version_id],
@@ -121,13 +132,13 @@ export default function AdminReview({ paperId }) {
             <ul>{(d.evidence.problems || []).map((c) => <li key={c}>{r.problems[c] || c}</li>)}</ul>
           </Section>
 
-          <Section id="ck-h" title={r.checklistHeading}>
+          <Section collapsible expanded={d.metadata_check.missing.length > 0} id="ck-h" title={r.checklistHeading}>
             <p className={s.muted}>{r.checklistRule}</p>
             {d.metadata_check.missing.length === 0 ? <p className={s.ok}>{r.checklistOk}</p> : (<><h3 className={s.h3}>{r.checklistBlocking}</h3><ul>{d.metadata_check.missing.map((c) => <li key={c}>{r.missing[c] || c}</li>)}</ul></>)}
             {d.metadata_check.advisory.length > 0 && (<><h3 className={s.h3}>{r.checklistAdvisory}</h3><ul>{d.metadata_check.advisory.map((c) => <li key={c}>{r.missing[c] || c}</li>)}</ul></>)}
           </Section>
 
-          <Section id="dup-h" title={r.duplicatesHeading}>
+          <Section collapsible expanded={d.duplicates.items.length > 0 || d.duplicates.hidden_count > 0} id="dup-h" title={r.duplicatesHeading}>
             <p className={s.muted}>{r.duplicatesIntro}</p>
             {d.duplicates.items.length === 0 && d.duplicates.hidden_count === 0 && <p>{r.duplicatesNone}</p>}
             <ul className={s.list}>{d.duplicates.items.map((x) => (
@@ -140,13 +151,13 @@ export default function AdminReview({ paperId }) {
 
           <Documents {...{ d, t, r, isAdmin, act, busy, msg, say, paperId, fullText, fmt }} />
 
-          <Section id="is-h" title={r.issuesHeading}>
+          <Section collapsible expanded={openIssues.length > 0} id="is-h" title={r.issuesHeading}>
             {d.issues.length === 0 && <p>{r.issuesNone}</p>}
             <ul className={s.list}>{d.issues.map((i) => <IssueItem key={i.id} i={i} t={t} r={r} act={act} paperId={paperId} busy={busy} />)}</ul>
             <IssueForm t={t} r={r} act={act} paperId={paperId} busy={busy} msg={msg.issue} approved={d.states.approval_recorded} />
           </Section>
 
-          <Section id="nt-h" title={r.notesHeading}>
+          <Section collapsible id="nt-h" title={r.notesHeading}>
             <p className={s.muted}>{r.notesIntro}</p>
             {d.notes.length === 0 && <p>{r.notesNone}</p>}
             <ul className={s.list}>{d.notes.map((n) => <li key={n.id} className={s.item}><span className={s.bidi} style={{ whiteSpace: 'pre-wrap' }}>{n.body}</span><div className={s.meta}><span>{t.roles[n.author_role]}</span><span>{fmt(n.created_at)}</span></div></li>)}</ul>
@@ -157,7 +168,7 @@ export default function AdminReview({ paperId }) {
             </form>
           </Section>
 
-          <Recommend {...{ t, r, act, busy, paperId, msg }} />
+          {!isAdmin && <Recommend {...{ t, r, act, busy, paperId, msg }} />}
         </div>
 
         <aside>
@@ -183,7 +194,7 @@ export default function AdminReview({ paperId }) {
           {isAdmin && <EmbargoBox {...{ d, t, r, act, busy, paperId, msg }} />}
           {isAdmin && <Eligibility {...{ d, t, r }} />}
           {d.approvals?.length > 0 && (
-            <Section id="ap-h" title={r.approvalsHeading}>
+            <Section collapsible id="ap-h" title={r.approvalsHeading}>
               <p className={s.muted}>{r.approvalsIntro}</p>
               <ul className={s.list}>{d.approvals.map((a, i) => (
                 <li key={a.id} className={s.item}>
@@ -195,9 +206,9 @@ export default function AdminReview({ paperId }) {
                 </li>))}</ul>
             </Section>
           )}
-          {isAdmin && <Assignments {...{ d, t, r, staff, act, busy, paperId, msg }} />}
+          {isAdmin && (d.assignments?.length > 0 || staff.some((u) => u.role === 'volunteer' && u.active)) && <Assignments {...{ d, t, r, staff, act, busy, paperId, msg }} />}
 
-          <Section id="hi-h" title={r.historyHeading}>
+          <Section collapsible id="hi-h" title={r.historyHeading}>
             <p className={s.muted}>{r.historyIntro}</p>
             {d.events.length === 0 && <p>{r.historyNone}</p>}
             <ol className={s.events} reversed>{d.events.map((e) => (
@@ -319,7 +330,7 @@ function InstitutionBox({ d, t, r, institutions, act, busy, paperId, msg, isAdmi
   useEffect(() => { setF({ inst: i.institution_id || '', unit: i.unit_id || '' }) }, [i.institution_id, i.unit_id])
   const chosen = institutions.find((x) => x.id === f.inst)
   return (
-    <Section id="in-h" title={r.institutionHeading}>
+    <Section collapsible expanded={!i.eligible} id="in-h" title={r.institutionHeading}>
       <Dl rows={[[r.institutionSubmitted, [i.submitted_university, i.submitted_faculty].filter(Boolean).join(' / ')]]} />
       {i.institution_id
         ? <p>{r.institutionResolved}: <strong className={s.bidi}>{instName(i)}</strong> · {t.queue.institutionBasis[i.basis] || ''}<br />{i.eligible ? r.institutionEligible : r.institutionNotEligible}</p>
@@ -366,7 +377,7 @@ function AuthorityBox({ d, t, r, act, busy, paperId, msg, day }) {
   const [n, setN] = useState('')
   const on = !!d.review.authority_verified_at
   return (
-    <Section id="au-h" title={r.authorityHeading}>
+    <Section collapsible expanded={!on && d.evidence?.setting === 'record_abstract_fulltext'} id="au-h" title={r.authorityHeading}>
       <p className={s.muted}>{r.authorityIntro}</p>
       <p>{on ? r.authorityVerified(day(d.review.authority_verified_at)) : r.authorityNotVerified}</p>
       <form className={s.form} onSubmit={async (e) => { e.preventDefault(); const x = await act('auth', () => api('POST', `reviews/${paperId}/authority`, { verified: !on, note: n })); if (x.ok) setN('') }}>
@@ -381,7 +392,7 @@ function AuthorityBox({ d, t, r, act, busy, paperId, msg, day }) {
 function EmbargoBox({ d, t, r, act, busy, paperId, msg }) {
   const [f, setF] = useState({ until: d.review.embargo_until || '', note: '' })
   return (
-    <Section id="em-h" title={r.embargoHeading}>
+    <Section collapsible id="em-h" title={r.embargoHeading}>
       <p className={s.muted}>{r.embargoIntro}</p>
       <form className={s.form} onSubmit={(e) => { e.preventDefault(); act('emb', () => api('POST', `reviews/${paperId}/embargo`, { until: f.until || null, note: f.note || null })) }}>
         <label className={s.field}><span>{r.embargoUntil}</span><input type="date" value={f.until || ''} onChange={(e) => setF({ ...f, until: e.target.value })} /></label>
@@ -417,7 +428,7 @@ function Assignments({ d, t, r, staff, act, busy, paperId, msg }) {
   const assigned = new Set((d.assignments || []).map((a) => a.volunteer_id))
   const options = staff.filter((u) => u.role === 'volunteer' && u.active && !assigned.has(u.user_id))
   return (
-    <Section id="as-h" title={r.assignmentsHeading}>
+    <Section collapsible id="as-h" title={r.assignmentsHeading}>
       {(d.assignments || []).length === 0 && <p>{r.assignmentsNone}</p>}
       <ul className={s.list}>{(d.assignments || []).map((a) => (
         <li key={a.volunteer_id} className={s.item}><span dir="ltr">{a.email}</span>{' '}
@@ -461,10 +472,13 @@ function Documents({ d, t, r, isAdmin, act, busy, msg, say, paperId, fullText, f
     <Section id="dm-h" title={r.documentsHeading}>
       <p className={s.muted}>{r.filesLogged}</p>
       <p><strong>{r.original}</strong></p>
-      <Dl rows={[[r.originalHash, doc.original.sha256 || r.hashUnknown]]} />
+      
       <div className={s.row}><button className={s.secondary} onClick={() => openFile(null)}>{r.openOriginal}</button></div>
       <Msg m={msg.open} />
-      <h3 className={s.h3}>{r.versionsHeading}</h3>
+      <details className={s.documentDetails}>
+        <summary className={s.summary}>{r.versionsHeading}</summary>
+        <div className={s.sectionBody}>
+        <Dl rows={[[r.originalHash, doc.original.sha256 || r.hashUnknown]]} />
       {!fullText && <p className={s.muted}>{r.versionsNotNeeded}</p>}
       {doc.versions.length === 0 && <p>{r.versionsNone}</p>}
       <ul className={s.list}>{doc.versions.map((v) => (
@@ -498,6 +512,8 @@ function Documents({ d, t, r, isAdmin, act, busy, msg, say, paperId, fullText, f
           </form>
         </>
       )}
+        </div>
+      </details>
     </Section>
   )
 }

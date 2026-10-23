@@ -1,11 +1,12 @@
 'use client'
 
 import Link from 'next/link'
+import Confluence from './Confluence'
 import { useLocale } from './LocaleProvider'
 import { dirFor, messagesFor } from '../lib/i18n'
 import styles from './Landing.module.css'
 
-export default function Landing() {
+export default function Landing({ publicEnabled = false }) {
   const { locale } = useLocale()
   const t = messagesFor(locale).landing
 
@@ -14,11 +15,17 @@ export default function Landing() {
   return (
     <div className={styles.page} lang={locale} dir={dirFor(locale)}>
       <section className={styles.hero}>
+        <Confluence className={styles.confluence} />
+        <div className={styles.heroContent}>
         <h1 className={styles.title}>{t.title}</h1>
         <p className={styles.lead}>{t.lead}</p>
-        <Link href="/submit" className={styles.cta}>
+        <div className={styles.heroActions}>
+        {publicEnabled && <Link href="/research" className={styles.cta}>{messagesFor(locale).research.nav}</Link>}
+        <Link href="/submit" className={styles.secondary}>
           {t.cta}
         </Link>
+        </div>
+        </div>
       </section>
 
       <section className={styles.section}>

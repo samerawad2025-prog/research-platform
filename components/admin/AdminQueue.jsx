@@ -91,14 +91,14 @@ export default function AdminQueue() {
             <div className={s.chips}>
               <span className={`${s.chip} ${it.status === 'approved' ? s.chipOk : it.status === 'declined' || it.status === 'withdrawn' ? s.chipBad : s.chipWarn}`}>{t.status[it.status]}</span>
               <span className={s.chip}>{it.states.confirmed ? t.states.confirmed : q.confirmedNo}</span>
-              {it.states.reviewed && <span className={s.chip}>{t.states.reviewed}</span>}
+              
               {it.states.publication_approved && <span className={`${s.chip} ${s.chipOk}`}>{t.states.publication_approved}</span>}
               {it.status === 'approved' && !it.states.publication_approved && <span className={`${s.chip} ${s.chipBad}`}>{q.changedSinceApproval}</span>}
-              {it.withdrawn && <span className={`${s.chip} ${s.chipBad}`}>{q.withdrawn}</span>}
+              {it.withdrawn && it.status !== 'withdrawn' && <span className={`${s.chip} ${s.chipBad}`}>{q.withdrawn}</span>}
               {it.embargo_until && <span className={s.chip}>{q.embargo(it.embargo_until)}</span>}
-              <span className={s.chip}>{q.missing(it.missing_count)}</span>
+              {it.missing_count > 0 && <span className={`${s.chip} ${s.chipWarn}`}>{q.missing(it.missing_count)}</span>}
               {it.exact_duplicates > 0 && <span className={`${s.chip} ${s.chipWarn}`}>{q.duplicates(it.exact_duplicates)}</span>}
-              {!isVol && <span className={s.chip}>{q.assigned(it.assigned)}</span>}
+              {!isVol && it.assigned > 0 && <span className={s.chip}>{q.assigned(it.assigned)}</span>}
             </div>
           </li>
         ))}
