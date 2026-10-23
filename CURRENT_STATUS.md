@@ -1,10 +1,10 @@
 # CURRENT_STATUS.md
 
-## Phase 4 value package: release preparation, 24 October 2026
+## Phase 4 value package released: 24 October 2026
 
 PR #29 implements simpler admin review, navy/gold public styling, a separately optional abstract reader, and bilingual articles requiring explicit editorial publication. Application head `2c783f59` passed hosted regression, EN desktop/AR mobile browser workflows and fresh/upgrade Postgres 17 tests. Provider responses in those tests were simulated; live Gemini reader/article output is not yet verified.
 
-Migration 0021 was applied and independently verified on Production on 22 October. There were 41 papers, zero new permissions and zero articles; existing public research remained available. RLS and server-only RPC access were verified. Production `RESEARCH_KNOWLEDGE=enabled` was added for the next build. Application release is pending PR merge and production-alias verification; do not confuse the applied migration with deployed code.
+Migration 0021 was applied and independently verified on Production on 22 October. There were 41 papers, zero new permissions and zero articles; existing public research remained available. RLS and server-only RPC access were verified. Production `RESEARCH_KNOWLEDGE=enabled` was added for the next build. Released through PR #29, merge `1993837a`, on 24 October. Production deployment `dpl_EroQbwrUBFxuUJS2heeCLY69W5gE` is READY with the live alias. The live catalogue, research page and signed-in administrator queue/review were checked in the browser. The existing real paper remains public and its reader is correctly absent without optional permission.
 
 Existing full-document Gemini submission extraction is unchanged. The new reader uses approved titles/abstracts only and appears only after the rights holder grants the optional permission on the private confirmation page. No acceptance is rewritten. Cross-study synthesis and Explore research directions remain later work, now explicitly grounded in cumulative research (see docs/vision.md and PHASE_4_PLAN.md). Recruitment remains optional.
 

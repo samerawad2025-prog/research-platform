@@ -1,5 +1,12 @@
 # Phase 3 release runbook
 
+## Phase 4 package released: 24 October 2026
+
+Released through PR #29, merge `1993837a`, on 24 October. Production deployment `dpl_EroQbwrUBFxuUJS2heeCLY69W5gE` is READY with the live alias. The live catalogue, research page and signed-in administrator queue/review were checked in the browser. The existing real paper remains public and its reader is correctly absent without optional permission.
+
+Migration 0021 was applied on 22 October and rechecked on 24 October: 41 papers, no optional grants and no articles. Production-only RESEARCH_KNOWLEDGE is enabled. Existing full-document Gemini extraction and submission agreement v4 are unchanged. English/Arabic browser workflows, all regressions, and real Postgres fresh/upgrade tests passed before merge. Live reader/article provider responses are not yet verified; synthetic tests used simulated outputs. No permission was created on a user's behalf. See [reader and articles](research-knowledge.md).
+
+
 ## Current launch status: 2026-10-18 (Khartoum)
 
 This dated update supersedes earlier statements that the catalogue is off, the origin is unset, or the full-text restriction must remain active.

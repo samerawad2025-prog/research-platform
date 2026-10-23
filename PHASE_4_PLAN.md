@@ -27,7 +27,7 @@ The founder approved this implementation order. It supersedes the earlier sequen
 
 Separate optional permission for the intelligent reader and articles was approved on 2026-10-21. Existing agreement acceptances must remain unchanged. Current Version 4 explicitly excludes public AI summaries/translations, so the new uses require a new recorded opt-in before processing or publication. Do not silently infer permission from existing public status. This is an implementation requirement, not a blocker to usability improvements.
 
-No provider change, paid service, required participant contact or invitation campaign is included. Continue cloud-only. The first interface change is being verified in hosted CI; the reader, articles and optional permission are not yet released.
+No provider change, paid service, required participant contact or invitation campaign is included. Continue cloud-only. Released on 24 October through PR #29. The reader uses approved abstracts only; full-document reading and cross-study synthesis remain subsequent work. Live provider output awaits the first rights-holder opt-in.
 
 ## M2: validate the service with a small genuine collection
 
