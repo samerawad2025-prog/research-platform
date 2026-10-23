@@ -64,3 +64,9 @@ Official sources checked 2026-10-18:
 - MIT Open Scholarship: https://dspace.mit.edu/home . Study research collections and permanent records. MIT thesis access guide: https://libguides.mit.edu/diss .
 
 These validate the repository model, not demand for SARP specifically. Sudan already has repositories. SARP should demonstrate easier bilingual submission/discovery and useful connections between research. Do not copy institutional branding or import their documents without checking rights.
+
+## Cumulative research requirement: 24 October 2026
+
+The founder reaffirmed cumulative science as a central benefit: make scattered findings understandable and reusable as foundations for subsequent research. M3 should connect studies through source-linked evidence summaries, not merely suggest attractive titles.
+
+For the later cross-study pilot, include the research question, method, population/context, findings and limitations where the permitted sources actually contain them. Show supporting and conflicting evidence, distinguish replication from extension, and label missing information. Each suggestion must identify which earlier result or limitation it builds upon. An abstract-only source must be labeled as such; never infer a missing method or limitation. Track evidence coverage and useful, supervisor-reviewed follow-on questions rather than treating AI output volume as scientific progress. The current single-paper abstract reader is groundwork, not a completed evidence-synthesis engine.
