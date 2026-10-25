@@ -22,6 +22,8 @@ import { deriveView } from '../lib/fields/confirmationView'
 import { mark, report } from '../lib/timing'
 import Button from './ui/Button'
 import PublicationStatus from './PublicationStatus'
+import { KNOWLEDGE_MESSAGES } from '../lib/i18nKnowledge'
+import knowledgeStyles from './research/knowledge.module.css'
 import { useLocale } from './LocaleProvider'
 import { dirFor, messagesFor } from '../lib/i18n'
 import styles from './ConfirmationScreen.module.css'
@@ -263,6 +265,7 @@ export default function ConfirmationScreen({ token, manualMode = false }) {
   const { locale } = useLocale()
   const t = messagesFor(locale).confirmation
   const dir = dirFor(locale)
+  const [editingConfirmed, setEditingConfirmed] = useState(false)
   const [paper, setPaper] = useState(null)
   const [linkInvalid, setLinkInvalid] = useState(false)
   const [researchers, setResearchers] = useState([])
@@ -682,6 +685,7 @@ export default function ConfirmationScreen({ token, manualMode = false }) {
       }
 
       dirtyRef.current = false
+      setEditingConfirmed(false)
       setStatus('done')
     } catch (err) {
       // Not a network failure (those are returned, above), so nothing
@@ -708,15 +712,25 @@ export default function ConfirmationScreen({ token, manualMode = false }) {
     )
   }
 
-  if (status === 'done') {
+  if (status === 'done' || (paper?.metadata_confirmed_at && !editingConfirmed)) {
+    const kt = KNOWLEDGE_MESSAGES[locale]
+    const previewTitle = locale === 'ar' ? values.title_ar || values.title : values.title || values.title_ar
+    const previewAbstract = locale === 'ar' ? values.abstract_ar || values.abstract : values.abstract || values.abstract_ar
     return (
       <div className={styles.completionPage} lang={locale} dir={dir}>
         <div className={styles.completionMark}>&#10003;</div>
         <h1>{t.done.heading}</h1>
         <p className={styles.completionLead}>{t.done.lead}</p>
-        <p>{t.done.body}</p>
-        <p className={styles.completionClosing}>{t.done.closing}</p>
+        <details className={knowledgeStyles.preview}>
+          <summary>{kt.preview}</summary>
+          <p className={knowledgeStyles.hint}>{kt.previewNote}</p>
+          <h3 dir="auto">{previewTitle}</h3>
+          <p dir="auto">{researchers.map(r => r.full_name).filter(Boolean).join(' · ')}</p>
+          <p dir="auto">{[values.university, values.faculty, values.year].filter(Boolean).join(' · ')}</p>
+          {previewAbstract && <p dir="auto">{previewAbstract}</p>}
+        </details>
         <PublicationStatus key={token} token={token} />
+        <button type="button" className={knowledgeStyles.secondary} onClick={() => { setEditingConfirmed(true); setStatus('idle') }}>{kt.editDetails}</button>
       </div>
     )
   }
@@ -881,7 +895,6 @@ export default function ConfirmationScreen({ token, manualMode = false }) {
         )}
         {!extracting && !manual && partial && <p className={styles.attentionBanner}>{t.partial}</p>}
         <p className={styles.privateLink}>{t.privateLink}</p>
-        {paper?.metadata_confirmed_at && <PublicationStatus key={token} token={token} />}
       </header>
 
       <section className={styles.section}>

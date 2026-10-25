@@ -3,7 +3,7 @@ import { handleKnowledgeAdmin } from '../../../../lib/knowledge/core'
 import { generate } from '../../../../lib/knowledge/gemini'
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
-export const maxDuration = 40
+export const maxDuration = 75
 export async function POST(request) {
   const headers={'Cache-Control':'no-store','X-Robots-Tag':'noindex, nofollow'}
   const raw=await request.text()

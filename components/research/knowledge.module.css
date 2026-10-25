@@ -16,3 +16,12 @@
 .actions { display: flex; flex-wrap: wrap; gap: var(--space-3); margin-block: var(--space-4); }
 .editor { max-width: 52rem; margin-inline: auto; }
 .editor textarea { min-height: 16rem; }
+
+.success { display: flex; gap: .6rem; align-items: center; padding: .85rem 1rem; color: #14532d; background: #ecfdf3; border: 1px solid #a7d8b8; border-radius: var(--radius-sm); font-weight: 650; animation: settle .35s ease-out; }
+.manage { margin-block-start: 1rem; color: var(--ink-muted); font-size: var(--text-sm); }
+.secondary { min-height: 44px; padding: .5rem .85rem; border: 1px solid var(--line-control); border-radius: var(--radius-sm); background: transparent; color: var(--ink); font: inherit; cursor: pointer; }
+.preview { padding: var(--space-5); margin-block: var(--space-4); text-align: start; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface-raised); overflow-wrap: anywhere; }
+.preview h3 { color: var(--identity-navy); font-size: var(--text-xl); }
+.preview p { white-space: pre-line; }
+@keyframes settle { from { opacity: .3; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) { .success { animation: none; } }

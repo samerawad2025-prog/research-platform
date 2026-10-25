@@ -39,13 +39,13 @@ export default function PublicationStatus({ token }) {
       <h2 id="publication-status-heading">{t.heading}</h2>
       <p role="status">{result.state === 'loading' ? t.loading : result.state === 'published' ? t.published : result.state === 'not_public' ? t.notPublic : t.unavailable}</p>
       {result.state === 'published' && result.publicUrl && <p><a className={styles.primaryLink} href={result.publicUrl} referrerPolicy="no-referrer">{t.open}</a></p>}
-      <p>{t.privateLink}</p>
-      <button type="button" className={styles.secondaryAction} disabled={result.state === 'loading'} onClick={() => { setResult({ state: 'loading' }); setAttempt((n) => n + 1) }}>{t.refresh}</button>
+      <details><summary>{t.privateLink}</summary><p>{messagesFor(locale).confirmation.privateLink}</p>
+      <button type="button" className={styles.secondaryAction} disabled={result.state === 'loading'} onClick={() => { setResult({ state: 'loading' }); setAttempt((n) => n + 1) }}>{t.refresh}</button></details>
       {/* Full navigation keeps the private confirmation URL out of router requests. */}
-      {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
-      <p><a href="/research" referrerPolicy="no-referrer">{t.browse}</a></p>
     </section>
     <KnowledgePermission token={token} />
+    {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
+    <p><a className={styles.primaryLink} href="/research" referrerPolicy="no-referrer">{t.browse}</a></p>
     </>
   )
 }

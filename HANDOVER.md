@@ -1,5 +1,13 @@
 # HANDOVER — Sudanese Academic Research Platform
 
+## Completion experience and Gemini controls: 26 October 2026
+
+PR #30 separates the confirmed-submission completion screen from editing, adds a private metadata preview, and makes optional reader permission end in a green success state. Withdrawal stays available under Manage permissions. Published records retain their separate public link; the catalogue is available as the next step without an automatic redirect.
+
+The same release contains independent reader/article model and thinking settings and removes deprecated Gemini sampling configuration. No new model override is enabled; submission extraction retains its configured model and full-document pipeline. See docs/gemini-review-2026-10-24.md. Hosted CI must pass before merge.
+
+The founder saved optional permission on a non-public submission on 25 October. Read-only production verification found the existing public paper still ineligible for the reader. Do not copy permission between submissions or publish the other record to make a test pass. Live Gemini reader/article verification is pending permission for the intended public record.
+
 ## Phase 4 value package released: 24 October 2026
 
 PR #29 implements simpler admin review, navy/gold public styling, a separately optional abstract reader, and bilingual articles requiring explicit editorial publication. Application head `2c783f59` passed hosted regression, EN desktop/AR mobile browser workflows and fresh/upgrade Postgres 17 tests. Provider responses in those tests were simulated; live Gemini reader/article output is not yet verified.
