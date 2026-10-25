@@ -71,7 +71,7 @@ async function run(){
       assert.ok(!body.tools && !body.cachedContent,'no search, external storage or tools added')
       assert.ok(body.systemInstruction.parts[0].text.includes('proposed framework'))
       return {ok:true,json:async()=>({candidates:[{finishReason:'STOP',content:{parts:[{thought:true,text:'not output'},{text:JSON.stringify(good)}]}}]})}
-    })
+    }})
   }
   let rejectedCalls=0
   for(const override of [{GEMINI_READER_MODEL:'gemini-4-argon'},{GEMINI_READER_MODEL:'typo'},{GEMINI_READER_THINKING_LEVEL:'minimal'}]){

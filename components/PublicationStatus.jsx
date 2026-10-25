@@ -42,7 +42,6 @@ export default function PublicationStatus({ token }) {
       <details><summary>{t.privateLink}</summary><p>{messagesFor(locale).confirmation.privateLink}</p>
       <button type="button" className={styles.secondaryAction} disabled={result.state === 'loading'} onClick={() => { setResult({ state: 'loading' }); setAttempt((n) => n + 1) }}>{t.refresh}</button></details>
       {/* Full navigation keeps the private confirmation URL out of router requests. */}
-      {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
     </section>
     <KnowledgePermission token={token} />
     {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
