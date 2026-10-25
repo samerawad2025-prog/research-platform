@@ -143,6 +143,13 @@ async function run() {
       const link = panel.locator('a[href="' + PUBLIC + '"]')
       await link.waitFor()
       const kt=KNOWLEDGE_MESSAGES[lang]
+      assert.equal(await page.getByRole('button', {name:lang==='ar'?'تأكيد هذه التفاصيل':'Confirm these details', exact:true}).count(),0,'confirmed submissions open completion')
+      await page.getByText(kt.preview,{exact:true}).click()
+      await page.getByRole('heading',{name:'Synthetic study',exact:true}).waitFor()
+      await page.getByRole('button',{name:kt.editDetails,exact:true}).click()
+      await page.getByRole('button',{name:lang==='ar'?'تأكيد هذه التفاصيل':'Confirm these details',exact:true}).waitFor()
+      await page.reload()
+      await link.waitFor()
       const consent=page.getByRole('checkbox',{name:kt.agree,exact:true})
       await consent.waitFor()
       assert.equal(await consent.isChecked(),false)
