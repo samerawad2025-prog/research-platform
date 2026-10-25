@@ -26,7 +26,7 @@ export default function KnowledgePermission({token}) {
   return <section className={s.panel} aria-labelledby="knowledge-permission-heading">
     <h2 id="knowledge-permission-heading">{t.permission}</h2>
     {state.granted ? <>
-      <p className={s.success} role="status"><span aria-hidden="true">✓</span> {t.enabled}</p>
+      <p className={s.success} role="status"><span aria-hidden="true">✓</span><span>{t.enabled}</span></p>
       <details className={s.manage}><summary>{t.manage}</summary>
         <p className={s.notice}>{state.text}</p>
         <button type="button" className={s.secondary} disabled={busy} onClick={()=>save(false)}>{busy?t.working:t.revoke}</button>
