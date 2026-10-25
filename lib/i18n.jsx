@@ -314,7 +314,7 @@ export const MESSAGES = {
         open: 'Open public research page',
         refresh: 'Check status again',
         browse: 'Browse published research',
-        privateLink: 'Keep this confirmation link private. Return here to check for a public page after review.',
+        privateLink: 'Private link and publication status',
       },
       done: {
         heading: 'Thank you for confirming',
@@ -686,7 +686,7 @@ export const MESSAGES = {
         open: 'فتح صفحة البحث العامة',
         refresh: 'التحقق من الحالة مجدداً',
         browse: 'تصفح البحوث المنشورة',
-        privateLink: 'احتفظ برابط التأكيد هذا لنفسك. عد إليه بعد المراجعة للتحقق من توفر صفحة عامة.',
+        privateLink: 'الرابط الخاص وحالة النشر',
       },
       done: {
         heading: 'شكراً لتأكيد التفاصيل',

@@ -24,11 +24,19 @@ export default function KnowledgePermission({token}) {
   }
   if(!state)return null
   return <section className={s.panel} aria-labelledby="knowledge-permission-heading">
-    <h2 id="knowledge-permission-heading">{t.permission}</h2><p>{t.permissionIntro}</p>
+    <h2 id="knowledge-permission-heading">{t.permission}</h2>
+    {state.granted ? <>
+      <p className={s.success} role="status"><span aria-hidden="true">✓</span> {t.enabled}</p>
+      <details className={s.manage}><summary>{t.manage}</summary>
+        <p className={s.notice}>{state.text}</p>
+        <button type="button" className={s.secondary} disabled={busy} onClick={()=>save(false)}>{busy?t.working:t.revoke}</button>
+      </details>
+    </> : <>
+    <p>{t.permissionIntro}</p>
     <details><summary>{t.terms}</summary><p className={s.notice}>{state.text}</p></details>
-    <p>{state.granted?t.active:t.inactive}</p>
     {!state.granted&&<label className={s.check}><input type="checkbox" checked={checked} onChange={e=>setChecked(e.target.checked)}/>{t.agree}</label>}
-    <button className={s.button} disabled={busy||(!state.granted&&!checked)} onClick={()=>save(!state.granted)}>{busy?t.working:state.granted?t.revoke:t.enable}</button>
+    <button type="button" className={s.button} disabled={busy||(!state.granted&&!checked)} onClick={()=>save(!state.granted)}>{busy?t.working:state.granted?t.revoke:t.enable}</button>
+    </>}
     {message&&<p role="status">{message}</p>}
   </section>
 }
