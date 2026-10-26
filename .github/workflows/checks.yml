@@ -94,6 +94,9 @@ jobs:
       - name: Source-grounded reader and article handlers
         run: node scripts/test-knowledge.js
 
+      - name: Reviewed research directions and source eligibility
+        run: node scripts/test-directions.js
+
       - name: Private publication status
         run: node scripts/test-publication-status.js
 

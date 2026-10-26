@@ -1,10 +1,14 @@
 # HANDOVER — Sudanese Academic Research Platform
 
+## Research directions pilot: 26 October 2026
+
+The next Phase 4 M3 increment adds /research/directions and a catalogue link. It supports bilingual human-curated questions with source passages, feasibility notes, review dates and explicit coverage limits. Each request rechecks public eligibility and source hashes; changed or withdrawn sources hide the card. The content registry is empty after the test reset. This is a curated foundation, not an AI engine or a claim that any paper has been analysed. See docs/research-directions.md. Release status must be established from CI and the production deployment; this entry describes the code change. Reader/article real-provider validation remains pending a new eligible paper with optional permission.
+
 ## Test reset and simpler completion: 26 October 2026
 
 The founder explicitly identified ALL submissions as tests and requested deletion, superseding the earlier description of one genuine public paper. Production cleanup removed 42 papers, 82 researchers, 80 AI-generation rows and linked submission/review/publication/permission records in a guarded transaction. Zero papers, acceptances, permissions and public records remained; the one staff member and Auth account remained. Immutable-history triggers were restored. Configuration, agreements and RLS were unchanged. Migration history records owner_requested_test_submission_cleanup_20261026. Do not replay this one-time cleanup on fresh installations or future submissions.
 
-46 private Storage objects remained after the database cleanup; the connector lacks Storage deletion. The founder was asked to remove the old test files from the papers bucket, retaining the bucket. Verify this before calling file cleanup complete.
+The founder deleted the remaining files. Read-only verification on 26 October confirmed zero papers and zero objects in the papers bucket. The bucket remains private with its 20 MB limit, and one staff member remains. File cleanup is complete.
 
 The completion screen now has View your research instead of publication/permission panels or an inline preview. It opens a noindex, no-referrer private catalogue context at /confirm/[token]/preview, with the submitter's muted pending card beside the ordinary public catalogue. Only the existing private-token RPC retrieves that card; ordinary /research never includes it. The public-layout preview and Research settings are expandable on the private page. Existing optional permission is not inferred, widened or granted automatically.
 
