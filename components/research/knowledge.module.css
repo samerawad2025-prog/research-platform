@@ -25,3 +25,14 @@
 .preview p { white-space: pre-line; }
 @keyframes settle { from { opacity: .3; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
 @media (prefers-reduced-motion: reduce) { .success { animation: none; } }
+
+.pending { margin-block: 1.5rem 2rem; padding: clamp(1rem, 3vw, 2rem); border: 1px dashed #a8afb7; border-radius: var(--radius-md); background: #f3f4f6; color: #374151; overflow-wrap: anywhere; }
+.pending h2 { font-size: var(--text-xl); line-height: 1.4; margin-block: .75rem; }
+.pendingLabel { display: inline-block; margin: 0; padding: .3rem .75rem; border-radius: 999px; background: #e2e5e9; color: #374151; font-weight: 650; }
+.pending summary { cursor: pointer; min-height: 44px; align-content: center; font-weight: 600; }
+.paperPreview { margin-block-start: 1rem; }
+.paperPreview article { background: white; color: var(--ink); border: 1px solid var(--line); border-radius: var(--radius-md); padding: clamp(1rem, 3vw, 2rem); }
+.paperPreview article p { white-space: pre-line; line-height: 1.8; }
+.paperPreview dl > div { display: flex; flex-wrap: wrap; gap: .5rem 1rem; margin-block: .5rem; }
+.paperPreview dt { font-weight: 600; }
+.paperPreview dd { margin: 0; }

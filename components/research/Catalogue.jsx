@@ -20,7 +20,7 @@ function hrefWith(filters, change) {
   return q ? `/research?${q}` : '/research'
 }
 
-export default function Catalogue({ data, filters, error }) {
+export default function Catalogue({ data, filters, error, children }) {
   const { locale } = useLocale()
   const t = messagesFor(locale).research
   const c = t.catalogue
@@ -50,6 +50,8 @@ export default function Catalogue({ data, filters, error }) {
         <h1 className={s.h1}>{c.title}</h1>
         <p className={s.lead}>{c.intro}</p>
       </header>
+
+      {children}
 
       <form action="/research" method="get" role="search" aria-label={c.searchLabel}>
         <div className={s.search}>
