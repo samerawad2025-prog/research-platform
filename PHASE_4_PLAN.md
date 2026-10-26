@@ -1,6 +1,6 @@
 # Phase 4: adoption, usability and research directions
 
-Started 2026-10-18 after the founder authorized continuing beyond Phase 3. This is an implementation sequence, not a claim that these features already exist. Phase 3 publication is live with one genuine approved record.
+Started 2026-10-18 after the founder authorized continuing beyond Phase 3. This is an implementation sequence, not a claim that these features already exist. Phase 3 publication is live. On 26 October the founder reclassified all submissions as tests and requested a complete reset; the catalogue is now empty.
 
 ## M0: reconcile the launch and define the next work
 
@@ -70,3 +70,8 @@ These validate the repository model, not demand for SARP specifically. Sudan alr
 The founder reaffirmed cumulative science as a central benefit: make scattered findings understandable and reusable as foundations for subsequent research. M3 should connect studies through source-linked evidence summaries, not merely suggest attractive titles.
 
 For the later cross-study pilot, include the research question, method, population/context, findings and limitations where the permitted sources actually contain them. Show supporting and conflicting evidence, distinguish replication from extension, and label missing information. Each suggestion must identify which earlier result or limitation it builds upon. An abstract-only source must be labeled as such; never infer a missing method or limitation. Track evidence coverage and useful, supervisor-reviewed follow-on questions rather than treating AI output volume as scientific progress. The current single-paper abstract reader is groundwork, not a completed evidence-synthesis engine.
+
+
+## M3 curated foundation, 26 October 2026
+
+The source-linked bilingual evidence-card pilot is implemented at /research/directions with an empty reviewed-content registry. It rechecks publication eligibility and reviewed source hashes per request. No automatic generation, field-wide gap claim, new permission or provider cost is introduced. See docs/research-directions.md. Publishing useful cards awaits eligible research and editorial review; broader question search, comparison and AI-assisted synthesis remain future work.
