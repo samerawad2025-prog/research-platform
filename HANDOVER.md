@@ -1,5 +1,13 @@
 # HANDOVER — Sudanese Academic Research Platform
 
+## Test reset and simpler completion: 26 October 2026
+
+The founder explicitly identified ALL submissions as tests and requested deletion, superseding the earlier description of one genuine public paper. Production cleanup removed 42 papers, 82 researchers, 80 AI-generation rows and linked submission/review/publication/permission records in a guarded transaction. Zero papers, acceptances, permissions and public records remained; the one staff member and Auth account remained. Immutable-history triggers were restored. Configuration, agreements and RLS were unchanged. Migration history records owner_requested_test_submission_cleanup_20261026. Do not replay this one-time cleanup on fresh installations or future submissions.
+
+46 private Storage objects remained after the database cleanup; the connector lacks Storage deletion. The founder was asked to remove the old test files from the papers bucket, retaining the bucket. Verify this before calling file cleanup complete.
+
+The completion screen now has View your research instead of publication/permission panels or an inline preview. It opens a noindex, no-referrer private catalogue context at /confirm/[token]/preview, with the submitter's muted pending card beside the ordinary public catalogue. Only the existing private-token RPC retrieves that card; ordinary /research never includes it. The public-layout preview and Research settings are expandable on the private page. Existing optional permission is not inferred, widened or granted automatically.
+
 ## Completion experience and Gemini controls: 26 October 2026
 
 PR #30 separates the confirmed-submission completion screen from editing, adds a private metadata preview, and makes optional reader permission end in a green success state. Withdrawal stays available under Manage permissions. Published records retain their separate public link; the catalogue is available as the next step without an automatic redirect.

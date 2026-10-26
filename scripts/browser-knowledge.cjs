@@ -34,7 +34,12 @@ async function main(){
       page.on('pageerror',e=>errors.push(e.message))
       await page.route('**/*',async route=>{
         const req=route.request(),u=new URL(req.url())
+        if(u.origin==='http://127.0.0.1:3199' && u.pathname.endsWith('/get_paper_for_confirmation')){
+          assert.ok(!req.headers().referer,'private URL never sent to database')
+          return json(route, req.postDataJSON().p_token==='a'.repeat(64)?{title:'Private synthetic submission',metadata_confirmed_at:'2026-01-01',researchers:[{full_name:'Synthetic Submitter'}],abstract:'Private synthetic abstract.'}:null)
+        }
         if(u.origin!==APP){errors.push('Unexpected browser network '+u.origin);return route.abort()}
+        if(u.pathname==='/api/submissions/publication-status')return json(route,{state:'not_public',publicUrl:null})
         if(u.pathname==='/api/admin/me')return json(route,{role:'administrator',confidentiality_required:false})
         if(u.pathname==='/api/admin/metrics-exclusion')return json(route,{ok:true})
         if(u.pathname==='/api/knowledge'){
@@ -88,6 +93,17 @@ async function main(){
       assert.ok(actions.includes('publish'))
       assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth))
       await page.screenshot({path:'artifacts/ui/editor-'+locale+'.png',fullPage:true})
+      await page.goto(APP+'/confirm/'+'a'.repeat(64)+'/preview')
+      await page.getByRole('heading',{name:'Private synthetic submission',exact:true}).waitFor()
+      await page.getByRole('heading',{name:locale==='ar'?rec.title_ar:rec.title,exact:true}).waitFor()
+      await page.getByText(t.pending,{exact:true}).waitFor()
+      assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth))
+      await page.screenshot({path:'artifacts/ui/catalogue-with-private-preview-'+locale+'.png',fullPage:true})
+      await page.goto(APP+'/research')
+      assert.equal(await page.getByRole('heading',{name:'Private synthetic submission',exact:true}).count(),0,'normal catalogue never exposes pending paper')
+      await page.goto(APP+'/confirm/'+'b'.repeat(64)+'/preview')
+      await page.getByText(t.previewUnavailable,{exact:true}).waitFor()
+      assert.equal(await page.locator('#own-research-title').count(),0,'unknown private credential reveals no paper')
       assert.deepEqual(errors,[])
       await ctx.close();console.log('PASS knowledge browser '+locale)
     }
