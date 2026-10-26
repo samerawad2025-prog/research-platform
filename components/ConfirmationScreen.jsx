@@ -21,7 +21,6 @@ import { takeReceived } from '../lib/submission/clientFlow'
 import { deriveView } from '../lib/fields/confirmationView'
 import { mark, report } from '../lib/timing'
 import Button from './ui/Button'
-import PublicationStatus from './PublicationStatus'
 import { KNOWLEDGE_MESSAGES } from '../lib/i18nKnowledge'
 import knowledgeStyles from './research/knowledge.module.css'
 import { useLocale } from './LocaleProvider'
@@ -714,22 +713,13 @@ export default function ConfirmationScreen({ token, manualMode = false }) {
 
   if (status === 'done' || (paper?.metadata_confirmed_at && !editingConfirmed)) {
     const kt = KNOWLEDGE_MESSAGES[locale]
-    const previewTitle = locale === 'ar' ? values.title_ar || values.title : values.title || values.title_ar
-    const previewAbstract = locale === 'ar' ? values.abstract_ar || values.abstract : values.abstract || values.abstract_ar
     return (
       <div className={styles.completionPage} lang={locale} dir={dir}>
         <div className={styles.completionMark}>&#10003;</div>
         <h1>{t.done.heading}</h1>
         <p className={styles.completionLead}>{t.done.lead}</p>
-        <details className={knowledgeStyles.preview}>
-          <summary>{kt.preview}</summary>
-          <p className={knowledgeStyles.hint}>{kt.previewNote}</p>
-          <h3 dir="auto">{previewTitle}</h3>
-          <p dir="auto">{researchers.map(r => r.full_name).filter(Boolean).join(' · ')}</p>
-          <p dir="auto">{[values.university, values.faculty, values.year].filter(Boolean).join(' · ')}</p>
-          {previewAbstract && <p dir="auto">{previewAbstract}</p>}
-        </details>
-        <PublicationStatus key={token} token={token} />
+        {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
+        <p><a className={styles.primaryLink} href={`/confirm/${token}/preview`} referrerPolicy="no-referrer">{kt.viewResearch}</a></p>
         <button type="button" className={knowledgeStyles.secondary} onClick={() => { setEditingConfirmed(true); setStatus('idle') }}>{kt.editDetails}</button>
       </div>
     )
