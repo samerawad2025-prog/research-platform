@@ -1,5 +1,11 @@
 # HANDOVER — Sudanese Academic Research Platform
 
+## Submission experience: 9 November 2026
+
+The founder requested shorter forms, integrated optional reader/article permission, and broader default publication. New submissions visibly default to record_abstract_fulltext with the abstract-only option equally available and an explicit download explanation. Existing acceptances are unchanged. Role and processing selectors replace repeated explanatory cards; full processing and legal text remain accessible.
+
+Optional reader/article permission is now offered immediately before the researcher's final metadata Confirm button, inside the submission flow, rather than requiring a second visit after completion. The unchecked choice is bound to the displayed notice hash and language. It is saved through the existing permission RPC only after confirmation succeeds. Failure leaves the submission saved and directs the researcher to Research settings; no retry silently grants permission. Existing confirmed submissions continue to manage their permission there. No schema, legal-text, extraction-provider or existing-paper change.
+
 ## Research directions pilot: 26 October 2026
 
 The next Phase 4 M3 increment adds /research/directions and a catalogue link. It supports bilingual human-curated questions with source passages, feasibility notes, review dates and explicit coverage limits. Each request rechecks public eligibility and source hashes; changed or withdrawn sources hide the card. The content registry is empty after the test reset. This is a curated foundation, not an AI engine or a claim that any paper has been analysed. See docs/research-directions.md. Release status must be established from CI and the production deployment; this entry describes the code change. Reader/article real-provider validation remains pending a new eligible paper with optional permission.

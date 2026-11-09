@@ -88,3 +88,12 @@ The platform should help knowledge build on knowledge. Preserve scattered studie
 This is a product objective, not a claim that uploading papers or generating summaries alone produces cumulative science. Future evidence syntheses must connect relevant studies, retain their methods, contexts, uncertainty and limitations, and show agreements as well as contradictions. Attribute every finding to its source and distinguish a reported limitation from an AI-inferred opportunity. Replication, verification and well-designed extensions are valuable contributions; repetition is not automatically waste.
 
 Deliver this progressively: reliable records and individual explanations first; linked study comparisons and accessible, reviewable evidence summaries next; then Explore research directions grounded in those sources. Show the scope and date of the evidence reviewed. Do not claim a comprehensive literature review, consensus, novelty or causation without supporting evidence. Keep the existing consent and publication boundaries.
+
+
+## Founder clarification: cumulative, locally useful research (9 November 2026)
+
+Give special attention to student research from Sudan and comparable local settings when it helps answer local questions. Local origin is a relevance signal, not proof of higher quality; assess methods, evidence, limitations and context alongside it. Connect local evidence to current international work.
+
+Help students extend, replicate or branch from previous findings toward tangible scientific and practical benefit. Distinguish useful replication from accidental duplication, avoid unsupported novelty claims, and identify feasible data needs and supervisor questions. AI should help discover and explain these connections with traceable sources.
+
+Translate research into engaging, scientifically faithful Arabic and English articles and reports for interested readers. Preserve attribution and uncertainty, explain what a study actually establishes, and require editorial review. These are core platform aims, not marketing extras. Current implementations remain abstract-scoped; full-document synthesis and cross-study AI are future work and must not be implied as already available.

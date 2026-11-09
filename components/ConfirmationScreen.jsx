@@ -21,6 +21,9 @@ import { takeReceived } from '../lib/submission/clientFlow'
 import { deriveView } from '../lib/fields/confirmationView'
 import { mark, report } from '../lib/timing'
 import Button from './ui/Button'
+import SubmissionKnowledgeChoice from './SubmissionKnowledgeChoice'
+import { saveKnowledgeChoice } from '../lib/submission/knowledgeChoice'
+import { SUBMISSION_UX } from '../lib/i18nSubmissionUX'
 import { KNOWLEDGE_MESSAGES } from '../lib/i18nKnowledge'
 import knowledgeStyles from './research/knowledge.module.css'
 import { useLocale } from './LocaleProvider'
@@ -265,6 +268,9 @@ export default function ConfirmationScreen({ token, manualMode = false }) {
   const t = messagesFor(locale).confirmation
   const dir = dirFor(locale)
   const [editingConfirmed, setEditingConfirmed] = useState(false)
+  const [knowledgeChoice,setKnowledgeChoice]=useState(null)
+  const [knowledgeResult,setKnowledgeResult]=useState(null)
+  const confirming=useRef(false)
   const [paper, setPaper] = useState(null)
   const [linkInvalid, setLinkInvalid] = useState(false)
   const [researchers, setResearchers] = useState([])
@@ -575,6 +581,7 @@ export default function ConfirmationScreen({ token, manualMode = false }) {
 
   async function handleConfirm(e) {
     e.preventDefault()
+    if (confirming.current) return
 
     // String(...) rather than .trim() directly: a researcher row whose
     // name is null or undefined would throw here, and a throw in this
@@ -606,6 +613,9 @@ export default function ConfirmationScreen({ token, manualMode = false }) {
       return
     }
 
+    confirming.current=true
+    const permissionChoice=knowledgeChoice
+    const permissionLanguage=locale
     setStatus('saving')
     setErrorMsg(null)
 
@@ -683,6 +693,9 @@ export default function ConfirmationScreen({ token, manualMode = false }) {
         return
       }
 
+      const permissionResult=await saveKnowledgeChoice({token,choice:permissionChoice,language:permissionLanguage})
+      setKnowledgeResult(permissionResult)
+      setKnowledgeChoice(null)
       dirtyRef.current = false
       setEditingConfirmed(false)
       setStatus('done')
@@ -692,7 +705,7 @@ export default function ConfirmationScreen({ token, manualMode = false }) {
       console.error('confirm_researcher_metadata threw:', err)
       setErrorMsg({ key: 'save' })
       setStatus('error')
-    }
+    } finally { confirming.current=false }
   }
 
   const errorText = !errorMsg
@@ -718,6 +731,8 @@ export default function ConfirmationScreen({ token, manualMode = false }) {
         <div className={styles.completionMark}>&#10003;</div>
         <h1>{t.done.heading}</h1>
         <p className={styles.completionLead}>{t.done.lead}</p>
+        {knowledgeResult==='saved' && <p className={knowledgeStyles.success} role="status">{SUBMISSION_UX[locale].saved}</p>}
+        {knowledgeResult==='unavailable' && <p role="status">{SUBMISSION_UX[locale].failed}</p>}
         {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
         <p><a className={styles.primaryLink} href={`/confirm/${token}/preview`} referrerPolicy="no-referrer">{kt.viewResearch}</a></p>
         <button type="button" className={knowledgeStyles.secondary} onClick={() => { setEditingConfirmed(true); setStatus('idle') }}>{kt.editDetails}</button>
@@ -955,6 +970,8 @@ export default function ConfirmationScreen({ token, manualMode = false }) {
           />
         ))}
       </section>
+
+      {!paper?.metadata_confirmed_at && !extracting && <SubmissionKnowledgeChoice key={locale} locale={locale} choice={knowledgeChoice} onChange={setKnowledgeChoice} disabled={status==='saving'} />}
 
       <Button type="submit" disabled={extracting || status === 'saving'}>
         {!paper ? t.openingHeading : extracting ? t.confirmExtracting : status === 'saving' ? t.confirmSaving : t.confirm}

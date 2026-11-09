@@ -5,6 +5,7 @@ const {spawn}=require('node:child_process')
 const {mkdirSync}=require('node:fs')
 const {chromium}=require('playwright')
 const {DIRECTIONS_MESSAGES}=require('../lib/i18nDirections')
+const {SUBMISSION_UX}=require('../lib/i18nSubmissionUX')
 const {KNOWLEDGE_MESSAGES}=require('../lib/i18nKnowledge')
 const APP='http://127.0.0.1:3101',PID='abcdefghjkmn',PAPER='22222222-2222-4222-8222-222222222222'
 const rec={public_id:PID,title:'Synthetic water study',title_ar:'دراسة تجريبية للمياه',abstract:'The study surveyed 40 farms.',abstract_ar:'شملت الدراسة 40 مزرعة.',authors:[{name:'Synthetic Author'}],year:2026,setting:'record_abstract',fulltext:null,institution:{name_en:'University of Khartoum'},document_type:'article'}
@@ -30,6 +31,7 @@ async function main(){
       const t=KNOWLEDGE_MESSAGES[locale],ctx=await browser.newContext({viewport:{width,height:900}})
       await ctx.addCookies([{name:'sarp_lang',value:locale,url:APP}])
       await ctx.addInitScript(()=>localStorage.setItem('sarp-admin-auth',JSON.stringify({access_token:'synthetic-access-token-for-ui-only',refresh_token:'synthetic',expires_at:Math.floor(Date.now()/1000)+3600,expires_in:3600,token_type:'bearer',user:{id:'11111111-1111-4111-8111-111111111111'}})))
+      let metadataConfirmed=true,confirmationFails=false,permissionFails=false,permissionWrites=0
       let granted=false,actions=[],state={source:{hash:'s1',source:rec},draft:null,published_version_id:null}
       const page=await ctx.newPage(),errors=[]
       page.on('pageerror',e=>errors.push(e.message))
@@ -37,18 +39,24 @@ async function main(){
         const req=route.request(),u=new URL(req.url())
         if(u.origin==='http://127.0.0.1:3199' && u.pathname.endsWith('/get_paper_for_confirmation')){
           assert.ok(!req.headers().referer,'private URL never sent to database')
-          return json(route, req.postDataJSON().p_token==='a'.repeat(64)?{title:'Private synthetic submission',metadata_confirmed_at:'2026-01-01',researchers:[{full_name:'Synthetic Submitter'}],abstract:'Private synthetic abstract.'}:null)
+          return json(route, req.postDataJSON().p_token==='a'.repeat(64)?{title:'Private synthetic submission',metadata_confirmed_at:metadataConfirmed?'2026-01-01':null,extraction_status:'completed',automatic_processing:false,manual_entry_at:'2026-01-01',researchers:[{full_name:'Synthetic Submitter'}],abstract:'Private synthetic abstract.'}:null)
+        }
+        if(u.origin==='http://127.0.0.1:3199' && u.pathname.endsWith('/confirm_researcher_metadata')){
+          if(confirmationFails)return json(route,{message:'synthetic failure',code:'TEST'},500)
+          metadataConfirmed=true;return json(route,{ok:true})
         }
         if(u.origin!==APP){errors.push('Unexpected browser network '+u.origin);return route.abort()}
+        if(u.pathname==='/api/submissions/terms')return json(route,{available:true,agreements:[{id:'synthetic-'+locale,language:locale,versionLabel:'Synthetic',versionDate:'2026-11-09',text:'# Synthetic agreement',acceptanceSentence:'Accept synthetic terms'}],offer:{token:'synthetic',decision:'automatic',expiresAt:new Date(Date.now()+1800000).toISOString()},processing:{terms:'gemini_api_unpaid'}})
         if(u.pathname==='/api/submissions/publication-status')return json(route,{state:'not_public',publicUrl:null})
         if(u.pathname==='/api/admin/me')return json(route,{role:'administrator',confidentiality_required:false})
         if(u.pathname==='/api/admin/metrics-exclusion')return json(route,{ok:true})
         if(u.pathname==='/api/knowledge'){
           const b=req.postDataJSON()
+          if(b.action==='notice')return json(route,{text:'Synthetic optional notice',hash:'b'.repeat(64),version:'synthetic'})
           if(b.action==='source')return json(route,{available:true,scope:'abstract',article:null})
           if(b.action==='ask')return json(route,{insufficient:false,claims:[{text:locale==='ar'?'شملت الدراسة 40 مزرعة.':'The study included 40 farms.',source:locale==='ar'?'abstract_ar':'abstract',quote:locale==='ar'?rec.abstract_ar:rec.abstract}]})
           if(b.action==='permission'){
-            if(b.granted!==undefined){granted=b.granted;actions.push(b)}
+            if(b.granted!==undefined){permissionWrites++;if(permissionFails)return json(route,{reason:'unavailable'},503);granted=b.granted;actions.push(b)}
             return json(route,{granted,text:'Synthetic optional notice',hash:'b'.repeat(64),version:'synthetic'})
           }
         }
@@ -110,6 +118,45 @@ async function main(){
       await page.goto(APP+'/confirm/'+'b'.repeat(64)+'/preview')
       await page.getByText(t.previewUnavailable,{exact:true}).waitFor()
       assert.equal(await page.locator('#own-research-title').count(),0,'unknown private credential reveals no paper')
+      const ux=SUBMISSION_UX[locale]
+      await page.goto(APP+'/submit')
+      await page.getByRole('combobox',{name:ux.role,exact:true}).waitFor()
+      assert.equal(await page.locator('input[value="record_abstract_fulltext"]').isChecked(),true)
+      await page.locator('input[value="record_abstract"]').check()
+      await page.getByText(ux.abstractHint+' '+ux.review,{exact:true}).waitFor()
+      await page.getByRole('combobox',{name:ux.processing,exact:true}).selectOption('manual')
+      await page.getByText(ux.manualHint,{exact:true}).waitFor()
+      assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth))
+      await page.screenshot({path:'artifacts/ui/short-submission-'+locale+'.png',fullPage:true})
+      const confirmLabel=locale==='ar'?'تأكيد هذه التفاصيل':'Confirm these details'
+      // The optional grant happens after successful metadata confirmation only.
+      metadataConfirmed=false;granted=false;permissionWrites=0;confirmationFails=true
+      await page.goto(APP+'/confirm/'+'a'.repeat(64))
+      const opt=page.getByRole('checkbox',{name:ux.optionalLabel,exact:true})
+      await opt.waitFor();assert.equal(await opt.isChecked(),false)
+      await opt.check()
+      await page.getByRole('button',{name:confirmLabel,exact:true}).click()
+      await page.getByRole('alert').waitFor()
+      assert.equal(permissionWrites,0)
+      confirmationFails=false
+      await page.getByRole('button',{name:confirmLabel,exact:true}).click()
+      await page.getByText(ux.saved,{exact:true}).waitFor()
+      assert.equal(permissionWrites,1)
+      await page.screenshot({path:'artifacts/ui/integrated-permission-'+locale+'.png',fullPage:true})
+      // A skipped optional choice never grants or revokes anything.
+      metadataConfirmed=false;permissionWrites=0
+      await page.reload()
+      await opt.waitFor()
+      await page.getByRole('button',{name:confirmLabel,exact:true}).click()
+      await page.getByRole('link',{name:t.viewResearch,exact:true}).waitFor()
+      assert.equal(permissionWrites,0)
+      // Failure is honest, and the research still reaches completion.
+      metadataConfirmed=false;permissionFails=true
+      await page.reload();await opt.waitFor();await opt.check()
+      await page.getByRole('button',{name:confirmLabel,exact:true}).click()
+      await page.getByText(ux.failed,{exact:true}).waitFor()
+      await page.getByRole('link',{name:t.viewResearch,exact:true}).waitFor()
+      assert.equal(permissionWrites,1)
       assert.deepEqual(errors,[])
       await ctx.close();console.log('PASS knowledge browser '+locale)
     }

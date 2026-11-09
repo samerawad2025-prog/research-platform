@@ -123,6 +123,7 @@ jobs:
           ADMIN_REVIEW: enabled
           PUBLIC_RESEARCH: enabled
           RESEARCH_KNOWLEDGE: enabled
+          SUBMISSION_ACCEPTANCE_FLOW: enabled
           SUBMISSION_TOKEN_SECRET: synthetic-test-only-secret
           EXTRACTION_MODE: manual
 
