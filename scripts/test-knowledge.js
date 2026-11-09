@@ -15,6 +15,25 @@ function fixture(overrides={}){
   return{calls,supabase:sb,generate:async()=>{generated++;return good},count:()=>generated}
 }
 async function run(){
+  // Public notice returns only immutable permission wording, never paper data.
+  const noticeText='Synthetic notice', noticeCalls=[]
+  const noticeDb={rpc:async()=>({data:true}),from:name=>{noticeCalls.push(name);return {select:()=>({eq:()=>({maybeSingle:async()=>({data:{version:'knowledge-v1-2026-10-21',text_en:noticeText,text_ar:'إذن تجريبي'}})})})}}}
+  const notice=await handleKnowledge({supabase:noticeDb,env,body:{action:'notice',language:'en'}})
+  assert.equal(notice.status,200);assert.equal(notice.body.text,noticeText)
+  assert.equal(notice.body.hash,require('node:crypto').createHash('sha256').update(noticeText).digest('hex'))
+  assert.deepEqual(noticeCalls,['knowledge_notices'])
+  assert.equal((await handleKnowledge({supabase:noticeDb,env,body:{action:'notice',language:'en',granted:true}})).status,400)
+  const {saveKnowledgeChoice}=require('../lib/submission/knowledgeChoice')
+  let writes=0
+  const fetchChoice=async(_,opts)=>{writes++;assert.equal(opts.referrerPolicy,'no-referrer');assert.equal(JSON.parse(opts.body).granted,true);return {ok:true,json:async()=>({granted:true})}}
+  const choice={language:'en',hash:'b'.repeat(64)}
+  assert.equal(await saveKnowledgeChoice({token:'a'.repeat(64),language:'en',choice:null,fetchImpl:fetchChoice}),'skipped')
+  assert.equal(await saveKnowledgeChoice({token:'a'.repeat(64),language:'ar',choice,fetchImpl:fetchChoice}),'skipped')
+  assert.equal(writes,0)
+  assert.equal(await saveKnowledgeChoice({token:'a'.repeat(64),language:'en',choice,fetchImpl:fetchChoice}),'saved')
+  assert.equal(writes,1)
+  assert.equal(await saveKnowledgeChoice({token:'a'.repeat(64),language:'en',choice,fetchImpl:async()=>{throw Error('offline')}}),'unavailable')
+  assert.equal(await saveKnowledgeChoice({token:'a'.repeat(64),language:'en',choice,fetchImpl:async()=>({ok:false,json:async()=>({reason:'conflict'})})}),'unavailable')
   assert.equal(validateOutput(good,context).claims.length,1)
   assert.throws(()=>validateOutput({insufficient:false,claims:[{text:'Invented',source:'abstract',quote:'There were 500 farms.'}]},context))
   assert.throws(()=>validateOutput({claims:[{text:'No',source:'private_file',quote:'The study surveyed 40 farms.'}]},context))

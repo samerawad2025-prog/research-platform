@@ -20,6 +20,7 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '../lib/supabaseClient'
+import { SUBMISSION_UX } from '../lib/i18nSubmissionUX'
 import PhoneField from './PhoneField'
 import AgreementText from './AgreementText'
 import Button from './ui/Button'
@@ -46,7 +47,7 @@ const FILE_TYPES = {
   docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
 }
 const ROLES = ['author', 'coauthor', 'authorized_depositor']
-const SETTINGS = ['record_abstract', 'record_abstract_fulltext']
+const SETTINGS = ['record_abstract_fulltext', 'record_abstract']
 // Refresh an offer a little before it expires, so a researcher is never
 // sent to accept one the server is about to refuse.
 const OFFER_REFRESH_MARGIN_MS = 60_000
@@ -79,6 +80,7 @@ export default function AcceptanceSubmissionForm() {
   const all = messagesFor(locale)
   const t = all.submission
   const a = all.acceptance
+  const ux = SUBMISSION_UX[locale]
   const dir = dirFor(locale)
   const fileId = useId()
   const fileInputRef = useRef(null)
@@ -91,7 +93,7 @@ export default function AcceptanceSubmissionForm() {
     whatsappCountry: DEFAULT_COUNTRY,
     role: '',
     authors: [''],
-    setting: 'record_abstract',
+    setting: 'record_abstract_fulltext',
     // The researcher's own processing choice. Gemini reading is the
     // default; manual entry keeps the document away from it entirely. Only
     // honoured as 'automatic' when the server offered automatic reading.
@@ -526,15 +528,13 @@ export default function AcceptanceSubmissionForm() {
 
       <fieldset className={styles.section}>
         <legend>{a.roleLegend}</legend>
-        {ROLES.map((role) => (
-          <label key={role} className={styles.radioOption}>
-            <input type="radio" name="role" value={role} checked={form.role === role} onChange={() => update('role', role)} />
-            <span>
-              <span className={styles.optionLabel}>{a.roles[role].label}</span>
-              <span className={styles.optionHint}>{a.roles[role].hint}</span>
-            </span>
-          </label>
-        ))}
+        <label className={styles.field}>
+          <span className={styles.srOnly}>{ux.role}</span>
+          <select value={form.role} onChange={e=>update('role',e.target.value)} required>
+            <option value="">{ux.chooseRole}</option>
+            {ROLES.map(role=><option key={role} value={role}>{a.roles[role].label}</option>)}
+          </select>
+        </label>
         {form.role === 'authorized_depositor' && (
           <div className={styles.authors} role="group" aria-labelledby="authors-legend">
             <p id="authors-legend" className={styles.subLegend}>{a.authorsLegend}</p>
@@ -612,45 +612,32 @@ export default function AcceptanceSubmissionForm() {
       </fieldset>
 
       <fieldset className={styles.section}>
-        <legend>{a.settingLegend}</legend>
-        <p className={styles.hint}>{a.settingIntro}</p>
-        {SETTINGS.map((s) => (
-          <label key={s} className={styles.radioOption}>
-            <input type="radio" name="setting" value={s} checked={form.setting === s} onChange={() => update('setting', s)} />
-            <span>
-              <span className={styles.optionLabel}>{a.settings[s].label}</span>
-              <span className={styles.optionHint}>{a.settings[s].hint}</span>
-            </span>
-          </label>
-        ))}
+        <legend>{ux.share}</legend>
+        {SETTINGS.map(setting=><label key={setting} className={styles.radioOption}>
+          <input type="radio" name="setting" value={setting} checked={form.setting===setting} onChange={()=>update('setting',setting)}/>
+          <span className={styles.optionLabel}>{setting==='record_abstract_fulltext'?ux.full:ux.abstract}</span>
+        </label>)}
+        <p className={styles.hint}>{form.setting==='record_abstract_fulltext'?ux.fullHint:ux.abstractHint} {ux.review}</p>
       </fieldset>
 
       <fieldset className={styles.section}>
-        <legend>{a.processingLegend}</legend>
-        <p className={styles.processing} data-decision={decision} data-terms={processingTerms || undefined}>
-          {decision === 'automatic' ? a.processing.automaticBy[processingTerms] || a.processing.automaticBy.gemini_api_unpaid : a.processing.manual}
-        </p>
-        {decision === 'automatic' &&
-          ['automatic', 'manual'].map((choice) => (
-            <label key={choice} className={styles.radioOption}>
-              <input
-                type="radio"
-                name="processing"
-                value={choice}
-                checked={form.processing === choice}
-                onChange={() => update('processing', choice)}
-              />
-              <span>
-                <span className={styles.optionLabel}>{a.processingChoices[choice].label}</span>
-                <span className={styles.optionHint}>{a.processingChoices[choice].hint}</span>
-              </span>
-            </label>
-          ))}
+        <legend>{ux.processing}</legend>
+        {decision==='automatic' ? <>
+          <label className={styles.field}>
+            <span className={styles.srOnly}>{ux.processing}</span>
+            <select value={form.processing} onChange={e=>update('processing',e.target.value)}>
+              <option value="automatic">{ux.auto}</option><option value="manual">{ux.manual}</option>
+            </select>
+          </label>
+          <p className={styles.hint}>{form.processing==='automatic'?ux.ai:ux.manualHint}</p>
+          <details className={styles.terms}><summary>{ux.more}</summary><p className={styles.hint} data-decision={decision} data-terms={processingTerms||undefined}>
+            {a.processing.automaticBy[processingTerms] || a.processing.automaticBy.gemini_api_unpaid}
+          </p></details>
+        </> : <p className={styles.hint}>{ux.manualHint}</p>}
       </fieldset>
 
       <fieldset className={styles.section}>
         <legend>{a.termsLegend}</legend>
-        <p className={styles.summary}>{a.summary}</p>
         {agreement.language !== locale && (
           <p className={styles.hint}>{pinnedAgreementId ? a.pinnedLanguage : a.otherLanguage}</p>
         )}
