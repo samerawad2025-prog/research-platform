@@ -64,7 +64,7 @@ export default function Catalogue({ data, filters, error, children }) {
         <span role="status">{comparison.count(selected.length)}</span>
         {selected.length>=2?<Link className={s.button} href={'/research/compare?ids='+selected.join(',')}>{comparison.title}</Link>:<span>{comparison.choose}</span>}
         {selected.length>0&&<button className={s.buttonSecondary} type="button" onClick={()=>setSelected([])}>{comparison.clear}</button>}
-      </div>
+      </div>}
 
       <form action="/research" method="get" role="search" aria-label={c.searchLabel}>
         <div className={s.search}>
