@@ -75,3 +75,7 @@ For the later cross-study pilot, include the research question, method, populati
 ## M3 curated foundation, 26 October 2026
 
 The source-linked bilingual evidence-card pilot is implemented at /research/directions with an empty reviewed-content registry. It rechecks publication eligibility and reviewed source hashes per request. No automatic generation, field-wide gap claim, new permission or provider cost is introduced. See docs/research-directions.md. Publishing useful cards awaits eligible research and editorial review; broader question search, comparison and AI-assisted synthesis remain future work.
+
+## Next increment: public study comparison
+
+Compare two or three eligible public studies side by side using approved metadata and abstracts. The comparison is descriptive, with source links and questions for a supervisor; no AI calls, inferred findings, quality ranking or gap claims. Public eligibility is checked on every request, and a missing or withdrawn source hides the comparison. Automated cross-study synthesis remains future work.

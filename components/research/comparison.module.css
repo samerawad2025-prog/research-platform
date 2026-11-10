@@ -1,0 +1,8 @@
+.scroll{max-width:100%;overflow-x:auto;border:1px solid var(--line);border-radius:var(--radius-md)}
+.scroll:focus-visible{outline:3px solid var(--accent);outline-offset:3px}
+.table{width:100%;border-collapse:collapse;table-layout:fixed;min-width:680px;line-height:1.7}
+.table th,.table td{padding:1rem;border-block-end:1px solid var(--line);border-inline-end:1px solid var(--line);vertical-align:top;text-align:start;overflow-wrap:anywhere}
+.table th:first-child{width:9rem}.table thead,.table tbody th{background:var(--surface-raised)}
+.table p{white-space:pre-line;margin-block-start:0}.questions{margin-block:2rem;line-height:1.8}
+.bar{display:flex;gap:1rem;align-items:center;flex-wrap:wrap;padding:1rem;margin-block:1rem;border:1px solid var(--line);border-radius:var(--radius-sm)}
+.choice{display:flex;gap:.5rem;align-items:center;min-height:44px;cursor:pointer}.choice input{width:20px;height:20px}

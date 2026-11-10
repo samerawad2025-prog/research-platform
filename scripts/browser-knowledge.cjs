@@ -5,6 +5,7 @@ const {spawn}=require('node:child_process')
 const {mkdirSync}=require('node:fs')
 const {chromium}=require('playwright')
 const {DIRECTIONS_MESSAGES}=require('../lib/i18nDirections')
+const {COMPARISON_MESSAGES}=require('../lib/i18nComparison')
 const {SUBMISSION_UX}=require('../lib/i18nSubmissionUX')
 const {KNOWLEDGE_MESSAGES}=require('../lib/i18nKnowledge')
 const APP='http://127.0.0.1:3101',PID='abcdefghjkmn',PAPER='22222222-2222-4222-8222-222222222222'
@@ -13,10 +14,13 @@ const json=(route,data,status=200)=>route.fulfill({status,contentType:'applicati
 const sleep=ms=>new Promise(r=>setTimeout(r,ms))
 async function main(){
   mkdirSync('artifacts/ui',{recursive:true})
-  const db=createServer((req,res)=>{
+  const db=createServer(async(req,res)=>{
+    let raw='';for await(const chunk of req)raw+=chunk
+    const requested=raw?JSON.parse(raw):{}
+    const other={...rec,public_id:'abcdefghjkmp',title:'Synthetic follow-up study',title_ar:'دراسة متابعة تجريبية'}
     let data=null,status=200
-    if(req.url.endsWith('/public_record'))data=rec
-    else if(req.url.endsWith('/public_catalogue'))data={ok:true,total:1,page:1,limit:20,items:[{...rec,snippet:rec.abstract}],facets:{unit:[],year:[],degree:[],type:[]}}
+    if(req.url.endsWith('/public_record'))data=requested.p_public_id===PID?rec:requested.p_public_id==='abcdefghjkmp'?other:null
+    else if(req.url.endsWith('/public_catalogue'))data={ok:true,total:2,page:1,limit:20,items:[{...rec,snippet:rec.abstract},{...other,snippet:other.abstract}],facets:{unit:[],year:[],degree:[],type:[]}}
     else if(req.url.endsWith('/consume_submission_rate_limit'))data=true
     else status=503
     res.writeHead(status,{'Content-Type':'application/json'});res.end(JSON.stringify(data))
@@ -81,6 +85,18 @@ async function main(){
       assert.equal(await page.locator('main article').count(),0)
       assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth))
       await page.screenshot({path:'artifacts/ui/directions-'+locale+'.png',fullPage:true})
+      await page.goto(APP+'/research')
+      const ct=COMPARISON_MESSAGES[locale]
+      await page.getByRole('checkbox',{name:ct.select+': '+(locale==='ar'?rec.title_ar:rec.title),exact:true}).check()
+      await page.getByRole('checkbox',{name:ct.select+': '+(locale==='ar'?'دراسة متابعة تجريبية':'Synthetic follow-up study'),exact:true}).check()
+      await page.getByRole('link',{name:ct.title,exact:true}).click()
+      await page.getByRole('table',{name:ct.title,exact:true}).waitFor()
+      await page.getByText(ct.scope,{exact:true}).waitFor()
+      assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth))
+      await page.screenshot({path:'artifacts/ui/comparison-'+locale+'.png',fullPage:true})
+      await page.goto(APP+'/research/compare?ids='+PID+',abcdefghjkmq')
+      await page.getByText(ct.missing,{exact:true}).waitFor()
+      assert.equal(await page.getByRole('table').count(),0)
       await page.goto(APP+'/research/'+PID)
       await page.getByRole('heading',{name:t.reader}).waitFor()
       await page.getByLabel(t.question,{exact:true}).fill('How many farms?')

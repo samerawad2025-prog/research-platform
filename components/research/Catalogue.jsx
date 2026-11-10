@@ -5,6 +5,9 @@
 // whole state and everything works by keyboard and without scripts. Only
 // the wording follows the reader's language choice.
 
+import {useState} from 'react'
+import {COMPARISON_MESSAGES} from '../../lib/i18nComparison'
+import comparisonStyles from './comparison.module.css'
 import Link from 'next/link'
 import Confluence from '../Confluence'
 import { DIRECTIONS_MESSAGES } from '../../lib/i18nDirections'
@@ -23,6 +26,9 @@ function hrefWith(filters, change) {
 
 export default function Catalogue({ data, filters, error, children }) {
   const { locale } = useLocale()
+  const [selected,setSelected]=useState([])
+  const comparison=COMPARISON_MESSAGES[locale]
+  function toggle(id){setSelected(ids=>ids.includes(id)?ids.filter(x=>x!==id):ids.length<3?[...ids,id]:ids)}
   const t = messagesFor(locale).research
   const c = t.catalogue
   const facets = data?.facets || { unit: [], year: [], degree: [], type: [] }
@@ -54,6 +60,11 @@ export default function Catalogue({ data, filters, error, children }) {
       </header>
 
       {children}
+      {(total>1||selected.length>0)&&<div className={comparisonStyles.bar}>
+        <span role="status">{comparison.count(selected.length)}</span>
+        {selected.length>=2?<Link className={s.button} href={'/research/compare?ids='+selected.join(',')}>{comparison.title}</Link>:<span>{comparison.choose}</span>}
+        {selected.length>0&&<button className={s.buttonSecondary} type="button" onClick={()=>setSelected([])}>{comparison.clear}</button>}
+      </div>}
 
       <form action="/research" method="get" role="search" aria-label={c.searchLabel}>
         <div className={s.search}>
@@ -97,6 +108,10 @@ export default function Catalogue({ data, filters, error, children }) {
                 const { main, other } = titles(r, locale)
                 return (
                   <li key={r.public_id} className={s.result}>
+                    {total>1&&<label className={comparisonStyles.choice}>
+                      <input type="checkbox" checked={selected.includes(r.public_id)} disabled={selected.length>=3&&!selected.includes(r.public_id)} onChange={()=>toggle(r.public_id)} aria-label={comparison.select+': '+(main?.text||r.public_id)}/>
+                      <span>{comparison.select}</span>
+                    </label>}
                     <h2 className={s.resultTitle}><Link href={`/research/${r.public_id}`} lang={main?.lang} dir="auto">{main?.text}</Link></h2>
                     {other && <p className={s.altTitle} lang={other.lang} dir="auto">{other.text}</p>}
                     {r.authors.length > 0 && <p className={s.byline} dir="auto">{r.authors.map((a) => a.name).join(locale === 'ar' ? '، ' : ', ')}</p>}

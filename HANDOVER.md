@@ -1,5 +1,9 @@
 # HANDOVER — Sudanese Academic Research Platform
 
+## Study comparison and communication preference
+
+The next Phase 4 increment adds catalogue selection for two or three studies and /research/compare. It shows approved public metadata and abstracts with links and prompts for cumulative research. All sources are rechecked per request; unavailable or private records cannot appear. No database migration or AI generation is included. The founder requests main-page and admin-page links at the end of every final response.
+
 ## Submission experience: 9 November 2026
 
 The founder requested shorter forms, integrated optional reader/article permission, and broader default publication. New submissions visibly default to record_abstract_fulltext with the abstract-only option equally available and an explicit download explanation. Existing acceptances are unchanged. Role and processing selectors replace repeated explanatory cards; full processing and legal text remain accessible.
