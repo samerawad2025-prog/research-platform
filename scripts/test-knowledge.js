@@ -37,7 +37,21 @@ async function run(){
   assert.equal(validateOutput(good,context).claims.length,1)
   assert.throws(()=>validateOutput({insufficient:false,claims:[{text:'Invented',source:'abstract',quote:'There were 500 farms.'}]},context))
   assert.throws(()=>validateOutput({claims:[{text:'No',source:'private_file',quote:'The study surveyed 40 farms.'}]},context))
-  assert.deepEqual(validateOutput({insufficient:true,claims:[{text:'ignored'}]},context),{insufficient:true,claims:[]})
+  assert.deepEqual(validateOutput({insufficient:true,claims:[]},context),{insufficient:true,claims:[]})
+  for (const invalid of [
+    {claims:good.claims}, {insufficient:'false',claims:good.claims},
+    {insufficient:true,claims:good.claims}, {insufficient:false,claims:[]},
+    {insufficient:false,claims:Array(5).fill(good.claims[0])},
+  ]) assert.throws(()=>validateOutput(invalid,context))
+  const units={source:{abstract:'The sampled area was 40 m². Café observations were recorded.'}}
+  const unitClaim={text:'The area was 40 m².',source:'abstract',quote:'The sampled area was 40 m².'}
+  assert.equal(validateOutput({insufficient:false,claims:[unitClaim]},units).claims.length,1)
+  assert.throws(()=>validateOutput({insufficient:false,claims:[{...unitClaim,quote:'The sampled area was 40 m2.'}]},units))
+  assert.equal(validateOutput({insufficient:false,claims:[{...unitClaim,quote:'Cafe\u0301 observations were recorded.'}]},units).claims.length,1)
+  const article={headline:'Farm study',headline_ar:'دراسة المزارع',en:good.claims,ar:good.claims}
+  assert.equal(validateOutput(article,context,true).evidence.en.length,1)
+  assert.throws(()=>validateOutput({...article,ar:[{...good.claims[0],quote:'Invented evidence'}]},context,true))
+  assert.throws(()=>validateOutput({...article,en:Array(5).fill(good.claims[0])},context,true))
   let f=fixture()
   let r=await handleKnowledge({...f,env:{},body:{}})
   assert.equal(r.status,404);assert.equal(f.calls.length,0)
