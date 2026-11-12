@@ -120,6 +120,14 @@ async function run(){
   }
   assert.equal(rejectedCalls,0)
   await assert.rejects(()=>generate({context,question:'test',env:gEnv,fetchImpl:async()=>({ok:true,json:async()=>({candidates:[{finishReason:'MAX_TOKENS'}]})})}),/incomplete/)
+  for (const [status,reason] of [[400,'provider_request_invalid'],[401,'provider_access_denied'],[403,'provider_access_denied'],[404,'provider_model_unavailable'],[429,'rate_limit'],[503,'provider_unavailable']]) {
+    const fx=fixture()
+    const result=await handleKnowledgeAdmin({...fx,env,token:'valid-synthetic-token-long-enough',body:{action:'generate',paperId},
+      generate:args=>generate({...args,env:gEnv,fetchImpl:async()=>({ok:false,status,json:async()=>{throw Error('must not read provider details')}})})})
+    assert.equal(result.body.reason,reason)
+    assert.equal(fx.calls.some(c=>c.name==='knowledge_save_draft'),false)
+  }
+  await assert.rejects(()=>generate({context,article:true,env:gEnv,fetchImpl:async()=>({ok:true,json:async()=>({candidates:[{finishReason:'STOP',content:{parts:[{text:'not JSON'}]}}]})})}),/provider_invalid_json/)
   console.log('PASS knowledge: permissions, quotation checks, withdrawal during generation, quotas, auth, explicit review and provider isolation')
 }
 run().catch(e=>{console.error(e);process.exitCode=1})
