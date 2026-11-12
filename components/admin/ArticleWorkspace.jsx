@@ -31,7 +31,7 @@ export default function ArticleWorkspace({paperId}) {
     try{
       await request({action,...(action==='save'?{hash:state.source.hash,content:form}:{}),...(action==='publish'?{versionId:state.draft.id,reviewed}: {})})
       await load();setMessage(['publish','unpublish'].includes(action)?t.published:t.draftSaved)
-    }catch(e){setMessage(e.message==='rate_limit'?t.rate:['conflict','source_changed'].includes(e.message)?t.sourceChanged:t.unavailable)}
+    }catch(e){setMessage(e.message==='rate_limit'?t.rate:['conflict','source_changed'].includes(e.message)?t.sourceChanged:t.articleErrors?.[e.message]||t.unavailable)}
     finally{setBusy(false)}
   }
   if(me.role!=='administrator')return <p>{t.unavailable}</p>

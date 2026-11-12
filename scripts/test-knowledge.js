@@ -79,6 +79,14 @@ async function run(){
   f=fixture()
   r=await handleKnowledgeAdmin({...f,env,token:'valid-synthetic-token-long-enough',body:{action:'publish',paperId,versionId:'v1',reviewed:false}})
   assert.equal(r.status,400);assert.equal(f.calls.filter(c=>c.name==='knowledge_publish').length,0)
+  f=fixture()
+  r=await handleKnowledgeAdmin({...f,generate:async()=>({headline:'Bad'}),env,token:'valid-synthetic-token-long-enough',body:{action:'generate',paperId}})
+  assert.equal(r.body.reason,'invalid_evidence')
+  assert.equal(f.calls.some(c=>c.name==='knowledge_save_draft'),false)
+  f=fixture({knowledge_save_draft:()=>({error:{message:'private database detail'}})})
+  r=await handleKnowledgeAdmin({...f,generate:async()=>({headline:'Study',headline_ar:'دراسة',en:good.claims,ar:good.claims}),env,token:'valid-synthetic-token-long-enough',body:{action:'generate',paperId}})
+  assert.equal(r.body.reason,'draft_save_failed')
+  assert.ok(!JSON.stringify(r).includes('private database detail'))
   const gEnv={AI_PROVIDER:'gemini',GEMINI_DATA_TERMS:'unpaid',GEMINI_API_KEY:'synthetic-never-valid',GEMINI_MODEL:'gemini-3.5-flash-lite'}
   let requests=0
   const fetchImpl=async(url,opts)=>{requests++;assert.ok(!url.includes(gEnv.GEMINI_API_KEY));assert.equal(opts.headers['x-goog-api-key'],gEnv.GEMINI_API_KEY);return{ok:true,json:async()=>({candidates:[{finishReason:'STOP',content:{parts:[{text:JSON.stringify(good)}]}}]})}}
