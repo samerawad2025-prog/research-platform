@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
+import { REVIEW_ACTIONS } from '../../lib/i18nReviewActions'
 import { KNOWLEDGE_MESSAGES } from '../../lib/i18nKnowledge'
 import { api, authClient } from '../../lib/admin/adminClient'
 import { useAdmin, errorText } from './AdminProvider'
@@ -33,6 +34,8 @@ export default function AdminReview({ paperId, knowledgeEnabled = false }) {
   const [note, setNote] = useState('')
   const [msg, setMsg] = useState({})
   const [busy, setBusy] = useState('')
+  const [editing, setEditing] = useState(false)
+  const a = REVIEW_ACTIONS[locale]
   const fmt = (x) => (x ? new Date(x).toLocaleString(locale === 'ar' ? 'ar-SD-u-nu-latn' : 'en-GB') : '')
   const day = (x) => (x ? new Date(x).toLocaleDateString(locale === 'ar' ? 'ar-SD-u-nu-latn' : 'en-GB') : '')
   const instName = (i) => (locale === 'ar' && i?.name_ar) || i?.name_en
@@ -79,14 +82,22 @@ export default function AdminReview({ paperId, knowledgeEnabled = false }) {
         <p className={s.statusLine}>{d.public_site_enabled && d.eligibility?.record_public ? r.isPublic : r.notPublic}</p>
         <p className={s.muted}>{t.status[d.review.status]}</p>
         <nav className={s.quickLinks} aria-label={r.reviewNavigation}>
-          <a href="#md-h">{r.metadataHeading}</a>
-          <a href="#dm-h">{r.documentsHeading}</a>
           {isAdmin && knowledgeEnabled && <Link href={`/admin/review/${paperId}/article`}>{KNOWLEDGE_MESSAGES[locale].link}</Link>}
-          {isAdmin && <a href="#dc-h">{r.decideHeading}</a>}
           {d.public_url && <a href={d.public_url} target="_blank" rel="noopener noreferrer">{r.publicLinkOpen}</a>}
         </nav>
       </div>
 
+      {isAdmin && <Decide key={`${paperId}:${d.revision}`} {...{ d, t, r, act, busy, paperId, msg, fullText, a }} onEdit={() => setEditing(x => !x)} editing={editing} />}
+      {!editing && <>
+        <Section id="summary-h" title={r.metadataHeading}>
+          <Dl rows={[[r.labels.title_ar,p.title_ar],[r.labels.year,p.year],[r.labels.university,p.university],[r.labels.faculty,p.faculty],[r.labels.supervisor_name,p.supervisor_name]]} />
+          {d.authors.length > 0 && <p className={s.bidi}>{d.authors.map(x=>x.name).join(locale==='ar'?'، ':', ')}</p>}
+          <p className={s.bidi} style={{whiteSpace:'pre-wrap'}}>{locale==='ar' ? p.abstract_ar || p.abstract : p.abstract || p.abstract_ar}</p>
+        </Section>
+        <Documents {...{ d, t, r, isAdmin, act, busy, msg, say, paperId, fullText, fmt }} compact />
+        {!d.preconditions.ok && <p className={s.banner}>{a.blocked}</p>}
+      </>}
+      {editing && <div id="review-edit">
       <Section collapsible id="st-h" title={r.statesHeading}>
         <ul className={s.states}>
           <li><strong>{t.states.submitted}</strong><br />{fmt(p.submitted_at)}</li>
@@ -186,7 +197,7 @@ export default function AdminReview({ paperId, knowledgeEnabled = false }) {
             )}
           </Section>
 
-          {isAdmin && <Decide key={`${paperId}:${d.revision}`} {...{ d, t, r, act, busy, paperId, msg, fullText }} />}
+
 
           <InstitutionBox {...{ d, t, r, institutions, act, busy, paperId, msg, isAdmin, instName, lang: locale }} />
           {isAdmin && isLegacy && <LegacyBox {...{ d, t, r, act, busy, paperId, msg }} />}
@@ -221,6 +232,7 @@ export default function AdminReview({ paperId, knowledgeEnabled = false }) {
           </Section>
         </aside>
       </div>
+      </div>}
     </div>
   )
 }
@@ -279,48 +291,48 @@ function Recommend({ t, r, act, busy, paperId, msg }) {
   )
 }
 
-function Decide({ d, t, r, act, busy, paperId, msg, fullText }) {
-  const [f, setF] = useState({ decision: '', reason: '', version: '' })
-  const [removalConfirmed, setRemovalConfirmed] = useState(false)
-  const removesApproval = d.review.status === 'approved' && f.decision && f.decision !== 'approved'
-  const needReason = ['needs_changes', 'declined', 'withdrawn'].includes(f.decision)
-  const versions = d.documents.versions.filter((v) => ['proposed', 'approved'].includes(v.state))
-  const cannotSubmit = !f.decision || (needReason && !f.reason.trim()) || (f.decision === 'approved' && fullText && !f.version) || (removesApproval && !removalConfirmed)
-  async function submit(e) {
-    e.preventDefault()
-    if (cannotSubmit || busy === 'decide') return
-    const body = { decision: f.decision, reason: f.reason || null, expectedRevision: d.revision, disseminationVersionId: f.decision === 'approved' && fullText ? f.version || null : null }
-    const x = await act('decide', () => api('POST', `reviews/${paperId}/decision`, body), r.decided(r.decideOptions[f.decision]))
-    if (x.ok) { setF({ decision: '', reason: '', version: '' }); setRemovalConfirmed(false) }
+function Decide({ d, t, r, act, busy, paperId, msg, fullText, a, onEdit, editing }) {
+  const [pending, setPending] = useState('')
+  const [version, setVersion] = useState('')
+  const versions = d.documents.versions.filter(v => ['proposed','approved'].includes(v.state))
+  const chosen = version || (versions.length === 1 ? versions[0].id : '')
+  const needsVersion = fullText && !chosen
+  async function decide(decision, confirmed = false) {
+    if (busy) return
+    if (decision !== 'approved' && d.review.status === 'approved' && !confirmed) { setPending(decision); return }
+    if (decision === 'approved' && needsVersion) { setPending('approved'); return }
+    const body = { decision, reason: decision === 'declined' ? a.decline : decision === 'withdrawn' ? a.archive : null,
+      expectedRevision:d.revision, disseminationVersionId:decision === 'approved' && fullText ? chosen : null }
+    const result = await act('decide', () => api('POST', `reviews/${paperId}/decision`, body), a.saved[decision])
+    if (result.ok) setPending('')
   }
-  return (
-    <Section id="dc-h" title={r.decideHeading}>
-      <form className={s.form} onSubmit={submit}>
-        <label className={s.field}><span>{r.decideHeading}</span>
-          <select value={f.decision} required onChange={(e) => { setF({ ...f, decision: e.target.value }); setRemovalConfirmed(false) }}>
-            <option value="">{r.decideChoose}</option>
-            {Object.entries(r.decideOptions).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-          </select></label>
-        <p className={s.muted}>{r.decideHelp}</p>
-        {removesApproval && <div className={s.banner}>
-          <p>{r.removalWarning}</p>
-          <label className={s.check}><input type="checkbox" checked={removalConfirmed} onChange={(e) => setRemovalConfirmed(e.target.checked)} /><span>{r.removalConfirm}</span></label>
-        </div>}
-        <label className={s.field}><span>{r.decideReason}{needReason ? ` (${t.required})` : ` (${t.optional})`}</span>
-          <textarea value={f.reason} maxLength={2000} onChange={(e) => setF({ ...f, reason: e.target.value })} aria-required={needReason} /></label>
-        {f.decision === 'approved' && fullText && (
-          <label className={s.field}><span>{r.decideDissemination}</span>
-            <select value={f.version} onChange={(e) => setF({ ...f, version: e.target.value })}>
-              <option value="">{r.decideDisseminationNone}</option>
-              {versions.map((v) => <option key={v.id} value={v.id}>{r.versionOrigins[v.origin]} · {(v.sha256 || '').slice(0, 10)}</option>)}
-            </select></label>
-        )}
-        <div><button className={s.primary} disabled={busy === 'decide' || cannotSubmit}>{busy === 'decide' ? r.decideWorking : r.decideSubmit}</button></div>
-        <Msg m={msg.decide} />
-        {msg.decide?.ok && <p className={s.banner}>{r.notNotified}</p>}
-      </form>
-    </Section>
-  )
+  return <section className={s.section} aria-label={a.actions}>
+    <div className={s.row}>
+      <button type="button" className={s.primary} disabled={!!busy} onClick={()=>decide('approved')}>{a.approve}</button>
+      <button type="button" className={s.secondary} disabled={!!busy} onClick={()=>decide('declined')}>{a.decline}</button>
+      <button type="button" className={s.secondary} disabled={!!busy} onClick={()=>decide('withdrawn')}>{a.archive}</button>
+      <button type="button" className={s.secondary} aria-expanded={editing} aria-controls="review-edit" onClick={onEdit}>{editing ? a.done : a.edit}</button>
+    </div>
+    {pending === 'approved' && <div className={s.form}>
+      {versions.length === 0 ? <p role="status">{a.fileNeeded}</p> : <>
+        <label className={s.field}><span>{r.decideDissemination}</span>
+          <select value={chosen} onChange={e=>setVersion(e.target.value)}>
+            <option value="">{r.decideDisseminationNone}</option>
+            {versions.map(v=><option key={v.id} value={v.id}>{r.versionOrigins[v.origin]} · {(v.sha256||'').slice(0,10)}</option>)}
+          </select>
+        </label>
+        <button type="button" className={s.primary} disabled={!!busy || !chosen} onClick={()=>decide('approved')}>{a.approve}</button>
+      </>}
+    </div>}
+    {pending && pending !== 'approved' && <div className={s.banner}>
+      <p>{a.removePublic}</p>
+      <div className={s.row}>
+        <button type="button" className={s.danger} disabled={!!busy} onClick={()=>decide(pending,true)}>{a.confirm}</button>
+        <button type="button" className={s.secondary} disabled={!!busy} onClick={()=>setPending('')}>{t.cancel}</button>
+      </div>
+    </div>}
+    <Msg m={msg.decide} />
+  </section>
 }
 
 function InstitutionBox({ d, t, r, institutions, act, busy, paperId, msg, isAdmin, instName, lang }) {
@@ -443,7 +455,7 @@ function Assignments({ d, t, r, staff, act, busy, paperId, msg }) {
   )
 }
 
-function Documents({ d, t, r, isAdmin, act, busy, msg, say, paperId, fullText, fmt }) {
+function Documents({ d, t, r, isAdmin, act, busy, msg, say, paperId, fullText, fmt, compact = false }) {
   const [file, setFile] = useState(null)
   const [redaction, setRedaction] = useState('')
   const [reasons, setReasons] = useState({})
@@ -470,12 +482,12 @@ function Documents({ d, t, r, isAdmin, act, busy, msg, say, paperId, fullText, f
   }
   return (
     <Section id="dm-h" title={r.documentsHeading}>
-      <p className={s.muted}>{r.filesLogged}</p>
+      {!compact && <p className={s.muted}>{r.filesLogged}</p>}
       <p><strong>{r.original}</strong></p>
       
       <div className={s.row}><button className={s.secondary} onClick={() => openFile(null)}>{r.openOriginal}</button></div>
       <Msg m={msg.open} />
-      <details className={s.documentDetails}>
+      {!compact && <details className={s.documentDetails}>
         <summary className={s.summary}>{r.versionsHeading}</summary>
         <div className={s.sectionBody}>
         <Dl rows={[[r.originalHash, doc.original.sha256 || r.hashUnknown]]} />
@@ -513,7 +525,7 @@ function Documents({ d, t, r, isAdmin, act, busy, msg, say, paperId, fullText, f
         </>
       )}
         </div>
-      </details>
+      </details>}
     </Section>
   )
 }
