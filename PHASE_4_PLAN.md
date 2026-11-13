@@ -1,6 +1,6 @@
 # Phase 4: adoption, usability and research directions
 
-Started 2026-10-18 after the founder authorized continuing beyond Phase 3. This is an implementation sequence, not a claim that these features already exist. Phase 3 publication is live. On 26 October the founder reclassified all submissions as tests and requested a complete reset; the catalogue is now empty.
+Started 2026-10-18 after the founder authorized continuing beyond Phase 3. This is an implementation sequence, not a claim that these features already exist. Phase 3 publication is live. On 26 October the founder reclassified all submissions as tests and requested a complete reset; the catalogue was emptied at that time. A new genuine paper is now public; see the dated status below.
 
 ## M0: reconcile the launch and define the next work
 
@@ -79,3 +79,9 @@ The source-linked bilingual evidence-card pilot is implemented at /research/dire
 ## Next increment: public study comparison
 
 Compare two or three eligible public studies side by side using approved metadata and abstracts. The comparison is descriptive, with source links and questions for a supervisor; no AI calls, inferred findings, quality ranking or gap claims. Public eligibility is checked on every request, and a missing or withdrawn source hides the comparison. Automated cross-study synthesis remains future work.
+
+## Progress: 13 November 2026
+
+Phases 1-3 are complete. Phase 4 comparison is released (PR #34), the admin actions are simplified (PR #36), and real Gemini reader and article generation have passed initial smoke checks (PR #38). The article remains an editorial draft. Article writing now uses a grounded hook, supported conclusion, original-research link and a separate platform submission invitation. The first M3 direction card is prepared from one public abstract, with a possible follow-up study and explicit coverage limits. Release is established by the current PR checks and deployment, not this preparation entry.
+
+Next bounded work: improve question-based discovery over approved public titles and abstracts, with visible matched passages and ordinary keyword-search fallback. Do not introduce unreviewed cross-study claims or extend AI processing scope. Multi-study synthesis should follow a larger eligible collection; citation notification still needs verified citation evidence.

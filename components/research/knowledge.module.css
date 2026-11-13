@@ -36,3 +36,8 @@
 .paperPreview dl > div { display: flex; flex-wrap: wrap; gap: .5rem 1rem; margin-block: .5rem; }
 .paperPreview dt { font-weight: 600; }
 .paperPreview dd { margin: 0; }
+
+.articleClosing { margin-block-start: var(--space-5); padding-block-start: var(--space-4); border-block-start: 1px solid var(--line); }
+.articleClosing p { max-width: 42rem; margin-block: var(--space-3); }
+.originalLink { display: inline-block; min-height: 44px; align-content: center; font-weight: 650; }
+.articleClosing .button { display: inline-flex; align-items: center; text-decoration: none; }

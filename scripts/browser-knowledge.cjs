@@ -36,7 +36,7 @@ async function main(){
       await ctx.addCookies([{name:'sarp_lang',value:locale,url:APP}])
       await ctx.addInitScript(()=>localStorage.setItem('sarp-admin-auth',JSON.stringify({access_token:'synthetic-access-token-for-ui-only',refresh_token:'synthetic',expires_at:Math.floor(Date.now()/1000)+3600,expires_in:3600,token_type:'bearer',user:{id:'11111111-1111-4111-8111-111111111111'}})))
       let metadataConfirmed=true,confirmationFails=false,permissionFails=false,permissionWrites=0
-      let granted=false,actions=[],state={source:{hash:'s1',source:rec},draft:null,published_version_id:null}
+      let granted=false,actions=[],state={source:{public_id:PID,hash:'s1',source:rec},draft:null,published_version_id:null}
       const page=await ctx.newPage(),errors=[]
       page.on('pageerror',e=>errors.push(e.message))
       await page.route('**/*',async route=>{
@@ -57,7 +57,7 @@ async function main(){
         if(u.pathname==='/api/knowledge'){
           const b=req.postDataJSON()
           if(b.action==='notice')return json(route,{text:'Synthetic optional notice',hash:'b'.repeat(64),version:'synthetic'})
-          if(b.action==='source')return json(route,{available:true,scope:'abstract',article:null})
+          if(b.action==='source')return json(route,{available:true,scope:'abstract',article:state.published_version_id?state.draft:null})
           if(b.action==='ask')return json(route,{insufficient:false,claims:[{text:locale==='ar'?'شملت الدراسة 40 مزرعة.':'The study included 40 farms.',source:locale==='ar'?'abstract_ar':'abstract',quote:locale==='ar'?rec.abstract_ar:rec.abstract}]})
           if(b.action==='permission'){
             if(b.granted!==undefined){permissionWrites++;if(permissionFails)return json(route,{reason:'unavailable'},503);granted=b.granted;actions.push(b)}
@@ -123,6 +123,16 @@ async function main(){
       assert.ok(actions.includes('publish'))
       assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth))
       await page.screenshot({path:'artifacts/ui/editor-'+locale+'.png',fullPage:true})
+      await page.getByText(t.endingPreview,{exact:true}).click()
+      assert.equal(await page.getByRole('link',{name:t.originalResearch,exact:true}).getAttribute('href'),'/research/'+PID)
+      assert.equal(await page.getByRole('link',{name:t.submitResearch,exact:true}).getAttribute('href'),'/submit')
+      await page.goto(APP+'/research/'+PID)
+      await page.getByRole('heading',{name:locale==='ar'?'مقال تجريبي':'Synthetic article',exact:true}).waitFor()
+      await page.getByText(t.contribute,{exact:true}).waitFor()
+      assert.equal(await page.getByRole('link',{name:t.originalResearch,exact:true}).getAttribute('href'),'/research/'+PID)
+      assert.equal(await page.getByRole('link',{name:t.submitResearch,exact:true}).getAttribute('href'),'/submit')
+      assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth))
+      await page.screenshot({path:'artifacts/ui/article-ending-'+locale+'.png',fullPage:true})
       await page.goto(APP+'/confirm/'+'a'.repeat(64)+'/preview')
       await page.getByRole('heading',{name:'Private synthetic submission',exact:true}).waitFor()
       await page.getByRole('heading',{name:locale==='ar'?rec.title_ar:rec.title,exact:true}).waitFor()

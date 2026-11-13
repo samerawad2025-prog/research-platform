@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { useLocale } from '../LocaleProvider'
 import { KNOWLEDGE_MESSAGES } from '../../lib/i18nKnowledge'
 import s from './knowledge.module.css'
+import ArticleClosing from './ArticleClosing'
 export default function KnowledgeReader({publicId}) {
   const {locale}=useLocale(),t=KNOWLEDGE_MESSAGES[locale]
   const [available,setAvailable]=useState(false),[article,setArticle]=useState(null),[sourceAnchor,setSourceAnchor]=useState('abstract-en'),[question,setQuestion]=useState(''),[answer,setAnswer]=useState(null),[busy,setBusy]=useState(false),[error,setError]=useState('')
@@ -27,6 +28,7 @@ export default function KnowledgeReader({publicId}) {
       <p className={s.hint}>{t.articleLabel}</p>
       <div className={s.prose} dir={locale==='ar'?'rtl':'ltr'}>{(locale==='ar'?article.body_ar:article.body_en).split(/\n\n+/).map((p,i)=><p key={i}>{p}</p>)}</div>
       <a href={'#'+sourceAnchor}>{t.source}</a>
+      <ArticleClosing publicId={publicId} locale={locale}/>
     </section>}
     <section className={s.panel} aria-labelledby="reader-heading">
       <h2 id="reader-heading">{t.reader}</h2><p>{t.scope}</p>
