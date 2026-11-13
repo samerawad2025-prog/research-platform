@@ -1,1 +1,37 @@
-[]
+[
+  {
+    "id": "khartoum-sme-recovery-coordination",
+    "reviewed": true,
+    "reviewedAt": "2026-11-13",
+    "en": {
+      "question": "Where do requests for recovery support stall between industrial SMEs, banks and support institutions in Khartoum State?",
+      "opportunity": "The study identifies coordination failure across stakeholder groups and proposes a Recovery Coordination Architecture. A possible next step is to examine the practical handoffs between organisations: who receives a request, who refers it, and where responsibility becomes unclear. This is an inferred follow-up question, not a limitation stated by the authors or proof that no one has studied it.",
+      "method": "Consider a small feasibility study in one accessible industrial area. With consent, interview SME owners, banking staff and support organisations, and map how requests move between them. If participants can provide reliable records, describe referral steps, waiting times and unresolved requests. Agree on a manageable sample and access arrangements with a supervisor before collecting data. A descriptive study would not establish that coordination causes recovery.",
+      "constraints": "Access, participant safety, incomplete records and the sensitivity of commercial information may limit the study. Use voluntary participation, remove business identifiers from shared outputs and avoid collecting account details. The source abstract does not describe the proposed architecture in enough detail to design an implementation test; read the full paper and check related literature first.",
+      "supervisor": "Which single support process can we study feasibly? Which organisations will allow access? How will we define a completed referral and handle missing records? What prior studies would change or refine this question?"
+    },
+    "ar": {
+      "question": "أين تتعثر طلبات دعم التعافي بين المنشآت الصناعية الصغيرة والمتوسطة والمصارف ومؤسسات الدعم في ولاية الخرطوم؟",
+      "opportunity": "تحدد الدراسة فشل التنسيق لدى فئات مختلفة من أصحاب المصلحة، وتقترح بنية لتنسيق التعافي. ويمكن أن تكون الخطوة التالية فحص انتقال الطلبات بين الجهات: من يستقبل الطلب، ومن يحيله، وأين تصبح المسؤولية غير واضحة؟ هذا سؤال متابعة مستنتج، وليس قيداً ذكره المؤلفون أو دليلاً على أن الموضوع لم يُدرس من قبل.",
+      "method": "يمكن بحث جدوى دراسة صغيرة في منطقة صناعية واحدة يسهل الوصول إليها. بعد الحصول على موافقة المشاركين، تُجرى مقابلات مع أصحاب المنشآت والعاملين في المصارف ومؤسسات الدعم، ويُرسم مسار انتقال الطلبات بينها. وإذا توافرت سجلات موثوقة، يمكن وصف خطوات الإحالة ومدد الانتظار والطلبات التي لم تُحسم. يُتفق مع المشرف على عينة قابلة للإدارة وترتيبات الوصول قبل جمع البيانات. ولا تكفي الدراسة الوصفية لإثبات أن التنسيق يسبب التعافي.",
+      "constraints": "قد تحدّ إمكانية الوصول وسلامة المشاركين ونقص السجلات وحساسية المعلومات التجارية من الدراسة. تكون المشاركة طوعية، وتُحذف معرّفات المنشآت من المخرجات المشتركة، ولا تُجمع تفاصيل الحسابات. لا يشرح الملخص بنية التنسيق المقترحة بما يكفي لتصميم اختبار لتطبيقها؛ لذا تُقرأ الدراسة كاملة وتُراجع الأدبيات ذات الصلة أولاً.",
+      "supervisor": "ما عملية الدعم الواحدة التي يمكن دراستها بصورة عملية؟ وأي الجهات ستتيح الوصول؟ كيف نعرّف الإحالة المكتملة ونتعامل مع نقص السجلات؟ وما الدراسات السابقة التي قد تغيّر هذا السؤال أو تساعد على تطويره؟"
+    },
+    "evidence": [
+      {
+        "kind": "finding",
+        "quote": "Coordination failure emerges as the meta-barrier: the only theme expressed widely across all stakeholder categories, and the structural condition through which all other barriers are amplified.",
+        "field": "abstract",
+        "publicId": "frsp3vfhk6zq",
+        "sourceHash": "62a7c7163ad6b40022ee39a47bbb1c22ef133f976c7478fe2594300485c9cff1"
+      },
+      {
+        "kind": "method",
+        "quote": "Drawing on a qualitative, exploratory research design and semi-structured interviews with fifteen stakeholders, ten industrial SME owners and managers, two banking officers, and three institutional experts.",
+        "field": "abstract",
+        "publicId": "frsp3vfhk6zq",
+        "sourceHash": "62a7c7163ad6b40022ee39a47bbb1c22ef133f976c7478fe2594300485c9cff1"
+      }
+    ]
+  }
+]

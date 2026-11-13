@@ -37,7 +37,10 @@ async function main() {
  assert.equal((await loadDirections(mixed,[c])).cards.length,0,'one missing source hides the whole card')
  assert.deepEqual(await loadDirections(db,[]),{cards:[],unavailable:false})
  assert.deepEqual(await loadDirections(db,null),{cards:[],unavailable:false})
- assert.deepEqual(require('../content/research-directions.json'),[],'pilot starts without invented published cards')
+ const registry=require('../content/research-directions.json')
+ assert.ok(Array.isArray(registry) && registry.length<=8)
+ assert.ok(registry.every(validCard),'published definitions must satisfy the editorial schema')
+ assert.equal(new Set(registry.map(c=>c.id)).size,registry.length,'card identifiers are unique')
  console.log('PASS research directions: evidence, review, withdrawal, freshness, failure and deduplication')
 }
 main().catch(e=>{console.error(e);process.exitCode=1})

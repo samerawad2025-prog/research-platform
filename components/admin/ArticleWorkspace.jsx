@@ -5,6 +5,7 @@ import { authClient } from '../../lib/admin/adminClient'
 import { useAdmin } from './AdminProvider'
 import { KNOWLEDGE_MESSAGES } from '../../lib/i18nKnowledge'
 import s from '../research/knowledge.module.css'
+import ArticleClosing from '../research/ArticleClosing'
 export default function ArticleWorkspace({paperId}) {
   const {locale,me}=useAdmin(),t=KNOWLEDGE_MESSAGES[locale]
   const [state,setState]=useState(null),[form,setForm]=useState(null),[dirty,setDirty]=useState(false),[reviewed,setReviewed]=useState(false),[busy,setBusy]=useState(false),[message,setMessage]=useState('')
@@ -54,6 +55,7 @@ export default function ArticleWorkspace({paperId}) {
           {i<2?<input id={'article-'+k} dir={k.endsWith('_ar')?'rtl':'ltr'} value={form[k]} maxLength={250} onChange={ev=>{setForm({...form,[k]:ev.target.value});setDirty(true);setReviewed(false)}}/>:
           <textarea id={'article-'+k} dir={k.endsWith('_ar')?'rtl':'ltr'} value={form[k]} maxLength={12000} onChange={ev=>{setForm({...form,[k]:ev.target.value});setDirty(true);setReviewed(false)}}/>}
         </div>)}
+        <details className={s.panel}><summary>{t.endingPreview}</summary><ArticleClosing publicId={state.source.public_id} locale={locale}/></details>
         <button className={s.button} disabled={busy||!dirty} onClick={()=>act('save')}>{t.save}</button>
         <label className={s.check}><input type="checkbox" checked={reviewed} onChange={ev=>setReviewed(ev.target.checked)}/>{t.review}</label>
         <button className={s.button} disabled={busy||dirty||!reviewed||state.draft.source_hash!==state.source.hash} onClick={()=>act('publish')}>{t.publish}</button>

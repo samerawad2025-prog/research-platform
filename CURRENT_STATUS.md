@@ -1,5 +1,14 @@
 # CURRENT_STATUS.md
 
+## Phase 4 article and directions update: 13 November 2026
+
+Real Gemini smoke checks passed for English method/sample questions, refusal of unsupported effect sizes, an Arabic proposal-versus-result question, and bilingual article generation. One successful generation is not a reliability benchmark. Earlier provider-stage failures did not recur; their precise cause remains unconfirmed. PR #38 adds safe failure categories and is deployed at `18675379`.
+
+The current article draft was revised with a grounded opening, clearer English and Arabic, and a supported closing, and saved as version 3 without publication. The next code increment adds platform-owned original-research and submission links, with a brief invitation about discovery and cumulative research. These links are separate from generated claims and previewable in the editor.
+
+M3 now has its first prepared bilingual direction card, based on one approved public abstract: mapping how recovery-support requests move between industrial SMEs, banks and institutions in Khartoum. The suggestion is explicitly inferred, with exact evidence, source freshness checks, feasibility considerations and supervisor questions. It is not a novelty claim, an automated synthesis engine, or supervisor approval. Hosted CI and deployment verification determine release status.
+
+
 ## Phase 4 value package released: 24 October 2026
 
 PR #29 implements simpler admin review, navy/gold public styling, a separately optional abstract reader, and bilingual articles requiring explicit editorial publication. Application head `2c783f59` passed hosted regression, EN desktop/AR mobile browser workflows and fresh/upgrade Postgres 17 tests. Provider responses in those tests were simulated; live Gemini reader/article output is not yet verified.

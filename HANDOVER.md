@@ -1,5 +1,14 @@
 # HANDOVER — Sudanese Academic Research Platform
 
+## Phase 4 article and directions update: 13 November 2026
+
+Real Gemini smoke checks passed for English method/sample questions, refusal of unsupported effect sizes, an Arabic proposal-versus-result question, and bilingual article generation. One successful generation is not a reliability benchmark. Earlier provider-stage failures did not recur; their precise cause remains unconfirmed. PR #38 adds safe failure categories and is deployed at `18675379`.
+
+The current article draft was revised with a grounded opening, clearer English and Arabic, and a supported closing, and saved as version 3 without publication. The next code increment adds platform-owned original-research and submission links, with a brief invitation about discovery and cumulative research. These links are separate from generated claims and previewable in the editor.
+
+M3 now has its first prepared bilingual direction card, based on one approved public abstract: mapping how recovery-support requests move between industrial SMEs, banks and institutions in Khartoum. The suggestion is explicitly inferred, with exact evidence, source freshness checks, feasibility considerations and supervisor questions. It is not a novelty claim, an automated synthesis engine, or supervisor approval. Hosted CI and deployment verification determine release status.
+
+
 ## Study comparison and communication preference
 
 The next Phase 4 increment adds catalogue selection for two or three studies and /research/compare. It shows approved public metadata and abstracts with links and prompts for cumulative research. All sources are rechecked per request; unavailable or private records cannot appear. No database migration or AI generation is included. The founder requests main-page and admin-page links at the end of every final response.

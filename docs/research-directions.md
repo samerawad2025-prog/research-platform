@@ -1,6 +1,6 @@
 # Explore research directions: curated pilot
 
-The first M3 release is a human-reviewed evidence-card page at /research/directions, linked from the catalogue. It is not an automatic idea generator. The live catalogue was reset at the owner's request, so content/research-directions.json intentionally contains no cards. An empty page does not claim that research has been analysed.
+The M3 pilot is an editorial evidence-card page at /research/directions, linked from the catalogue. It is not an automatic idea generator. The first bilingual card, prepared on 13 November 2026, proposes mapping recovery-support handoffs for industrial SMEs in Khartoum. It uses one eligible public abstract, quotes the finding and method, and labels the follow-up question as an inference. It makes no originality claim or claim of supervisor approval. If the source changes or becomes unavailable, the card disappears until reviewed again.
 
 ## Editorial workflow
 
