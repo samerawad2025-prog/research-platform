@@ -1,5 +1,12 @@
 # HANDOVER — Sudanese Academic Research Platform
 
+## Question discovery: 14 November 2026
+
+The next Phase 4 increment adds /research/discover, linked from the catalogue. It extracts up to six distinct meaningful words from an English or Arabic question, retrieves bounded candidates through existing public catalogue checks, then rechecks up to twelve records before displaying up to eight matches. Results show verbatim abstract passages or explicitly say the match is title-only. Retrieval failures hide all results; withdrawn records disappear on the next request.
+
+This is keyword discovery, not semantic retrieval, translation, an AI answer, or proof of a research gap. No provider call, new permission, schema change, embedding store or extra dependency is added. Existing catalogue search remains available. Hosted tests and the deployment record establish release status. Live desktop browser inspection remains unavailable due to the Codex host startup failure.
+
+
 ## Phase 4 article and directions update: 13 November 2026
 
 Real Gemini smoke checks passed for English method/sample questions, refusal of unsupported effect sizes, an Arabic proposal-versus-result question, and bilingual article generation. One successful generation is not a reliability benchmark. Earlier provider-stage failures did not recur; their precise cause remains unconfirmed. PR #38 adds safe failure categories and is deployed at `18675379`.
