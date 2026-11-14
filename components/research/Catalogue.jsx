@@ -10,6 +10,7 @@ import {COMPARISON_MESSAGES} from '../../lib/i18nComparison'
 import comparisonStyles from './comparison.module.css'
 import Link from 'next/link'
 import Confluence from '../Confluence'
+import { DISCOVERY_MESSAGES } from '../../lib/i18nDiscovery'
 import { DIRECTIONS_MESSAGES } from '../../lib/i18nDirections'
 import { useLocale } from '../LocaleProvider'
 import { messagesFor } from '../../lib/i18n'
@@ -56,7 +57,7 @@ export default function Catalogue({ data, filters, error, children }) {
         <Confluence className={s.confluence} />
         <h1 className={s.h1}>{c.title}</h1>
         <p className={s.lead}>{c.intro}</p>
-        <Link className={s.link} href="/research/directions">{DIRECTIONS_MESSAGES[locale].title}</Link>
+        <div className={s.filterActions}><Link className={s.link} href="/research/discover">{DISCOVERY_MESSAGES[locale].title}</Link><Link className={s.link} href="/research/directions">{DIRECTIONS_MESSAGES[locale].title}</Link></div>
       </header>
 
       {children}
