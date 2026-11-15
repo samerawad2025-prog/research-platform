@@ -1,3 +1,5 @@
+import { Suspense } from 'react'
+import RelatedDirectionsSection from '../../../components/research/RelatedDirectionsSection'
 import { notFound } from 'next/navigation'
 import RecordView from '../../../components/research/RecordView'
 import { isPublicEnabled, siteOrigin, recordUrl } from '../../../lib/public/server'
@@ -46,5 +48,6 @@ export default async function Page({ params }) {
   // the page still renders, saying so.
   const sb = publicClient()
   const act = sb ? await getActivity(sb, r.data.public_id) : { error: true }
-  return <RecordView record={r.data} citation={citationText(r.data, url)} hasUrl={!!url} activity={act.error ? null : act.data} activityError={!!act.error} />
+  return <RecordView record={r.data} citation={citationText(r.data, url)} hasUrl={!!url} activity={act.error ? null : act.data} activityError={!!act.error}
+    directions={<Suspense fallback={null}><RelatedDirectionsSection publicId={r.data.public_id} /></Suspense>} />
 }

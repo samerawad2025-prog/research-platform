@@ -11,7 +11,7 @@ export default function Directions({ cards, unavailable }) {
     <header className={s.catalogueHero}><h1 className={s.h1}>{t.title}</h1><p className={s.lead}>{t.intro}</p></header>
     {unavailable && <p role="status">{t.unavailable}</p>}
     {!cards.length && <div className={s.empty}><h2>{t.empty}</h2><p>{t.emptyBody}</p></div>}
-    {cards.map(card => <article className={k.panel} key={card.id}>
+    {cards.map(card => <article className={k.panel} key={card.id} id={card.id} style={{ scrollMarginTop: '6rem' }}>
       <p className={k.label}>{t.qualification}</p>
       <h2>{card[locale].question}</h2>
       <p className={k.hint}>{t.count(card.sourceCount)} · {t.abstractOnly} {t.reviewed}: <time dateTime={card.reviewedAt}>{card.reviewedAt}</time></p>
@@ -28,6 +28,7 @@ export default function Directions({ cards, unavailable }) {
       <h3>{t.constraints}</h3><p>{card[locale].constraints}</p>
       <h3>{t.supervisor}</h3><p>{card[locale].supervisor}</p>
       <p className={k.hint}>{t.noNovelty}</p>
+      <Link className={s.buttonSecondary} href={'/research/discover?q='+encodeURIComponent(card[locale].question)}>{t.findStudies}</Link>
     </article>)}
   </div>
 }

@@ -1,5 +1,5 @@
 const assert = require('node:assert/strict')
-const { sourceHash, validCard, loadDirections } = require('../lib/public/directions')
+const { sourceHash, validCard, loadDirections, loadRelatedDirections } = require('../lib/public/directions')
 const id = 'abcdefghjkmn', other = 'abcdefghjkmp'
 const source = { title:'Synthetic study', abstract:'The study surveyed 40 farms. Follow-up was limited to one season.' }
 const copy = x => JSON.parse(JSON.stringify(x))
@@ -37,6 +37,33 @@ async function main() {
  assert.equal((await loadDirections(mixed,[c])).cards.length,0,'one missing source hides the whole card')
  assert.deepEqual(await loadDirections(db,[]),{cards:[],unavailable:false})
  assert.deepEqual(await loadDirections(db,null),{cards:[],unavailable:false})
+ calls=0;current=source;failure=false
+ const related=await loadRelatedDirections(db,id,[card])
+ assert.equal(related.length,1)
+ assert.equal(related[0].question,card.en.question)
+ assert.equal(related[0].questionAr,card.ar.question)
+ assert.equal(related[0].evidence,undefined,'compact links omit source internals')
+ assert.equal(calls,1,'related links recheck their source')
+ calls=0
+ assert.deepEqual(await loadRelatedDirections(db,other,[card]),[])
+ assert.deepEqual(await loadRelatedDirections(db,'private-token',[card]),[])
+ assert.equal(calls,0,'unrelated or invalid IDs trigger no source reads')
+ const linked=copy(card);linked.evidence.push({...linked.evidence[0],publicId:other})
+ assert.deepEqual(await loadRelatedDirections(mixed,id,[linked]),[],'missing co-source hides the related link')
+ current={...source,abstract:'Changed'}
+ assert.deepEqual(await loadRelatedDirections(db,id,[card]),[])
+ current=null
+ assert.deepEqual(await loadRelatedDirections(db,id,[card]),[])
+ current=source;failure=true
+ assert.deepEqual(await loadRelatedDirections(db,id,[card]),[])
+ failure=false;calls=0
+ const many=Array.from({length:5},(_,i)=>({...copy(card),id:'direction-'+i}))
+ assert.equal((await loadRelatedDirections(db,id,many)).length,3)
+ assert.equal(calls,1,'related cards share one source read')
+ const unitSource={title:'Units',abstract:'The area was 40 m².'}
+ const unitCard=copy(card);unitCard.evidence[0]={...unitCard.evidence[0],quote:'The area was 40 m2.',sourceHash:sourceHash(unitSource)}
+ const unitDb={rpc:async()=>({data:unitSource})}
+ assert.equal((await loadDirections(unitDb,[unitCard])).cards.length,0,'preserve meaningful unit distinctions')
  const registry=require('../content/research-directions.json')
  assert.ok(Array.isArray(registry) && registry.length<=8)
  assert.ok(registry.every(validCard),'published definitions must satisfy the editorial schema')

@@ -111,6 +111,7 @@ async function main(){
       assert.equal(await page.getByRole('table').count(),0)
       await page.goto(APP+'/research/'+PID)
       await page.getByRole('heading',{name:t.reader}).waitFor()
+      assert.equal(await page.getByRole('heading',{name:DIRECTIONS_MESSAGES[locale].buildOn,exact:true}).count(),0,'unrelated or unavailable directions stay absent')
       await page.getByLabel(t.question,{exact:true}).fill('How many farms?')
       await page.getByRole('button',{name:t.ask,exact:true}).click()
       await page.getByText(t.caution,{exact:true}).waitFor()
