@@ -1,5 +1,12 @@
 # CURRENT_STATUS.md
 
+## Connected research directions: 15 November 2026
+
+The next Phase 4 increment connects eligible research pages to reviewed directions that cite them. The optional Build on this research section shows at most three questions and links directly to stable card anchors. Cards link onward to question discovery. Every supporting source is rechecked; changes, withdrawal or failed reads hide that link. The section streams independently so the paper can render before optional direction checks finish. No extra AI call, database migration or permission expansion.
+
+Quotation matching uses NFC rather than NFKC so superscript units retain their meaning. Tests cover related-source selection, co-source withdrawal, failures, limits and unit distinctions. Hosted browser regression checks absence of unrelated suggestions in both languages. Live visual inspection remains blocked by the desktop browser startup failure. CI and deployment evidence in the PR determine release status.
+
+
 ## Question discovery: 14 November 2026
 
 The next Phase 4 increment adds /research/discover, linked from the catalogue. It extracts up to six distinct meaningful words from an English or Arabic question, retrieves bounded candidates through existing public catalogue checks, then rechecks up to twelve records before displaying up to eight matches. Results show verbatim abstract passages or explicitly say the match is title-only. Retrieval failures hide all results; withdrawn records disappear on the next request.

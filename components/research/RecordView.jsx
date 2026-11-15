@@ -12,7 +12,7 @@ import { titles, named, fileSize } from './format'
 import { CitePanel, ActivityPanel, PageViewBeacon } from './CiteAndActivity'
 import s from './research.module.css'
 
-export default function RecordView({ record: r, citation, hasUrl, activity, activityError }) {
+export default function RecordView({ record: r, citation, hasUrl, activity, activityError, directions }) {
   const { locale } = useLocale()
   const t = messagesFor(locale).research
   const rt = t.record
@@ -80,6 +80,7 @@ export default function RecordView({ record: r, citation, hasUrl, activity, acti
         )}
 
         <KnowledgeReader publicId={r.public_id} />
+        {directions}
 
         <CitePanel publicId={r.public_id} text={citation} hasUrl={hasUrl} />
 
