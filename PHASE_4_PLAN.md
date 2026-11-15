@@ -85,3 +85,11 @@ Compare two or three eligible public studies side by side using approved metadat
 Phases 1-3 are complete. Phase 4 comparison is released (PR #34), the admin actions are simplified (PR #36), and real Gemini reader and article generation have passed initial smoke checks (PR #38). The article remains an editorial draft. Article writing now uses a grounded hook, supported conclusion, original-research link and a separate platform submission invitation. The first M3 direction card is prepared from one public abstract, with a possible follow-up study and explicit coverage limits. Release is established by the current PR checks and deployment, not this preparation entry.
 
 Next bounded work: improve question-based discovery over approved public titles and abstracts, with visible matched passages and ordinary keyword-search fallback. Do not introduce unreviewed cross-study claims or extend AI processing scope. Multi-study synthesis should follow a larger eligible collection; citation notification still needs verified citation evidence.
+
+## Question-focused comparison: 16 November 2026
+
+Question discovery now offers selection of two or three returned studies and carries the question into comparison. Comparison shows verbatim matching passages in both source languages, preserves the full abstracts and source links, and lets the reader refine the question or return to search. Missing passages are explicit. This is a reading aid, not automated synthesis or an agreement/conflict classifier. Existing publication checks run before any passages are returned; an unavailable source still hides the entire comparison.
+
+No new provider request, permission, database migration or dependency. Hosted unit and bilingual browser tests cover the question-to-selection-to-comparison flow. Release status is established by PR checks and the exact production deployment.
+
+Next: evaluate source-grounded cross-study synthesis with explicit coverage, citation and permission checks. The present comparison makes no generated claims. Growing the genuine collection and publishing the reviewed article remain parallel editorial work, not grounds to create synthetic production papers.

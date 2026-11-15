@@ -12,7 +12,8 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    # Keep the OS compatible with the pinned Playwright runtime.
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
 
     steps:
@@ -96,6 +97,9 @@ jobs:
 
       - name: Reviewed research directions and source eligibility
         run: node scripts/test-directions.js
+
+      - name: Question discovery and verbatim passages
+        run: node scripts/test-discovery.js
 
       - name: Public study comparison
         run: node scripts/test-comparison.js

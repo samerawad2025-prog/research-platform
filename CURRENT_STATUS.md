@@ -1,5 +1,12 @@
 # CURRENT_STATUS.md
 
+## Question-focused comparison: 16 November 2026
+
+Question discovery now offers selection of two or three returned studies and carries the question into comparison. Comparison shows verbatim matching passages in both source languages, preserves the full abstracts and source links, and lets the reader refine the question or return to search. Missing passages are explicit. This is a reading aid, not automated synthesis or an agreement/conflict classifier. Existing publication checks run before any passages are returned; an unavailable source still hides the entire comparison.
+
+No new provider request, permission, database migration or dependency. Hosted unit and bilingual browser tests cover the question-to-selection-to-comparison flow. Release status is established by PR checks and the exact production deployment.
+
+
 ## Connected research directions: 15 November 2026
 
 The next Phase 4 increment connects eligible research pages to reviewed directions that cite them. The optional Build on this research section shows at most three questions and links directly to stable card anchors. Cards link onward to question discovery. Every supporting source is rechecked; changes, withdrawal or failed reads hide that link. The section streams independently so the paper can render before optional direction checks finish. No extra AI call, database migration or permission expansion.
