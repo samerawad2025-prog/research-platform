@@ -102,7 +102,7 @@ async function main(){
       assert.equal(await page.locator('table blockquote').count(),2)
       assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth))
       await page.screenshot({path:'artifacts/ui/focused-comparison-'+locale+'.png',fullPage:true})
-      await page.getByLabel(focused.question,{exact:true}).fill('zzzznomatch')
+      await page.getByRole('searchbox',{name:focused.question,exact:true}).fill('zzzznomatch')
       await page.getByRole('button',{name:focused.apply,exact:true}).click()
       await page.getByText(focused.noPassage,{exact:true}).first().waitFor()
       assert.equal(await page.locator('table blockquote').count(),0)
