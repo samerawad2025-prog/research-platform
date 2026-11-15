@@ -12,6 +12,6 @@ export async function generateMetadata(){
 export default async function Page({searchParams}){
  if(!isPublicEnabled())notFound()
  const sp=await searchParams,sb=publicClient()
- const result=sb?await loadComparison(sb,sp.ids):{records:[],state:'unavailable'}
+ const result=sb?await loadComparison(sb,sp.ids,sp.q):{records:[],state:'unavailable'}
  return <Comparison {...result}/>
 }

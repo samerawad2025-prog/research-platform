@@ -13,5 +13,5 @@ export default async function Page({searchParams}){
  if(!isPublicEnabled())notFound()
  const question=cleanQuestion((await searchParams)?.q)
  const result=await discover(question?publicClient():null,question)
- return <Discovery question={question} result={result}/>
+ return <Discovery key={question} question={question} result={result}/>
 }
