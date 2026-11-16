@@ -41,3 +41,9 @@
 .articleClosing p { max-width: 42rem; margin-block: var(--space-3); }
 .originalLink { display: inline-block; min-height: 44px; align-content: center; font-weight: 650; }
 .articleClosing .button { display: inline-flex; align-items: center; text-decoration: none; }
+
+.consentChoice { margin-top: 1rem; padding: 1rem; border: 1px solid #b8d4d7; border-radius: 12px; background: #f3faf9; }
+.consentChoice .check { margin: 0; align-items: flex-start; font-weight: 600; }
+.consentChoice input { flex-shrink: 0; min-width: 20px; min-height: 20px; accent-color: #1d7079; }
+.consentChoice details { margin-top: .5rem; }
+.consentChoice .hint { margin: .5rem 0; }

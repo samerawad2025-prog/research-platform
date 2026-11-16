@@ -107,7 +107,8 @@ async function run() {
       assert.equal(await page.getByText(t.review.notNotified,{exact:true}).count(),0)
       assert.equal(await page.getByText(t.review.isPublic,{exact:true}).isVisible(),true)
       await page.getByRole('button',{name:a.edit,exact:true}).click()
-      assert.equal(await page.locator('[data-section="hi-h"]').getAttribute('open'),null)
+      for(const id of ['hi-h','nt-h','is-h','au-h'])assert.equal(await page.locator('[data-section="'+id+'"]').count(),0)
+      assert.equal(await page.getByText(t.review.versionsHeading,{exact:true}).count(),0)
       assert.equal(await page.locator('[data-section="rc-h"]').count(),0)
       assert.equal(await page.locator('[data-section="as-h"]').count(),0)
       await page.getByRole('button',{name:a.done,exact:true}).click()
@@ -132,6 +133,15 @@ async function run() {
       await page.getByText(a.saved.declined,{exact:true}).waitFor()
       assert.equal(saves[2].decision,'declined')
       assert.equal(await page.getByText(t.review.notNotified,{exact:true}).count(),0)
+      // Depositor authority and file selection appear only when approval needs them.
+      d=detail('submitted','r4');d.submitter.claimed_role='authorized_depositor'
+      await page.reload();await approve.waitFor();await approve.click()
+      await page.getByRole('textbox',{name:a.authorityPrompt,exact:true}).waitFor()
+      assert.equal(saves.length,3,'authority is never assumed by clicking Approve')
+      d=detail('submitted','r5');d.evidence.setting='record_abstract_fulltext'
+      await page.reload();await approve.waitFor();await approve.click()
+      await page.getByRole('button',{name:a.useOriginal,exact:true}).waitFor()
+      assert.equal(saves.length,3,'original file is never selected without review')
       // A disabled catalogue never claims an eligible record is public.
       d = detail('approved', 'r3', false)
       await page.reload()

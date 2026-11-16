@@ -22,7 +22,7 @@ import { deriveView } from '../lib/fields/confirmationView'
 import { mark, report } from '../lib/timing'
 import Button from './ui/Button'
 import SubmissionKnowledgeChoice from './SubmissionKnowledgeChoice'
-import { saveKnowledgeChoice } from '../lib/submission/knowledgeChoice'
+import { saveKnowledgeChoice, readKnowledgeChoice, forgetKnowledgeChoice } from '../lib/submission/knowledgeChoice'
 import { SUBMISSION_UX } from '../lib/i18nSubmissionUX'
 import { KNOWLEDGE_MESSAGES } from '../lib/i18nKnowledge'
 import knowledgeStyles from './research/knowledge.module.css'
@@ -270,6 +270,8 @@ export default function ConfirmationScreen({ token, manualMode = false }) {
   const [editingConfirmed, setEditingConfirmed] = useState(false)
   const [knowledgeChoice,setKnowledgeChoice]=useState(null)
   const [knowledgeResult,setKnowledgeResult]=useState(null)
+  const [carriedKnowledge,setCarriedKnowledge]=useState(false)
+  useEffect(()=>{let live=true;readKnowledgeChoice(token).then(saved=>{if(live&&saved){setKnowledgeChoice(saved.choice);setCarriedKnowledge(true)}});return()=>{live=false}},[token])
   const confirming=useRef(false)
   const [paper, setPaper] = useState(null)
   const [linkInvalid, setLinkInvalid] = useState(false)
@@ -693,8 +695,9 @@ export default function ConfirmationScreen({ token, manualMode = false }) {
         return
       }
 
-      const permissionResult=await saveKnowledgeChoice({token,choice:permissionChoice,language:permissionLanguage})
+      const permissionResult=await saveKnowledgeChoice({token,choice:permissionChoice,language:carriedKnowledge?permissionChoice?.language:permissionLanguage})
       setKnowledgeResult(permissionResult)
+      if(permissionResult==='saved'||permissionResult==='skipped')await forgetKnowledgeChoice(token)
       setKnowledgeChoice(null)
       dirtyRef.current = false
       setEditingConfirmed(false)
@@ -971,7 +974,7 @@ export default function ConfirmationScreen({ token, manualMode = false }) {
         ))}
       </section>
 
-      {!paper?.metadata_confirmed_at && !extracting && <SubmissionKnowledgeChoice key={locale} locale={locale} choice={knowledgeChoice} onChange={setKnowledgeChoice} disabled={status==='saving'} />}
+      {!paper?.metadata_confirmed_at && !extracting && (carriedKnowledge?<p className={knowledgeStyles.hint}>{knowledgeChoice?SUBMISSION_UX[locale].selected:SUBMISSION_UX[locale].notSelected} <button type="button" className={knowledgeStyles.secondary} disabled={status==='saving'} onClick={()=>{setCarriedKnowledge(false);setKnowledgeChoice(null);forgetKnowledgeChoice(token)}}>{SUBMISSION_UX[locale].change}</button></p>:<SubmissionKnowledgeChoice key={locale} locale={locale} choice={knowledgeChoice} onChange={setKnowledgeChoice} disabled={status==='saving'} />)}
 
       <Button type="submit" disabled={extracting || status === 'saving'}>
         {!paper ? t.openingHeading : extracting ? t.confirmExtracting : status === 'saving' ? t.confirmSaving : t.confirm}
