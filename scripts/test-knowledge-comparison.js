@@ -80,6 +80,7 @@ async function main(){
   assert.ok(sent.systemInstruction.parts[0].text.includes('at least two distinct studies'))
   assert.equal(sent.generationConfig.maxOutputTokens,4096)
   return {ok:true,json:async()=>({candidates:[{finishReason:'STOP',content:{parts:[{text:JSON.stringify(good)}]}}]})}
+ }
  await generateComparison({source:providerSources(contexts.slice(0,2)),question:body.question,language:'ar',env:gEnv,fetchImpl})
  assert.equal(requests,1)
  await assert.rejects(()=>generateComparison({source:providerSources(contexts),question:'test',language:'en',env:{...gEnv,VERCEL_ENV:'preview'},fetchImpl}))
