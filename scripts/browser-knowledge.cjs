@@ -9,6 +9,7 @@ const {DIRECTIONS_MESSAGES}=require('../lib/i18nDirections')
 const {COMPARISON_MESSAGES}=require('../lib/i18nComparison')
 const {SUBMISSION_UX}=require('../lib/i18nSubmissionUX')
 const {KNOWLEDGE_MESSAGES}=require('../lib/i18nKnowledge')
+const {SYNTHESIS_MESSAGES}=require('../lib/i18nSynthesis')
 const APP='http://127.0.0.1:3101',PID='abcdefghjkmn',PAPER='22222222-2222-4222-8222-222222222222'
 const rec={public_id:PID,title:'Synthetic water study',title_ar:'دراسة تجريبية للمياه',abstract:'The study surveyed 40 farms.',abstract_ar:'شملت الدراسة 40 مزرعة.',authors:[{name:'Synthetic Author'}],year:2026,setting:'record_abstract',fulltext:null,institution:{name_en:'University of Khartoum'},document_type:'article'}
 const json=(route,data,status=200)=>route.fulfill({status,contentType:'application/json',body:JSON.stringify(data)})
@@ -37,6 +38,7 @@ async function main(){
       await ctx.addCookies([{name:'sarp_lang',value:locale,url:APP}])
       await ctx.addInitScript(()=>localStorage.setItem('sarp-admin-auth',JSON.stringify({access_token:'synthetic-access-token-for-ui-only',refresh_token:'synthetic',expires_at:Math.floor(Date.now()/1000)+3600,expires_in:3600,token_type:'bearer',user:{id:'11111111-1111-4111-8111-111111111111'}})))
       let metadataConfirmed=true,confirmationFails=false,permissionFails=false,permissionWrites=0
+      let comparisonMode='normal',comparisonCalls=[]
       let holdAnswers=false,pendingAnswers=[]
       let granted=false,actions=[],state={source:{public_id:PID,hash:'s1',source:rec},draft:null,published_version_id:null}
       const page=await ctx.newPage(),errors=[]
@@ -56,6 +58,17 @@ async function main(){
         if(u.pathname==='/api/submissions/publication-status')return json(route,{state:'not_public',publicUrl:null})
         if(u.pathname==='/api/admin/me')return json(route,{role:'administrator',confidentiality_required:false})
         if(u.pathname==='/api/admin/metrics-exclusion')return json(route,{ok:true})
+        if(u.pathname==='/api/knowledge/compare'){
+          const b=req.postDataJSON()
+          if(b.action==='source')return json(route,{available:true,count:2})
+          comparisonCalls.push(b)
+          if(comparisonMode==='changed')return json(route,{reason:'source_changed'},409)
+          if(comparisonMode==='insufficient')return json(route,{insufficient:true,claims:[],covered:0,count:2})
+          return json(route,{insufficient:false,count:2,covered:2,claims:[{kind:'comparison',text:'Synthetic comparison of the selected studies.',evidence:[
+            {publicId:PID,source:locale==='ar'?'abstract_ar':'abstract',quote:locale==='ar'?rec.abstract_ar:rec.abstract},
+            {publicId:'abcdefghjkmp',source:'abstract',quote:rec.abstract}
+          ]}]})
+        }
         if(u.pathname==='/api/knowledge'){
           const b=req.postDataJSON()
           if(b.action==='notice')return json(route,{text:'Synthetic optional notice',hash:'b'.repeat(64),version:'synthetic'})
@@ -111,6 +124,27 @@ async function main(){
       assert.equal(await page.locator('table blockquote').count(),2)
       assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth))
       await page.screenshot({path:'artifacts/ui/focused-comparison-'+locale+'.png',fullPage:true})
+      const st=SYNTHESIS_MESSAGES[locale]
+      await page.getByRole('heading',{name:st.title,exact:true}).waitFor()
+      await page.getByRole('button',{name:st.ask,exact:true}).click()
+      await page.getByText(st.coverage(2,2),{exact:true}).waitFor()
+      assert.deepEqual(comparisonCalls[0].ids,[PID,'abcdefghjkmp'])
+      assert.equal(comparisonCalls[0].language,locale)
+      await page.getByText(st.evidence,{exact:true}).click()
+      const aiPanel=page.getByRole('region',{name:st.title,exact:true})
+      assert.equal(await aiPanel.locator('blockquote').count(),2)
+      assert.ok((await aiPanel.locator('a[href^="/research/"]').first().getAttribute('href')).includes(PID+'#abstract-'))
+      assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth))
+      await page.screenshot({path:'artifacts/ui/multi-study-reader-'+locale+'.png',fullPage:true})
+      comparisonMode='insufficient'
+      await page.getByRole('button',{name:st.ask,exact:true}).click()
+      await page.getByText(st.insufficient,{exact:true}).waitFor()
+      assert.equal(await page.getByText('Synthetic comparison of the selected studies.',{exact:true}).count(),0)
+      comparisonMode='changed'
+      await page.getByRole('button',{name:st.ask,exact:true}).click()
+      await page.getByText(st.changed,{exact:true}).waitFor()
+      assert.equal(await page.getByRole('button',{name:st.ask,exact:true}).count(),0)
+      comparisonMode='normal'
       await page.getByRole('searchbox',{name:focused.question,exact:true}).fill('zzzznomatch')
       await page.getByRole('button',{name:focused.apply,exact:true}).click()
       await page.getByText(focused.noPassage,{exact:true}).first().waitFor()

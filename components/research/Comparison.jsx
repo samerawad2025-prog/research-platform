@@ -1,5 +1,6 @@
 'use client'
 import Link from 'next/link'
+import ComparisonReader from './ComparisonReader'
 import {useLocale} from '../LocaleProvider'
 import {COMPARISON_MESSAGES} from '../../lib/i18nComparison'
 import s from './research.module.css'
@@ -38,6 +39,7 @@ export default function Comparison({records,state,question='',terms=[]}) {
      </tbody>
     </table>
    </div>
+   <ComparisonReader records={records} question={question}/>
    <section className={c.questions}><h2>{t.questions}</h2><ul>{t.prompts.map(p=><li key={p}>{p}</li>)}</ul><p>{t.narrow}</p></section>
   </>}
  </div>
