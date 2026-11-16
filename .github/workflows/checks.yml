@@ -95,6 +95,9 @@ jobs:
       - name: Source-grounded reader and article handlers
         run: node scripts/test-knowledge.js
 
+      - name: Multi-study reader gates and source citations
+        run: node scripts/test-knowledge-comparison.js
+
       - name: Reviewed research directions and source eligibility
         run: node scripts/test-directions.js
 

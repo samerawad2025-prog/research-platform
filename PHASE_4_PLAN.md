@@ -93,3 +93,12 @@ Question discovery now offers selection of two or three returned studies and car
 No new provider request, permission, database migration or dependency. Hosted unit and bilingual browser tests cover the question-to-selection-to-comparison flow. Release status is established by PR checks and the exact production deployment.
 
 Next: evaluate source-grounded cross-study synthesis with explicit coverage, citation and permission checks. The present comparison makes no generated claims. Growing the genuine collection and publishing the reviewed article remain parallel editorial work, not grounds to create synthetic production papers.
+
+## Multi-study reader pilot: 16 November 2026
+
+The comparison page adds an on-demand reader for two or three public studies. Every study must pass the existing knowledge_source publication and optional-permission checks. The server sends only approved titles and abstracts, labeled S1-S3, and the reader's question. Each answer is limited to four claims, with exact quotations tied to the correct study and source language. Comparison claims require at least two distinct studies; the answer must cite at least two studies overall or report insufficient evidence. Coverage is displayed explicitly.
+
+One Gemini request uses the existing reader model/profile and shared client/global AI limits. There is no automatic retry, persistence, article publication, external search, full-text processing or schema change. Before releasing the answer, all source hashes and permissions are checked again. A changed, withdrawn or inaccessible source suppresses the whole answer. Exact-quote checks do not prove semantic entailment; the interface requires readers to inspect the evidence. This is not a systematic review, quality ranking or research-gap engine.
+
+Browser waits are bounded and cancelled on selection, question or language changes. Hosted tests use synthetic sources and provider responses. Real multi-study provider quality remains unverified until at least two genuine eligible studies are available. Do not create production fixtures or republish withdrawn records for validation. PR checks and the exact production deployment establish release status.
+
