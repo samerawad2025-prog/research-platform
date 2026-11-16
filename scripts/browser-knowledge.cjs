@@ -37,6 +37,7 @@ async function main(){
       await ctx.addCookies([{name:'sarp_lang',value:locale,url:APP}])
       await ctx.addInitScript(()=>localStorage.setItem('sarp-admin-auth',JSON.stringify({access_token:'synthetic-access-token-for-ui-only',refresh_token:'synthetic',expires_at:Math.floor(Date.now()/1000)+3600,expires_in:3600,token_type:'bearer',user:{id:'11111111-1111-4111-8111-111111111111'}})))
       let metadataConfirmed=true,confirmationFails=false,permissionFails=false,permissionWrites=0
+      let holdAnswers=false,pendingAnswers=[]
       let granted=false,actions=[],state={source:{public_id:PID,hash:'s1',source:rec},draft:null,published_version_id:null}
       const page=await ctx.newPage(),errors=[]
       page.on('pageerror',e=>errors.push(e.message))
@@ -59,6 +60,14 @@ async function main(){
           const b=req.postDataJSON()
           if(b.action==='notice')return json(route,{text:'Synthetic optional notice',hash:'b'.repeat(64),version:'synthetic'})
           if(b.action==='source')return json(route,{available:true,scope:'abstract',article:state.published_version_id?state.draft:null})
+          if(b.action==='ask'&&holdAnswers){
+            let release,finish
+            const gate=new Promise(resolve=>{release=resolve}),done=new Promise(resolve=>{finish=resolve})
+            pendingAnswers.push({release,done})
+            await gate
+            try{await json(route,{insufficient:false,claims:[{text:'STALE synthetic answer',source:'abstract',quote:rec.abstract}]}).catch(()=>{})}finally{finish()}
+            return
+          }
           if(b.action==='ask')return json(route,{insufficient:false,claims:[{text:locale==='ar'?'شملت الدراسة 40 مزرعة.':'The study included 40 farms.',source:locale==='ar'?'abstract_ar':'abstract',quote:locale==='ar'?rec.abstract_ar:rec.abstract}]})
           if(b.action==='permission'){
             if(b.granted!==undefined){permissionWrites++;if(permissionFails)return json(route,{reason:'unavailable'},503);granted=b.granted;actions.push(b)}
@@ -139,6 +148,41 @@ async function main(){
       assert.equal(new URL(page.url()).hash,locale==='ar'?'#abstract-ar':'#abstract-en')
       assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth))
       await page.screenshot({path:'artifacts/ui/reader-'+locale+'.png',fullPage:true})
+      async function heldAsk(){
+        holdAnswers=true
+        await page.getByRole('button',{name:t.ask,exact:true}).click()
+        for(let i=0;i<100&&!pendingAnswers.length;i++)await sleep(10)
+        assert.ok(pendingAnswers.length,'request reached the stub')
+        return pendingAnswers.shift()
+      }
+      // Cancellation retains the typed question and ignores a late answer.
+      let held=await heldAsk()
+      await page.getByRole('button',{name:t.cancel,exact:true}).click()
+      await page.getByText(t.cancelled,{exact:true}).waitFor()
+      held.release();await held.done
+      assert.equal(await page.getByText('STALE synthetic answer',{exact:true}).count(),0)
+      assert.equal(await page.getByLabel(t.question,{exact:true}).inputValue(),'How many farms?')
+      // Advance browser time rather than delaying the hosted job for 35 seconds.
+      await page.clock.install()
+      held=await heldAsk()
+      await page.clock.fastForward(35001)
+      await page.getByText(t.timedOut,{exact:true}).waitFor()
+      held.release();await held.done
+      assert.equal(await page.getByText('STALE synthetic answer',{exact:true}).count(),0)
+      assert.ok(await page.getByRole('button',{name:t.ask,exact:true}).isEnabled())
+      // A language switch creates a fresh reader while preserving the question.
+      held=await heldAsk()
+      const otherLocale=locale==='en'?'ar':'en',otherText=KNOWLEDGE_MESSAGES[otherLocale]
+      await page.locator('header button[lang="'+otherLocale+'"]').click()
+      await page.getByRole('heading',{name:otherText.reader,exact:true}).waitFor()
+      assert.equal(await page.getByLabel(otherText.question,{exact:true}).inputValue(),'How many farms?')
+      held.release();await held.done
+      assert.equal(await page.getByText('STALE synthetic answer',{exact:true}).count(),0)
+      await page.locator('header button[lang="'+locale+'"]').click()
+      await page.getByRole('heading',{name:t.reader,exact:true}).waitFor()
+      holdAnswers=false
+      await page.getByRole('button',{name:t.ask,exact:true}).click()
+      await page.getByText(t.caution,{exact:true}).waitFor()
       await page.goto(APP+'/admin/review/'+PAPER+'/article')
       await page.getByRole('button',{name:t.generate,exact:true}).click()
       await page.getByLabel(t.headline,{exact:true}).waitFor()

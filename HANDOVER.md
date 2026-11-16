@@ -1,5 +1,12 @@
 # HANDOVER — Sudanese Academic Research Platform
 
+## Reader request reliability: 16 November 2026
+
+Before adding cross-study generation, the reader request lifecycle now isolates each paper/language session. A language switch preserves the typed question but clears the answer and article until eligibility is checked again. Unmount cancels waiting and late responses cannot update the new session. A synchronous in-flight guard prevents overlapping asks; the browser waits at most 35 seconds for an answer and 10 seconds for optional source discovery. Cancel waiting retains the question. There is no automatic retry or browser answer cache.
+
+Browser cancellation stops the client wait; a provider request already received by the server may still complete within the existing provider deadline and consume its quota. Server permission, freshness and evidence checks are unchanged. Hosted browser regression covers late responses after cancellation, timeout and language switch, followed by a successful retry, in EN desktop and AR mobile. No database or production-content change. PR/deployment evidence determines release status.
+
+
 ## Question-focused comparison: 16 November 2026
 
 Question discovery now offers selection of two or three returned studies and carries the question into comparison. Comparison shows verbatim matching passages in both source languages, preserves the full abstracts and source links, and lets the reader refine the question or return to search. Missing passages are explicit. This is a reading aid, not automated synthesis or an agreement/conflict classifier. Existing publication checks run before any passages are returned; an unavailable source still hides the entire comparison.
