@@ -28,7 +28,7 @@ async function main(){
     res.writeHead(status,{'Content-Type':'application/json'});res.end(JSON.stringify(data))
   })
   await new Promise(r=>db.listen(3199,'127.0.0.1',r))
-  const server=spawn(process.execPath,['node_modules/next/dist/bin/next','start','-H','127.0.0.1','-p','3101'],{stdio:'ignore',env:process.env})
+  const server=spawn(process.execPath,['node_modules/next/dist/bin/next','start','-H','127.0.0.1','-p','3101'],{stdio:'ignore',env:{...process.env,PUBLIC_SITE_ORIGIN:APP}})
   let browser
   try{
     let ready=false;for(let i=0;i<60;i++){try{if((await fetch(APP)).ok){ready=true;break}}catch{}await sleep(500)}
@@ -124,6 +124,22 @@ async function main(){
       assert.equal(await page.locator('table blockquote').count(),2)
       assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth))
       await page.screenshot({path:'artifacts/ui/focused-comparison-'+locale+'.png',fullPage:true})
+      const briefLink=page.getByRole('link',{name:focused.downloadBrief,exact:true})
+      const exportUrl=await briefLink.getAttribute('href')
+      const downloadResponse=await ctx.request.get(APP+exportUrl)
+      assert.equal(downloadResponse.status(),200)
+      assert.equal(downloadResponse.headers()['cache-control'],'no-store')
+      assert.ok(downloadResponse.headers()['content-disposition'].includes(locale+'.txt'))
+      const briefText=await downloadResponse.text()
+      assert.ok(briefText.includes(focused.briefTitle))
+      assert.ok(briefText.includes(APP+'/research/'+PID))
+      assert.ok(!briefText.includes('Private synthetic'))
+      const invalidBrief=await ctx.request.get(APP+'/api/public/reading-brief?ids='+PID+',abcdefghjkmq&lang='+locale)
+      assert.equal(invalidBrief.status(),404)
+      assert.ok(!(await invalidBrief.text()).includes(rec.abstract))
+      const downloadEvent=page.waitForEvent('download')
+      await briefLink.click()
+      assert.equal((await downloadEvent).suggestedFilename(),'sarp-reading-brief-'+locale+'.txt')
       const st=SYNTHESIS_MESSAGES[locale]
       await page.getByRole('heading',{name:st.title,exact:true}).waitFor()
       await page.getByRole('button',{name:st.ask,exact:true}).click()
