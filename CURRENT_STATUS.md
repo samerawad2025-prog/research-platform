@@ -1,5 +1,12 @@
 # CURRENT_STATUS.md
 
+## Article readiness feedback: 17 November 2026
+
+The article workspace now reports the specific blocking prerequisite: publication, missing or withdrawn reader/article permission, or absent public abstract. A Check again action refreshes eligibility after the prerequisite is addressed. Diagnostic reads run only after the existing administrator and paper-access checks. Read failures or concurrent state changes show unavailable, not a fabricated permission state. Generation remains gated by knowledge_source and never starts automatically. No permission is granted or altered by these diagnostics.
+
+Hosted handler and bilingual browser tests cover missing/withdrawn permission, unpublished research, missing abstract, failed diagnostics, denied access and refresh from blocked to eligible. Existing permissions, article drafts and production research are unchanged. Release status comes from PR checks and the production deployment.
+
+
 ## Submission and review simplification: 17 November 2026
 
 The submission terms and optional reader/article permission now appear together beside Submit. Both start unchecked. The sharing and extraction choices remain visible, while full notices stay expandable. The optional selection is carried to metadata confirmation using a tab-local, token-digest-scoped record with a one-day expiry. The pending upload snapshot also preserves it for recovery. Confirmation saves the permission only after metadata is successfully confirmed, against the exact notice hash and language selected. A declined choice grants nothing. Direct confirmation visits or unavailable storage retain the explicit fallback choice. Existing permissions and agreements are unchanged.

@@ -217,7 +217,21 @@ async function main(){
       holdAnswers=false
       await page.getByRole('button',{name:t.ask,exact:true}).click()
       await page.getByText(t.caution,{exact:true}).waitFor()
+      const readySource=state.source
+      state={...state,source:null,readiness:{reasons:['permission_missing']}}
       await page.goto(APP+'/admin/review/'+PAPER+'/article')
+      await page.getByText(t.articleSteps.permission_missing,{exact:true}).waitFor()
+      assert.equal(await page.getByRole('button',{name:t.generate,exact:true}).count(),0)
+      assert.ok(!actions.includes('generate'),'opening a blocked workspace never generates')
+      assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth))
+      await page.screenshot({path:'artifacts/ui/article-readiness-'+locale+'.png',fullPage:true})
+      state={...state,readiness:{reasons:['not_public','permission_withdrawn']}}
+      await page.getByRole('button',{name:t.checkReadiness,exact:true}).click()
+      await page.getByText(t.articleSteps.not_public,{exact:true}).waitFor()
+      await page.getByText(t.articleSteps.permission_withdrawn,{exact:true}).waitFor()
+      assert.equal(await page.getByText(t.articleSteps.permission_missing,{exact:true}).count(),0)
+      state={...state,source:readySource,readiness:{reasons:[]}}
+      await page.getByRole('button',{name:t.checkReadiness,exact:true}).click()
       await page.getByRole('button',{name:t.generate,exact:true}).click()
       await page.getByLabel(t.headline,{exact:true}).waitFor()
       const publish=page.getByRole('button',{name:t.publish,exact:true})
