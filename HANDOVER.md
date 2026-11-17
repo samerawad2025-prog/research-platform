@@ -1,5 +1,12 @@
 # HANDOVER — Sudanese Academic Research Platform
 
+## Simpler submission choices: 17 November 2026
+
+Gemini remains the automatic default when offered by the server. A small manual-entry action replaces the processing selector; switching processing clears the required acceptance. Full-paper sharing remains selected by default with abstract-only available. One expandable section contains processing details, the unchanged submission agreement and optional reader/article notice. Two unchecked choices remain beside Submit. Required wording reflects automatic versus manual processing; optional notice failure never hides the required agreement or creates permission.
+
+This is a presentation change using the existing agreements and exact permission hashes, not a new grant or expansion of data use. Existing papers, recorded acceptances, the extraction pipeline and server gates are unchanged. EN/AR hosted browser checks cover the combined disclosure, defaults, manual fallback, unavailable optional notice and server-only manual mode.
+
+
 ## Downloadable reading brief: 17 November 2026
 
 The comparison page offers one Download reading brief action. The bilingual UTF-8 text export includes the current question, selected study titles and years, exact keyword-matched abstract passages, source links and existing supervisor prompts. It is explicitly a dated reading aid, not generated synthesis, a literature review or proof of originality. Missing passages are stated, not inferred.
