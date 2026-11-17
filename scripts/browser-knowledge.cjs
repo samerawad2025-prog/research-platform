@@ -61,7 +61,7 @@ async function main(){
         if(u.pathname==='/api/admin/metrics-exclusion')return json(route,{ok:true})
         if(u.pathname==='/api/knowledge/compare'){
           const b=req.postDataJSON()
-          if(b.action==='source')return json(route,{available:true,count:2})
+          if(b.action==='source')return comparisonMode==='unavailable'?json(route,{reason:'unavailable'},503):json(route,{available:true,count:2})
           comparisonCalls.push(b)
           if(comparisonMode==='changed')return json(route,{reason:'source_changed'},409)
           if(comparisonMode==='insufficient')return json(route,{insufficient:true,claims:[],covered:0,count:2})
@@ -162,7 +162,19 @@ async function main(){
       await page.getByRole('button',{name:st.ask,exact:true}).click()
       await page.getByText(st.changed,{exact:true}).waitFor()
       assert.equal(await page.getByRole('button',{name:st.ask,exact:true}).count(),0)
+      const asksBeforeRetry=comparisonCalls.length
+      comparisonMode='unavailable'
+      await page.getByRole('button',{name:st.retry,exact:true}).click()
+      await page.getByText(st.unavailable,{exact:true}).waitFor()
+      assert.equal(await page.getByRole('button',{name:st.ask,exact:true}).count(),0)
+      assert.equal(await page.getByText('Synthetic comparison of the selected studies.',{exact:true}).count(),0)
       comparisonMode='normal'
+      await page.getByRole('button',{name:st.retry,exact:true}).click()
+      await page.getByRole('button',{name:st.ask,exact:true}).waitFor()
+      assert.equal(comparisonCalls.length,asksBeforeRetry,'availability retry never generates an answer')
+      await page.getByRole('button',{name:st.ask,exact:true}).click()
+      await page.getByText(st.coverage(2,2),{exact:true}).waitFor()
+      assert.equal(comparisonCalls.length,asksBeforeRetry+1)
       await page.getByRole('searchbox',{name:focused.question,exact:true}).fill('zzzznomatch')
       await page.getByRole('button',{name:focused.apply,exact:true}).click()
       await page.getByText(focused.noPassage,{exact:true}).first().waitFor()

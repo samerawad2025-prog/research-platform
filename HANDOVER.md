@@ -1,5 +1,12 @@
 # HANDOVER — Sudanese Academic Research Platform
 
+## Comparison availability recovery: 17 November 2026
+
+The multi-study reader now displays its initial availability check and offers Check again after an unavailable or changed source. Retrying rechecks server eligibility without generating an answer, spending an AI request, changing the selected studies or discarding the question. A stale answer is cleared. Provider generation still requires a separate explicit action, and all existing server permission, source-freshness and evidence checks remain.
+
+Hosted bilingual browser regression covers unavailable checks, recovery, no automatic generation and a subsequent successful answer using synthetic sources. Real multi-study provider quality remains pending two genuinely eligible studies. No database or permission change.
+
+
 ## Simpler submission choices: 17 November 2026
 
 Gemini remains the automatic default when offered by the server. A small manual-entry action replaces the processing selector; switching processing clears the required acceptance. Full-paper sharing remains selected by default with abstract-only available. One expandable section contains processing details, the unchanged submission agreement and optional reader/article notice. Two unchecked choices remain beside Submit. Required wording reflects automatic versus manual processing; optional notice failure never hides the required agreement or creates permission.

@@ -14,6 +14,7 @@ function Session({records,question,locale}){
   const t=SYNTHESIS_MESSAGES[locale],k=KNOWLEDGE_MESSAGES[locale]
   const ids=records.map(r=>r.public_id).join(',')
   const [available,setAvailable]=useState(null),[answer,setAnswer]=useState(null),[busy,setBusy]=useState(false),[error,setError]=useState('')
+  const [attempt,setAttempt]=useState(0)
   const active=useRef(null)
   useEffect(()=>{
     let live=true;const ac=new AbortController(),timer=setTimeout(()=>ac.abort(),10000)
@@ -21,7 +22,7 @@ function Session({records,question,locale}){
       .then(async r=>{const data=await r.json();if(live)setAvailable(r.ok&&data.available===true)})
       .catch(()=>{if(live)setAvailable(false)}).finally(()=>clearTimeout(timer))
     return()=>{live=false;clearTimeout(timer);ac.abort();if(active.current){clearTimeout(active.current.timer);active.current.ac.abort();active.current=null}}
-  },[ids,locale])
+  },[ids,locale,attempt])
   function cancel(){
     if(!active.current)return
     const request=active.current;active.current=null;clearTimeout(request.timer);request.ac.abort()
@@ -41,10 +42,14 @@ function Session({records,question,locale}){
     }catch{if(active.current===request)setError(request.timedOut?k.timedOut:t.unavailable)}
     finally{clearTimeout(request.timer);if(active.current===request){active.current=null;setBusy(false)}}
   }
-  if(available===null)return null
   return <section className={s.panel} aria-labelledby="comparison-reader-heading">
     <h2 id="comparison-reader-heading">{t.title}</h2>
-    {!available?<p role="status">{error||t.unavailable}</p>:<>
+    {available===null?<p role="status">{t.checking}</p>:!available?<>
+      <p role="status">{error||t.unavailable}</p>
+      <button type="button" className={s.secondary} onClick={()=>{
+        setAvailable(null);setAnswer(null);setError('');setAttempt(n=>n+1)
+      }}>{t.retry}</button>
+    </>:<>
       <p>{t.scope}</p>
       <details><summary>{locale==='ar'?'معالجة السؤال والمصادر':'Question and source processing'}</summary><p>{t.privacy} <a href="https://ai.google.dev/gemini-api/terms" target="_blank" rel="noopener noreferrer">{locale==='ar'?'شروط Google':'Google terms'}</a></p></details>
       {question.trim().length<3?<p>{t.needQuestion}</p>:<><p dir="auto">{question}</p><button className={s.button} type="button" disabled={busy} onClick={ask}>{busy?k.working:t.ask}</button></>}
