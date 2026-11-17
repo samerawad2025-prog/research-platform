@@ -128,6 +128,42 @@ async function run(){
     assert.equal(fx.calls.some(c=>c.name==='knowledge_save_draft'),false)
   }
   await assert.rejects(()=>generate({context,article:true,env:gEnv,fetchImpl:async()=>({ok:true,json:async()=>({candidates:[{finishReason:'STOP',content:{parts:[{text:'not JSON'}]}}]})})}),/provider_invalid_json/)
+
+  // Readiness diagnostics are administrator-only, fail closed, and do not write or generate.
+  for(const [record,permission,expected] of [
+    [context.source,{granted:true},['unavailable']],
+    [context.source,null,['permission_missing']],
+    [context.source,{granted:false},['permission_withdrawn']],
+    [null,null,['not_public','permission_missing']],
+    [{title:'Synthetic'}, {granted:true},['abstract_missing']],
+  ]){
+    const fx=fixture({knowledge_admin:()=>({data:{source:null,draft:null}}),public_record:()=>({data:record})})
+    let reads=0
+    fx.supabase.from=name=>{
+      reads++;assert.ok(['public_records','knowledge_permissions'].includes(name))
+      const q={select:()=>q,eq:()=>q,order:()=>q,limit:()=>q,maybeSingle:async()=>({data:name==='public_records'?{public_id:publicId}:permission})}
+      return q
+    }
+    const result=await handleKnowledgeAdmin({...fx,env,token:'valid-synthetic-token-long-enough',body:{action:'load',paperId}})
+    assert.deepEqual(result.body.readiness.reasons,expected)
+    assert.equal(reads,2);assert.equal(fx.count(),0)
+    assert.ok(!fx.calls.some(c=>/save|publish|rate_limit/.test(c.name)))
+    assert.ok(!JSON.stringify(result.body.readiness).includes(publicId))
+  }
+  {
+    const fx=fixture({knowledge_admin:()=>({data:{source:null,draft:null}})})
+    fx.supabase.from=()=>{throw Error('private diagnostic detail')}
+    const result=await handleKnowledgeAdmin({...fx,env,token:'valid-synthetic-token-long-enough',body:{action:'load',paperId}})
+    assert.deepEqual(result.body.readiness,{reasons:['unavailable']})
+    assert.ok(!JSON.stringify(result).includes('private diagnostic'))
+  }
+  {
+    const fx=fixture({knowledge_admin:()=>({error:{message:'admin:forbidden'}})})
+    fx.supabase.from=()=>{throw Error('must not query before authorization')}
+    const result=await handleKnowledgeAdmin({...fx,env,token:'valid-synthetic-token-long-enough',body:{action:'load',paperId}})
+    assert.equal(result.status,403);assert.equal(result.body.readiness,undefined)
+  }
+
   console.log('PASS knowledge: permissions, quotation checks, withdrawal during generation, quotas, auth, explicit review and provider isolation')
 }
 run().catch(e=>{console.error(e);process.exitCode=1})

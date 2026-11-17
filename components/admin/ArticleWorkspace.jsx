@@ -8,6 +8,7 @@ import s from '../research/knowledge.module.css'
 import ArticleClosing from '../research/ArticleClosing'
 export default function ArticleWorkspace({paperId}) {
   const {locale,me}=useAdmin(),t=KNOWLEDGE_MESSAGES[locale]
+  const [checking,setChecking]=useState(false)
   const [state,setState]=useState(null),[form,setForm]=useState(null),[dirty,setDirty]=useState(false),[reviewed,setReviewed]=useState(false),[busy,setBusy]=useState(false),[message,setMessage]=useState('')
   const request=useCallback(async body=>{
     const c=authClient(),session=await c?.auth.getSession()
@@ -19,11 +20,13 @@ export default function ArticleWorkspace({paperId}) {
     return data
   },[paperId])
   const load=useCallback(async()=>{
+    setChecking(true);setMessage('')
     try{
       const d=await request({action:'load'});setState(d)
       setForm(d.draft?Object.fromEntries(['headline','headline_ar','body_en','body_ar'].map(k=>[k,d.draft[k]||''])):null)
-      setDirty(false);setReviewed(false)
-    }catch{setMessage(t.unavailable)}
+      setDirty(false);setReviewed(false);return true
+    }catch{setState(null);setMessage(t.unavailable);return false}
+    finally{setChecking(false)}
   },[request,t.unavailable])
   // eslint-disable-next-line react-hooks/set-state-in-effect -- remote editor state
   useEffect(()=>{load()},[load])
@@ -31,7 +34,7 @@ export default function ArticleWorkspace({paperId}) {
     setBusy(true);setMessage('')
     try{
       await request({action,...(action==='save'?{hash:state.source.hash,content:form}:{}),...(action==='publish'?{versionId:state.draft.id,reviewed}: {})})
-      await load();setMessage(['publish','unpublish'].includes(action)?t.published:t.draftSaved)
+      if(await load())setMessage(['publish','unpublish'].includes(action)?t.published:t.draftSaved)
     }catch(e){setMessage(e.message==='rate_limit'?t.rate:['conflict','source_changed'].includes(e.message)?t.sourceChanged:t.articleErrors?.[e.message]||t.unavailable)}
     finally{setBusy(false)}
   }
@@ -39,8 +42,12 @@ export default function ArticleWorkspace({paperId}) {
   return <div className={s.editor}>
     <Link href={'/admin/review/'+paperId}>{t.back}</Link><h1>{t.editor}</h1>
     {message&&<p role="status">{message}</p>}
-    {!state&&<button className={s.button} onClick={load}>{t.reload}</button>}
-    {state&&!state.source&&<p>{t.missing}</p>}
+    {!state&&<button className={s.button} disabled={checking||busy} onClick={load}>{checking?t.working:t.reload}</button>}
+    {state&&!state.source&&<section className={s.panel} aria-labelledby="article-readiness-title">
+      <h2 id="article-readiness-title">{t.readinessTitle}</h2>
+      <ul>{(state.readiness?.reasons?.length?state.readiness.reasons:['unavailable']).map(reason=><li key={reason}>{t.articleSteps[reason]||t.articleSteps.unavailable}</li>)}</ul>
+      <button className={s.button} disabled={checking||busy} onClick={load}>{checking?t.working:t.checkReadiness}</button>
+    </section>}
     {state?.source&&<>
       <p>{t.scope}</p>
       <details className={s.panel}><summary>{t.sourceTitle}</summary>
