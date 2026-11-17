@@ -1,5 +1,14 @@
 # CURRENT_STATUS.md
 
+## Guided follow-up planning: 17 November 2026
+
+Phase 4 M3 now includes a compact planning section on study comparison. Students record a proposed question, replication/extension/new-context approach, the source finding or limitation to build on, and feasibility needs. A downloadable text plan combines the existing source-linked reading brief with a clearly separate student-proposals section. Empty fields stay unspecified; the platform does not infer gaps, methods or findings.
+
+Notes exist only in component memory. They are not sent to the server or Gemini, placed in URLs, stored in browser storage or saved by the platform. The interface warns users to download before leaving or changing the comparison, and ordinary page departure warns while a draft exists. Each download rechecks all public sources through the existing reading-brief endpoint; missing sources prevent export and leave notes intact. Requests have a 20-second deadline and are cancelled on unmount. Source eligibility after downloading cannot be guaranteed; the brief carries its existing timestamp and source links.
+
+Hosted unit and bilingual desktop/mobile browser tests cover separate attribution, source withdrawal, retry, retained notes, downloadable content and no note transmission/storage. No migration, new provider, permission expansion or automatic research claim. Real multi-study Gemini evaluation remains pending enough genuinely eligible sources; Phase 4 is not marked complete.
+
+
 ## Comparison availability recovery: 17 November 2026
 
 The multi-study reader now displays its initial availability check and offers Check again after an unavailable or changed source. Retrying rechecks server eligibility without generating an answer, spending an AI request, changing the selected studies or discarding the question. A stale answer is cleared. Provider generation still requires a separate explicit action, and all existing server permission, source-freshness and evidence checks remain.

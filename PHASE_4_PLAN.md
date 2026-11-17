@@ -102,3 +102,14 @@ One Gemini request uses the existing reader model/profile and shared client/glob
 
 Browser waits are bounded and cancelled on selection, question or language changes. Hosted tests use synthetic sources and provider responses. Real multi-study provider quality remains unverified until at least two genuine eligible studies are available. Do not create production fixtures or republish withdrawn records for validation. PR checks and the exact production deployment establish release status.
 
+
+## Guided follow-up planning: 17 November 2026
+
+Phase 4 M3 now includes a compact planning section on study comparison. Students record a proposed question, replication/extension/new-context approach, the source finding or limitation to build on, and feasibility needs. A downloadable text plan combines the existing source-linked reading brief with a clearly separate student-proposals section. Empty fields stay unspecified; the platform does not infer gaps, methods or findings.
+
+Notes exist only in component memory. They are not sent to the server or Gemini, placed in URLs, stored in browser storage or saved by the platform. The interface warns users to download before leaving or changing the comparison, and ordinary page departure warns while a draft exists. Each download rechecks all public sources through the existing reading-brief endpoint; missing sources prevent export and leave notes intact. Requests have a 20-second deadline and are cancelled on unmount. Source eligibility after downloading cannot be guaranteed; the brief carries its existing timestamp and source links.
+
+Hosted unit and bilingual desktop/mobile browser tests cover separate attribution, source withdrawal, retry, retained notes, downloadable content and no note transmission/storage. No migration, new provider, permission expansion or automatic research claim. Real multi-study Gemini evaluation remains pending enough genuinely eligible sources; Phase 4 is not marked complete.
+
+
+Next: evaluate the question-to-comparison-to-plan journey with genuine research and supervisor feedback. Multi-study provider quality, broader evidence coverage and article publication remain separate checks. Do not mark these complete based on synthetic browser tests.
