@@ -15,6 +15,7 @@ export default function Comparison({records,state,question='',terms=[]}) {
   <header className={s.catalogueHero}><h1 className={s.h1}>{t.title}</h1><p className={s.lead}>{t.intro}</p></header>
   {state!=='ready'?<p role="status" className={s.empty}>{t[state]}</p>:<>
    <p>{t.scope}</p>
+   <p><a className={s.button} href={'/api/public/reading-brief?'+new URLSearchParams({ids:records.map(p=>p.public_id).join(','),q:question,lang:locale}).toString()} download>{t.downloadBrief}</a></p>
    <form action="/research/compare" method="get" role="search" aria-label={t.question}>
     <input type="hidden" name="ids" value={records.map(p=>p.public_id).join(',')}/>
     <label htmlFor="comparison-question">{t.question}</label>

@@ -1,5 +1,14 @@
 # HANDOVER — Sudanese Academic Research Platform
 
+## Downloadable reading brief: 17 November 2026
+
+The comparison page offers one Download reading brief action. The bilingual UTF-8 text export includes the current question, selected study titles and years, exact keyword-matched abstract passages, source links and existing supervisor prompts. It is explicitly a dated reading aid, not generated synthesis, a literature review or proof of originality. Missing passages are stated, not inferred.
+
+The export rechecks every study through the existing public-record path on each request. Missing or withdrawn sources suppress the entire file; database failures return unavailable. Links use the configured site origin, never a request Host header. Responses are no-store, noindex and plain text attachments; private tokens, contacts and AI answers are excluded. No provider calls, new permissions, database migrations or document-download metric increments.
+
+Hosted handler and bilingual browser checks cover downloads, source links, missing sources and request validation. PR checks and the exact production deployment establish release status.
+
+
 ## Article readiness feedback: 17 November 2026
 
 The article workspace now reports the specific blocking prerequisite: publication, missing or withdrawn reader/article permission, or absent public abstract. A Check again action refreshes eligibility after the prerequisite is addressed. Diagnostic reads run only after the existing administrator and paper-access checks. Read failures or concurrent state changes show unavailable, not a fabricated permission state. Generation remains gated by knowledge_source and never starts automatically. No permission is granted or altered by these diagnostics.
