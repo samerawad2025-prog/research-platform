@@ -626,51 +626,41 @@ export default function AcceptanceSubmissionForm() {
       </fieldset>
 
       <fieldset className={styles.section}>
-        <legend>{ux.processing}</legend>
-        {decision==='automatic' ? <>
-          <label className={styles.field}>
-            <span className={styles.srOnly}>{ux.processing}</span>
-            <select value={form.processing} onChange={e=>update('processing',e.target.value)}>
-              <option value="automatic">{ux.auto}</option><option value="manual">{ux.manual}</option>
-            </select>
-          </label>
-          <p className={styles.hint}>{form.processing==='automatic'?ux.ai:ux.manualHint}</p>
-          <details className={styles.terms}><summary>{ux.more}</summary><p className={styles.hint} data-decision={decision} data-terms={processingTerms||undefined}>
-            {a.processing.automaticBy[processingTerms] || a.processing.automaticBy.gemini_api_unpaid}
-          </p></details>
-        </> : <p className={styles.hint}>{ux.manualHint}</p>}
-      </fieldset>
-
-      <fieldset className={styles.section}>
         <legend>{a.termsLegend}</legend>
+        <p className={styles.hint}>
+          {decision === 'automatic' && form.processing === 'automatic' ? ux.ai : ux.manualHint}
+        </p>
+        {decision === 'automatic' && (
+          <button type="button" className={styles.quietButton}
+            onClick={() => { update('processing', form.processing === 'automatic' ? 'manual' : 'automatic'); update('acceptedFor', null) }}>
+            {form.processing === 'automatic' ? ux.manual : ux.auto}
+          </button>
+        )}
         {agreement.language !== locale && (
           <p className={styles.hint}>{pinnedAgreementId ? a.pinnedLanguage : a.otherLanguage}</p>
         )}
-        <details className={styles.terms}>
-          <summary>
-            {a.readTerms} <span className={styles.version}>({a.version(agreement.versionLabel, agreement.versionDate)})</span>
-          </summary>
-          <section
-            data-agreement-language={agreement.language}
-            className={styles.termsBody}
-            aria-label={a.termsRegion}
-            tabIndex={0}
-            lang={agreement.language}
-            dir={dirFor(agreement.language)}
-          >
-            <AgreementText text={agreement.text} />
-            <p>{agreement.acceptanceSentence}</p>
-          </section>
-        </details>
-        <label className={styles.checkboxOption}>
-          <input
-            type="checkbox"
-            checked={accepted}
-            onChange={(e) => { update('acceptedFor', e.target.checked ? agreement.id : null); if (e.target.checked) setNotice(null) }}
-          />
-          <span lang={agreement.language} dir={dirFor(agreement.language)}>{ux.terms}</span>
-        </label>
-        <SubmissionKnowledgeChoice key={locale} locale={locale} choice={knowledgeChoice} onChange={setKnowledgeChoice} disabled={working} compact />
+        <SubmissionKnowledgeChoice key={locale} locale={locale} choice={knowledgeChoice}
+          onChange={setKnowledgeChoice} disabled={locked} compact
+          termsSummary={ux.allTerms}
+          termsContent={<>
+            {decision === 'automatic' && form.processing === 'automatic' && (
+              <p data-decision={decision} data-terms={processingTerms || undefined}>
+                {a.processing.automaticBy[processingTerms] || a.processing.automaticBy.gemini_api_unpaid}
+              </p>
+            )}
+            <section data-agreement-language={agreement.language} aria-label={a.termsRegion}
+              lang={agreement.language} dir={dirFor(agreement.language)}>
+              <p>{a.version(agreement.versionLabel, agreement.versionDate)}</p>
+              <AgreementText text={agreement.text} />
+              <p>{agreement.acceptanceSentence}</p>
+            </section>
+          </>}
+          requiredConsent={<label className={styles.checkboxOption}>
+            <input type="checkbox" checked={accepted}
+              onChange={(e) => { update('acceptedFor', e.target.checked ? agreement.id : null); if (e.target.checked) setNotice(null) }} />
+            <span>{decision === 'automatic' && form.processing === 'automatic' ? ux.terms : ux.manualTerms}</span>
+          </label>}
+        />
       </fieldset>
       </fieldset>
 

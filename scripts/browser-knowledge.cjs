@@ -37,6 +37,7 @@ async function main(){
       const t=KNOWLEDGE_MESSAGES[locale],ctx=await browser.newContext({viewport:{width,height:900}})
       await ctx.addCookies([{name:'sarp_lang',value:locale,url:APP}])
       await ctx.addInitScript(()=>localStorage.setItem('sarp-admin-auth',JSON.stringify({access_token:'synthetic-access-token-for-ui-only',refresh_token:'synthetic',expires_at:Math.floor(Date.now()/1000)+3600,expires_in:3600,token_type:'bearer',user:{id:'11111111-1111-4111-8111-111111111111'}})))
+      let submissionDecision='automatic',noticeFails=false
       let metadataConfirmed=true,confirmationFails=false,permissionFails=false,permissionWrites=0
       let comparisonMode='normal',comparisonCalls=[]
       let holdAnswers=false,pendingAnswers=[]
@@ -54,7 +55,7 @@ async function main(){
           metadataConfirmed=true;return json(route,{ok:true})
         }
         if(u.origin!==APP){errors.push('Unexpected browser network '+u.origin);return route.abort()}
-        if(u.pathname==='/api/submissions/terms')return json(route,{available:true,agreements:[{id:'synthetic-'+locale,language:locale,versionLabel:'Synthetic',versionDate:'2026-11-09',text:'# Synthetic agreement',acceptanceSentence:'Accept synthetic terms'}],offer:{token:'synthetic',decision:'automatic',expiresAt:new Date(Date.now()+1800000).toISOString()},processing:{terms:'gemini_api_unpaid'}})
+        if(u.pathname==='/api/submissions/terms')return json(route,{available:true,agreements:[{id:'synthetic-'+locale,language:locale,versionLabel:'Synthetic',versionDate:'2026-11-09',text:'# Synthetic agreement',acceptanceSentence:'Accept synthetic terms'}],offer:{token:'synthetic',decision:submissionDecision,expiresAt:new Date(Date.now()+1800000).toISOString()},processing:{terms:'gemini_api_unpaid'}})
         if(u.pathname==='/api/submissions/publication-status')return json(route,{state:'not_public',publicUrl:null})
         if(u.pathname==='/api/admin/me')return json(route,{role:'administrator',confidentiality_required:false})
         if(u.pathname==='/api/admin/metrics-exclusion')return json(route,{ok:true})
@@ -71,6 +72,7 @@ async function main(){
         }
         if(u.pathname==='/api/knowledge'){
           const b=req.postDataJSON()
+          if(b.action==='notice' && noticeFails)return json(route,{reason:'unavailable'},503)
           if(b.action==='notice')return json(route,{text:'Synthetic optional notice',hash:'b'.repeat(64),version:'synthetic'})
           if(b.action==='source')return json(route,{available:true,scope:'abstract',article:state.published_version_id?state.draft:null})
           if(b.action==='ask'&&holdAnswers){
@@ -294,10 +296,34 @@ async function main(){
       assert.equal(await page.locator('input[value="record_abstract_fulltext"]').isChecked(),true)
       await page.locator('input[value="record_abstract"]').check()
       await page.getByText(ux.abstractHint+' '+ux.review,{exact:true}).waitFor()
-      await page.getByRole('combobox',{name:ux.processing,exact:true}).selectOption('manual')
+      assert.equal(await page.getByRole('combobox',{name:ux.processing,exact:true}).count(),0)
+      assert.equal(await page.locator('form details').count(),1,'one terms disclosure')
+      await page.getByText(ux.allTerms,{exact:true}).click()
+      await page.getByText('Synthetic optional notice',{exact:true}).waitFor()
+      await page.locator('[data-agreement-language]').waitFor()
+      await page.getByText(ux.allTerms,{exact:true}).click()
+      await page.getByRole('checkbox',{name:ux.terms,exact:true}).check()
+      await page.getByRole('button',{name:ux.manual,exact:true}).click()
+      assert.equal(await page.getByRole('checkbox',{name:ux.manualTerms,exact:true}).isChecked(),false,'processing change requires fresh acceptance')
       await page.getByText(ux.manualHint,{exact:true}).waitFor()
       assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth))
       await page.screenshot({path:'artifacts/ui/short-submission-'+locale+'.png',fullPage:true})
+      await page.getByRole('button',{name:ux.auto,exact:true}).click()
+      await page.getByRole('checkbox',{name:ux.terms,exact:true}).waitFor()
+      assert.equal(await page.getByRole('checkbox',{name:ux.terms,exact:true}).isChecked(),false)
+      // Missing optional notice must not hide the required agreement or invent permission.
+      noticeFails=true
+      await page.reload()
+      await page.getByRole('checkbox',{name:ux.terms,exact:true}).waitFor()
+      await page.getByText(ux.later,{exact:true}).last().waitFor()
+      assert.equal(await page.getByRole('checkbox').count(),1)
+      assert.equal(permissionWrites,0)
+      noticeFails=false;submissionDecision='manual'
+      await page.reload()
+      await page.getByRole('checkbox',{name:ux.manualTerms,exact:true}).waitFor()
+      assert.equal(await page.getByRole('button',{name:ux.manual,exact:true}).count(),0)
+      assert.equal(await page.getByRole('button',{name:ux.auto,exact:true}).count(),0)
+      submissionDecision='automatic'
       const confirmLabel=locale==='ar'?'تأكيد هذه التفاصيل':'Confirm these details'
       // A choice from submission survives reload without another checkbox or early permission write.
       metadataConfirmed=false;granted=false;permissionWrites=0
