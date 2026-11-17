@@ -257,6 +257,10 @@ async function main(){
       const ux=SUBMISSION_UX[locale]
       await page.goto(APP+'/submit')
       await page.getByRole('combobox',{name:ux.role,exact:true}).waitFor()
+      await page.getByRole('checkbox',{name:ux.optionalLabel,exact:true}).waitFor()
+      assert.equal(await page.getByRole('checkbox').count(),2,'terms and optional AI choice sit together on the first page')
+      assert.equal(await page.getByRole('checkbox',{name:ux.optionalLabel,exact:true}).isChecked(),false)
+      assert.equal(await page.getByRole('checkbox',{name:ux.terms,exact:true}).isChecked(),false)
       assert.equal(await page.locator('input[value="record_abstract_fulltext"]').isChecked(),true)
       await page.locator('input[value="record_abstract"]').check()
       await page.getByText(ux.abstractHint+' '+ux.review,{exact:true}).waitFor()
@@ -265,6 +269,20 @@ async function main(){
       assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth))
       await page.screenshot({path:'artifacts/ui/short-submission-'+locale+'.png',fullPage:true})
       const confirmLabel=locale==='ar'?'تأكيد هذه التفاصيل':'Confirm these details'
+      // A choice from submission survives reload without another checkbox or early permission write.
+      metadataConfirmed=false;granted=false;permissionWrites=0
+      await page.evaluate(async language=>{
+        const bytes=await crypto.subtle.digest('SHA-256',new TextEncoder().encode('a'.repeat(64)))
+        const key='sarp-reader-choice:'+Array.from(new Uint8Array(bytes),b=>b.toString(16).padStart(2,'0')).join('')
+        sessionStorage.setItem(key,JSON.stringify({choice:{language,hash:'b'.repeat(64)},expiresAt:Date.now()+86400000}))
+      },locale)
+      await page.goto(APP+'/confirm/'+'a'.repeat(64))
+      await page.getByText(ux.selected,{exact:false}).waitFor()
+      assert.equal(await page.getByRole('checkbox',{name:ux.optionalLabel,exact:true}).count(),0)
+      assert.equal(permissionWrites,0)
+      await page.reload();await page.getByText(ux.selected,{exact:false}).waitFor()
+      await page.getByRole('button',{name:confirmLabel,exact:true}).click()
+      await page.getByText(ux.saved,{exact:true}).waitFor();assert.equal(permissionWrites,1)
       // The optional grant happens after successful metadata confirmation only.
       metadataConfirmed=false;granted=false;permissionWrites=0;confirmationFails=true
       await page.goto(APP+'/confirm/'+'a'.repeat(64))

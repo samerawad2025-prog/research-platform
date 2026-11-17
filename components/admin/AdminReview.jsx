@@ -4,12 +4,11 @@ import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { REVIEW_ACTIONS } from '../../lib/i18nReviewActions'
 import { KNOWLEDGE_MESSAGES } from '../../lib/i18nKnowledge'
-import { api, authClient } from '../../lib/admin/adminClient'
+import { api } from '../../lib/admin/adminClient'
 import { useAdmin, errorText } from './AdminProvider'
 import s from './admin.module.css'
 
 const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-const FILE_TYPES = { pdf: 'application/pdf', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }
 
 function Section({ id, title, children, collapsible = false, expanded = false }) {
   if (collapsible) return <details className={s.section} open={expanded} data-section={id}><summary className={s.summary}><h2 id={id} className={s.summaryHeading}>{title}</h2></summary><div className={s.sectionBody}>{children}</div></details>
@@ -31,13 +30,11 @@ export default function AdminReview({ paperId, knowledgeEnabled = false }) {
   const [err, setErr] = useState(null)
   const [institutions, setInstitutions] = useState([])
   const [staff, setStaff] = useState([])
-  const [note, setNote] = useState('')
   const [msg, setMsg] = useState({})
   const [busy, setBusy] = useState('')
   const [editing, setEditing] = useState(false)
   const a = REVIEW_ACTIONS[locale]
   const fmt = (x) => (x ? new Date(x).toLocaleString(locale === 'ar' ? 'ar-SD-u-nu-latn' : 'en-GB') : '')
-  const day = (x) => (x ? new Date(x).toLocaleDateString(locale === 'ar' ? 'ar-SD-u-nu-latn' : 'en-GB') : '')
   const instName = (i) => (locale === 'ar' && i?.name_ar) || i?.name_en
 
   const load = useCallback(async () => {
@@ -160,24 +157,12 @@ export default function AdminReview({ paperId, knowledgeEnabled = false }) {
             {d.duplicates.hidden_count > 0 && <p className={s.muted}>{r.duplicatesHidden(d.duplicates.hidden_count)}</p>}
           </Section>
 
-          <Documents {...{ d, t, r, isAdmin, act, busy, msg, say, paperId, fullText, fmt }} />
+          <Documents {...{ d, t, r, isAdmin, act, busy, msg, say, paperId, fullText, fmt }} compact />
 
-          <Section collapsible expanded={openIssues.length > 0} id="is-h" title={r.issuesHeading}>
-            {d.issues.length === 0 && <p>{r.issuesNone}</p>}
-            <ul className={s.list}>{d.issues.map((i) => <IssueItem key={i.id} i={i} t={t} r={r} act={act} paperId={paperId} busy={busy} />)}</ul>
-            <IssueForm t={t} r={r} act={act} paperId={paperId} busy={busy} msg={msg.issue} approved={d.states.approval_recorded} />
-          </Section>
-
-          <Section collapsible id="nt-h" title={r.notesHeading}>
-            <p className={s.muted}>{r.notesIntro}</p>
-            {d.notes.length === 0 && <p>{r.notesNone}</p>}
-            <ul className={s.list}>{d.notes.map((n) => <li key={n.id} className={s.item}><span className={s.bidi} style={{ whiteSpace: 'pre-wrap' }}>{n.body}</span><div className={s.meta}><span>{t.roles[n.author_role]}</span><span>{fmt(n.created_at)}</span></div></li>)}</ul>
-            <form className={s.form} onSubmit={async (e) => { e.preventDefault(); const x = await act('note', () => api('POST', `reviews/${paperId}/notes`, { body: note })); if (x.ok) setNote('') }}>
-              <label className={s.field}><span>{r.noteText}</span><textarea value={note} maxLength={5000} onChange={(e) => setNote(e.target.value)} /></label>
-              <div><button className={s.secondary} disabled={!note.trim() || busy === 'note'}>{r.addNote}</button></div>
-              <Msg m={msg.note} />
-            </form>
-          </Section>
+          {openIssues.length > 0 && <div role="status">
+            <ul className={s.list}>{openIssues.map(i=><IssueItem key={i.id} i={i} t={t} r={r} act={act} paperId={paperId} busy={busy}/>)}</ul>
+            <Msg m={msg.issue}/>
+          </div>}
 
           {!isAdmin && <Recommend {...{ t, r, act, busy, paperId, msg }} />}
         </div>
@@ -201,7 +186,6 @@ export default function AdminReview({ paperId, knowledgeEnabled = false }) {
 
           <InstitutionBox {...{ d, t, r, institutions, act, busy, paperId, msg, isAdmin, instName, lang: locale }} />
           {isAdmin && isLegacy && <LegacyBox {...{ d, t, r, act, busy, paperId, msg }} />}
-          {isAdmin && <AuthorityBox {...{ d, t, r, act, busy, paperId, msg, day }} />}
           {isAdmin && <EmbargoBox {...{ d, t, r, act, busy, paperId, msg }} />}
           {isAdmin && <Eligibility {...{ d, t, r }} />}
           {d.approvals?.length > 0 && (
@@ -219,17 +203,7 @@ export default function AdminReview({ paperId, knowledgeEnabled = false }) {
           )}
           {isAdmin && (d.assignments?.length > 0 || staff.some((u) => u.role === 'volunteer' && u.active)) && <Assignments {...{ d, t, r, staff, act, busy, paperId, msg }} />}
 
-          <Section collapsible id="hi-h" title={r.historyHeading}>
-            <p className={s.muted}>{r.historyIntro}</p>
-            {d.events.length === 0 && <p>{r.historyNone}</p>}
-            <ol className={s.events} reversed>{d.events.map((e) => (
-              <li key={e.id}>
-                <strong>{r.actions[e.action] || e.action}</strong>
-                <div className={s.muted}>{fmt(e.at)} · {r.by(e.actor_role === 'submitter' ? r.submitterActor : e.actor_role?.startsWith('database') ? r.databaseActor : e.actor_email || t.roles[e.actor_role] || r.unknownActor)}</div>
-                {e.detail?.reason && <div className={s.bidi}>{e.detail.reason}</div>}
-                {e.detail?.changed_fields && <div className={s.muted}>{r.changedFields(e.detail.changed_fields.join(', '))}</div>}
-              </li>))}</ol>
-          </Section>
+
         </aside>
       </div>
       </div>}
@@ -259,22 +233,6 @@ function IssueItem({ i, t, r, act, paperId, busy }) {
   )
 }
 
-function IssueForm({ t, r, act, paperId, busy, msg, approved }) {
-  const [f, setF] = useState({ kind: 'metadata', description: '', blocking: true })
-  return (
-    <form className={s.form} onSubmit={async (e) => { e.preventDefault(); const x = await act('issue', () => api('POST', `reviews/${paperId}/issues`, f)); if (x.ok) setF({ ...f, description: '' }) }}>
-      <h3 className={s.h3}>{r.raiseIssue}</h3>
-      <label className={s.field}><span>{r.issueKind}</span>
-        <select value={f.kind} onChange={(e) => setF({ ...f, kind: e.target.value })}>{Object.entries(r.issueKinds).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label>
-      <label className={s.field}><span>{r.issueDescription}</span><textarea value={f.description} maxLength={2000} onChange={(e) => setF({ ...f, description: e.target.value })} /></label>
-      {f.blocking && approved && <p className={s.banner}>{r.blockingIssueWarning}</p>}
-      <label className={s.check}><input type="checkbox" checked={f.blocking} onChange={(e) => setF({ ...f, blocking: e.target.checked })} /><span>{r.issueBlockingCheck}</span></label>
-      <div><button className={s.secondary} disabled={!f.description.trim() || busy === 'issue'}>{r.raiseIssue}</button></div>
-      <Msg m={msg} />
-    </form>
-  )
-}
-
 function Recommend({ t, r, act, busy, paperId, msg }) {
   const [f, setF] = useState({ recommendation: 'approve', reason: '' })
   return (
@@ -294,12 +252,14 @@ function Recommend({ t, r, act, busy, paperId, msg }) {
 function Decide({ d, t, r, act, busy, paperId, msg, fullText, a, onEdit, editing }) {
   const [pending, setPending] = useState('')
   const [version, setVersion] = useState('')
+  const [authorityNote,setAuthorityNote]=useState('')
   const versions = d.documents.versions.filter(v => ['proposed','approved'].includes(v.state))
   const chosen = version || (versions.length === 1 ? versions[0].id : '')
   const needsVersion = fullText && !chosen
   async function decide(decision, confirmed = false) {
     if (busy) return
     if (decision !== 'approved' && d.review.status === 'approved' && !confirmed) { setPending(decision); return }
+    if (decision === 'approved' && d.submitter.claimed_role==='authorized_depositor' && !d.review.authority_verified_at) { setPending('authority'); return }
     if (decision === 'approved' && needsVersion) { setPending('approved'); return }
     const body = { decision, reason: decision === 'declined' ? a.decline : decision === 'withdrawn' ? a.archive : null,
       expectedRevision:d.revision, disseminationVersionId:decision === 'approved' && fullText ? chosen : null }
@@ -314,7 +274,7 @@ function Decide({ d, t, r, act, busy, paperId, msg, fullText, a, onEdit, editing
       <button type="button" className={s.secondary} aria-expanded={editing} aria-controls="review-edit" onClick={onEdit}>{editing ? a.done : a.edit}</button>
     </div>
     {pending === 'approved' && <div className={s.form}>
-      {versions.length === 0 ? <p role="status">{a.fileNeeded}</p> : <>
+      {versions.length === 0 ? <><p>{a.reviewOriginal}</p><button type="button" className={s.secondary} disabled={!!busy} onClick={()=>act('des',()=>api('POST',`reviews/${paperId}/documents`,{origin:'original_reviewed'}))}>{a.useOriginal}</button><Msg m={msg.des}/></> : <>
         <label className={s.field}><span>{r.decideDissemination}</span>
           <select value={chosen} onChange={e=>setVersion(e.target.value)}>
             <option value="">{r.decideDisseminationNone}</option>
@@ -324,7 +284,11 @@ function Decide({ d, t, r, act, busy, paperId, msg, fullText, a, onEdit, editing
         <button type="button" className={s.primary} disabled={!!busy || !chosen} onClick={()=>decide('approved')}>{a.approve}</button>
       </>}
     </div>}
-    {pending && pending !== 'approved' && <div className={s.banner}>
+    {pending==='authority' && <form className={s.form} onSubmit={e=>{e.preventDefault();act('auth',()=>api('POST',`reviews/${paperId}/authority`,{verified:true,note:authorityNote}))}}>
+      <label className={s.field}><span>{a.authorityPrompt}</span><input value={authorityNote} maxLength={2000} onChange={e=>setAuthorityNote(e.target.value)}/></label>
+      <button className={s.secondary} disabled={!!busy||!authorityNote.trim()}>{a.verifyAuthority}</button><Msg m={msg.auth}/>
+    </form>}
+    {pending && !['approved','authority'].includes(pending) && <div className={s.banner}>
       <p>{a.removePublic}</p>
       <div className={s.row}>
         <button type="button" className={s.danger} disabled={!!busy} onClick={()=>decide(pending,true)}>{a.confirm}</button>
@@ -385,22 +349,6 @@ function LegacyBox({ d, t, r, act, busy, paperId, msg }) {
   )
 }
 
-function AuthorityBox({ d, t, r, act, busy, paperId, msg, day }) {
-  const [n, setN] = useState('')
-  const on = !!d.review.authority_verified_at
-  return (
-    <Section collapsible expanded={!on && d.evidence?.setting === 'record_abstract_fulltext'} id="au-h" title={r.authorityHeading}>
-      <p className={s.muted}>{r.authorityIntro}</p>
-      <p>{on ? r.authorityVerified(day(d.review.authority_verified_at)) : r.authorityNotVerified}</p>
-      <form className={s.form} onSubmit={async (e) => { e.preventDefault(); const x = await act('auth', () => api('POST', `reviews/${paperId}/authority`, { verified: !on, note: n })); if (x.ok) setN('') }}>
-        <label className={s.field}><span>{r.authorityNote}</span><textarea value={n} maxLength={2000} onChange={(e) => setN(e.target.value)} /></label>
-        <div><button className={s.secondary} disabled={!n.trim() || busy === 'auth'}>{on ? r.authorityClear : r.authorityMark}</button></div>
-        <Msg m={msg.auth} />
-      </form>
-    </Section>
-  )
-}
-
 function EmbargoBox({ d, t, r, act, busy, paperId, msg }) {
   const [f, setF] = useState({ until: d.review.embargo_until || '', note: '' })
   return (
@@ -455,77 +403,15 @@ function Assignments({ d, t, r, staff, act, busy, paperId, msg }) {
   )
 }
 
-function Documents({ d, t, r, isAdmin, act, busy, msg, say, paperId, fullText, fmt, compact = false }) {
-  const [file, setFile] = useState(null)
-  const [redaction, setRedaction] = useState('')
-  const [reasons, setReasons] = useState({})
-  const doc = d.documents
-  async function openFile(versionId) {
-    say('open', null)
-    const x = await api('POST', `reviews/${paperId}/files/access`, { versionId: versionId || null })
-    if (!x.ok) { say('open', { ok: false, text: errorText(t, x) }); return }
-    window.open(x.data.url, '_blank', 'noopener,noreferrer')
+function Documents({ t, r, msg, say, paperId }) {
+  async function openFile() {
+    say('open',null)
+    const x=await api('POST',`reviews/${paperId}/files/access`,{versionId:null})
+    if(!x.ok){say('open',{ok:false,text:errorText(t,x)});return}
+    window.open(x.data.url,'_blank','noopener,noreferrer')
   }
-  async function upload(e) {
-    e.preventDefault()
-    if (!file) return
-    const ext = (file.name.split('.').pop() || '').toLowerCase()
-    say('up', null)
-    const created = await act('up', () => api('POST', `reviews/${paperId}/documents`, { origin: 'redacted_copy', redactionNote: redaction, file: { name: file.name, size: file.size, type: FILE_TYPES[ext] || file.type } }), r.uploading)
-    if (!created.ok) return
-    const c = authClient()
-    const up = created.data.upload
-    const put = await c.storage.from(up.bucket).uploadToSignedUrl(up.path, up.token, file, { contentType: FILE_TYPES[ext] || file.type })
-    if (put.error) { say('up', { ok: false, text: t.errors.storage_unavailable }); return }
-    await act('up', () => api('POST', `reviews/${paperId}/documents/${created.data.versionId}/finalize`, {}))
-    setFile(null); setRedaction('')
-  }
-  return (
-    <Section id="dm-h" title={r.documentsHeading}>
-      {!compact && <p className={s.muted}>{r.filesLogged}</p>}
-      <p><strong>{r.original}</strong></p>
-      
-      <div className={s.row}><button className={s.secondary} onClick={() => openFile(null)}>{r.openOriginal}</button></div>
-      <Msg m={msg.open} />
-      {!compact && <details className={s.documentDetails}>
-        <summary className={s.summary}>{r.versionsHeading}</summary>
-        <div className={s.sectionBody}>
-        <Dl rows={[[r.originalHash, doc.original.sha256 || r.hashUnknown]]} />
-      {!fullText && <p className={s.muted}>{r.versionsNotNeeded}</p>}
-      {doc.versions.length === 0 && <p>{r.versionsNone}</p>}
-      <ul className={s.list}>{doc.versions.map((v) => (
-        <li key={v.id} className={s.item}>
-          <strong>{r.versionOrigins[v.origin]}</strong> · {r.versionStates[v.state]}
-          <div className={s.meta}><span dir="ltr">{(v.sha256 || '').slice(0, 16)}</span><span>{fmt(v.created_at)}</span></div>
-          {v.redaction_note && <p className={s.bidi}>{r.redactionNote}: {v.redaction_note}</p>}
-          {['proposed', 'approved'].includes(v.state) && <button className={s.link} onClick={() => openFile(v.id)}>{r.openVersion}</button>}
-          {isAdmin && ['pending_upload', 'recorded', 'proposed'].includes(v.state) && (
-            <form className={s.row} onSubmit={(e) => { e.preventDefault(); act('vw', () => api('POST', `reviews/${paperId}/documents/${v.id}/withdraw`, { reason: reasons[v.id] || '' })) }}>
-              <label className={s.field}><span>{r.withdrawVersionReason}</span><input value={reasons[v.id] || ''} onChange={(e) => setReasons({ ...reasons, [v.id]: e.target.value })} /></label>
-              <button className={s.danger} disabled={!(reasons[v.id] || '').trim()}>{r.withdrawVersion}</button>
-            </form>
-          )}
-        </li>))}</ul>
-      <Msg m={msg.vw} />
-      {isAdmin && fullText && (
-        <>
-          <div className={s.row}>
-            <button className={s.secondary} disabled={busy === 'des'} onClick={() => act('des', () => api('POST', `reviews/${paperId}/documents`, { origin: 'original_reviewed' }))}>{busy === 'des' ? r.designating : r.designate}</button>
-          </div>
-          <p className={s.muted}>{r.designateHelp}</p>
-          <Msg m={msg.des} />
-          <form className={s.form} onSubmit={upload}>
-            <h3 className={s.h3}>{r.uploadRedacted}</h3>
-            <p className={s.muted}>{r.uploadHelp}</p>
-            <label className={s.field}><span>{r.chooseFile}</span><input type="file" accept=".pdf,.docx" onChange={(e) => setFile(e.target.files?.[0] || null)} /></label>
-            <label className={s.field}><span>{r.redactionNote}</span><textarea value={redaction} maxLength={2000} onChange={(e) => setRedaction(e.target.value)} /></label>
-            <div><button className={s.secondary} disabled={!file || !redaction.trim() || busy === 'up'}>{busy === 'up' ? r.uploading : r.uploadRedacted}</button></div>
-            <Msg m={msg.up} />
-          </form>
-        </>
-      )}
-        </div>
-      </details>}
-    </Section>
-  )
+  return <Section id="dm-h" title={r.documentsHeading}>
+    <button type="button" className={s.secondary} onClick={openFile}>{r.openOriginal}</button>
+    <Msg m={msg.open}/>
+  </Section>
 }

@@ -1,5 +1,14 @@
 # HANDOVER — Sudanese Academic Research Platform
 
+## Submission and review simplification: 17 November 2026
+
+The submission terms and optional reader/article permission now appear together beside Submit. Both start unchecked. The sharing and extraction choices remain visible, while full notices stay expandable. The optional selection is carried to metadata confirmation using a tab-local, token-digest-scoped record with a one-day expiry. The pending upload snapshot also preserves it for recovery. Confirmation saves the permission only after metadata is successfully confirmed, against the exact notice hash and language selected. A declined choice grants nothing. Direct confirmation visits or unavailable storage retain the explicit fallback choice. Existing permissions and agreements are unchanged.
+
+The admin review removes History, Private notes, Versions for release and the standing Authority to publish panel. Open issues appear only when present, with resolution available. A depositor's missing authority verification and a missing reviewed file are handled at the approval action, never silently inferred. Audit data and server publication gates remain intact. No database migration or production-content change.
+
+Hosted bilingual browser tests cover the two visible choices, carried selection, no early grant, confirmation failure, skipped choice, permission failure, and simplified review. Handoff tests cover cross-paper isolation, expiry and storage failures. PR checks and exact production deployment determine release status.
+
+
 ## Multi-study reader pilot: 16 November 2026
 
 The comparison page adds an on-demand reader for two or three public studies. Every study must pass the existing knowledge_source publication and optional-permission checks. The server sends only approved titles and abstracts, labeled S1-S3, and the reader's question. Each answer is limited to four claims, with exact quotations tied to the correct study and source language. Comparison claims require at least two distinct studies; the answer must cite at least two studies overall or report insufficient evidence. Coverage is displayed explicitly.

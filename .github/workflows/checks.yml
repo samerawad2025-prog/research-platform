@@ -95,6 +95,8 @@ jobs:
       - name: Source-grounded reader and article handlers
         run: node scripts/test-knowledge.js
 
+      - name: Consent choice handoff
+        run: node scripts/test-consent-handoff.js
       - name: Multi-study reader gates and source citations
         run: node scripts/test-knowledge-comparison.js
 

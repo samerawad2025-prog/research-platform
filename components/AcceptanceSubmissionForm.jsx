@@ -22,6 +22,8 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '../lib/supabaseClient'
 import { SUBMISSION_UX } from '../lib/i18nSubmissionUX'
 import PhoneField from './PhoneField'
+import SubmissionKnowledgeChoice from './SubmissionKnowledgeChoice'
+import {rememberKnowledgeChoice} from '../lib/submission/knowledgeChoice'
 import AgreementText from './AgreementText'
 import Button from './ui/Button'
 import { DEFAULT_COUNTRY, validateWhatsApp, formatAsYouType } from '../lib/validation/phone'
@@ -104,6 +106,7 @@ export default function AcceptanceSubmissionForm() {
     website: '',
   })
   const [file, setFile] = useState(null)
+  const [knowledgeChoice,setKnowledgeChoice]=useState(null)
   const fileSerial = useRef(0)
   const [touched, setTouched] = useState({})
   // idle | intent | upload | finalize | narrowed | opening. 'opening' is
@@ -247,6 +250,7 @@ export default function AcceptanceSubmissionForm() {
         clearPending()
         intentRef.current = null
         markReceived()
+        await rememberKnowledgeChoice(res.body.confirmationToken,intent.knowledgeChoice)
         if (res.body.extraction?.mayStart) {
           // keepalive: the request must survive the navigation below.
           fetch('/api/extract', {
@@ -349,7 +353,8 @@ export default function AcceptanceSubmissionForm() {
         authors: form.authors,
         file: { name: chosenFile.name, size: chosenFile.size, type: chosenType },
       })
-      const key = snapshotKey(body, fileSerial.current)
+      const selectedKnowledge=knowledgeChoice?.language===locale?knowledgeChoice:null
+      const key = snapshotKey(body, fileSerial.current)+JSON.stringify(selectedKnowledge)
       let intent = reusableIntent(intentRef.current, key)
       if (!intent) {
         discardIntent()
@@ -365,7 +370,7 @@ export default function AcceptanceSubmissionForm() {
           setError(out.error)
           return
         }
-        intent = { ...res.body, key, uploaded: false, file: chosenFile, fileType: chosenType }
+        intent = { ...res.body, key, knowledgeChoice:selectedKnowledge, uploaded: false, file: chosenFile, fileType: chosenType }
         intentRef.current = intent
         savePending(intent)
         if (intent.processing?.changedFromOffer) {
@@ -654,6 +659,7 @@ export default function AcceptanceSubmissionForm() {
             dir={dirFor(agreement.language)}
           >
             <AgreementText text={agreement.text} />
+            <p>{agreement.acceptanceSentence}</p>
           </section>
         </details>
         <label className={styles.checkboxOption}>
@@ -662,8 +668,9 @@ export default function AcceptanceSubmissionForm() {
             checked={accepted}
             onChange={(e) => { update('acceptedFor', e.target.checked ? agreement.id : null); if (e.target.checked) setNotice(null) }}
           />
-          <span lang={agreement.language} dir={dirFor(agreement.language)}>{agreement.acceptanceSentence}</span>
+          <span lang={agreement.language} dir={dirFor(agreement.language)}>{ux.terms}</span>
         </label>
+        <SubmissionKnowledgeChoice key={locale} locale={locale} choice={knowledgeChoice} onChange={setKnowledgeChoice} disabled={working} compact />
       </fieldset>
       </fieldset>
 
