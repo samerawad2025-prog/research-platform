@@ -106,6 +106,9 @@ jobs:
       - name: Question discovery and verbatim passages
         run: node scripts/test-discovery.js
 
+      - name: Research planning export
+        run: node scripts/test-research-plan.js
+
       - name: Reading brief export
         run: node scripts/test-reading-brief.js
       - name: Public study comparison

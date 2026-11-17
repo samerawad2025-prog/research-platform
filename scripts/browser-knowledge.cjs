@@ -2,7 +2,8 @@
 const assert=require('node:assert/strict')
 const {createServer}=require('node:http')
 const {spawn}=require('node:child_process')
-const {mkdirSync}=require('node:fs')
+const {mkdirSync,readFileSync}=require('node:fs')
+const {RESEARCH_PLAN_MESSAGES}=require('../lib/i18nResearchPlan')
 const {chromium}=require('playwright')
 const {DISCOVERY_MESSAGES}=require('../lib/i18nDiscovery')
 const {DIRECTIONS_MESSAGES}=require('../lib/i18nDirections')
@@ -37,6 +38,7 @@ async function main(){
       const t=KNOWLEDGE_MESSAGES[locale],ctx=await browser.newContext({viewport:{width,height:900}})
       await ctx.addCookies([{name:'sarp_lang',value:locale,url:APP}])
       await ctx.addInitScript(()=>localStorage.setItem('sarp-admin-auth',JSON.stringify({access_token:'synthetic-access-token-for-ui-only',refresh_token:'synthetic',expires_at:Math.floor(Date.now()/1000)+3600,expires_in:3600,token_type:'bearer',user:{id:'11111111-1111-4111-8111-111111111111'}})))
+      let planBlocked=false,planRequests=[]
       let submissionDecision='automatic',noticeFails=false
       let metadataConfirmed=true,confirmationFails=false,permissionFails=false,permissionWrites=0
       let comparisonMode='normal',comparisonCalls=[]
@@ -55,6 +57,10 @@ async function main(){
           metadataConfirmed=true;return json(route,{ok:true})
         }
         if(u.origin!==APP){errors.push('Unexpected browser network '+u.origin);return route.abort()}
+        if(u.pathname==='/api/public/reading-brief'){
+          planRequests.push({url:req.url(),body:req.postData()})
+          if(planBlocked)return route.fulfill({status:404,contentType:'text/plain',body:'Unavailable'})
+        }
         if(u.pathname==='/api/submissions/terms')return json(route,{available:true,agreements:[{id:'synthetic-'+locale,language:locale,versionLabel:'Synthetic',versionDate:'2026-11-09',text:'# Synthetic agreement',acceptanceSentence:'Accept synthetic terms'}],offer:{token:'synthetic',decision:submissionDecision,expiresAt:new Date(Date.now()+1800000).toISOString()},processing:{terms:'gemini_api_unpaid'}})
         if(u.pathname==='/api/submissions/publication-status')return json(route,{state:'not_public',publicUrl:null})
         if(u.pathname==='/api/admin/me')return json(route,{role:'administrator',confidentiality_required:false})
@@ -142,6 +148,40 @@ async function main(){
       const downloadEvent=page.waitForEvent('download')
       await briefLink.click()
       assert.equal((await downloadEvent).suggestedFilename(),'sarp-reading-brief-'+locale+'.txt')
+      const plan=RESEARCH_PLAN_MESSAGES[locale]
+      await page.getByText(plan.title,{exact:true}).click()
+      const note='PRIVATE_PLANNING_NOTE_'+locale
+      await page.getByRole('textbox',{name:plan.question,exact:true}).fill(note)
+      await page.getByRole('combobox',{name:plan.approach,exact:true}).selectOption('context')
+      await page.getByRole('textbox',{name:plan.foundation,exact:true}).fill('Synthetic study reports 40 farms; I propose a different setting.')
+      await page.getByRole('textbox',{name:plan.feasibility,exact:true}).fill('Data access is unconfirmed.')
+      let planDownloads=0
+      const trackDownload=()=>{planDownloads++}
+      page.on('download',trackDownload)
+      planBlocked=true
+      await page.getByRole('button',{name:plan.download,exact:true}).click()
+      await page.getByRole('alert').filter({hasText:plan.error}).waitFor()
+      assert.equal(planDownloads,0,'withdrawn source prevents plan export')
+      assert.equal(await page.getByRole('textbox',{name:plan.question,exact:true}).inputValue(),note)
+      planBlocked=false
+      const planEvent=page.waitForEvent('download')
+      await page.getByRole('button',{name:plan.download,exact:true}).click()
+      const planDownload=await planEvent
+      assert.equal(planDownload.suggestedFilename(),'sarp-research-plan-'+locale+'.txt')
+      const planText=readFileSync(await planDownload.path(),'utf8')
+      assert.ok(planText.includes(note))
+      assert.ok(planText.includes(plan.notEvidence))
+      assert.ok(planText.includes(APP+'/research/'+PID))
+      assert.ok(planText.includes(plan.approaches.context))
+      assert.ok(planRequests.length>=2)
+      assert.ok(planRequests.every(r=>!r.url.includes(note)&&!r.body),'notes are not sent to the server')
+      assert.equal(await page.evaluate(value=>Object.values(localStorage).some(v=>v.includes(value))||Object.values(sessionStorage).some(v=>v.includes(value)),note),false)
+      assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth))
+      await page.screenshot({path:'artifacts/ui/research-plan-'+locale+'.png',fullPage:true})
+      page.off('download',trackDownload)
+      // Discard only this synthetic draft before navigating to the next scenario.
+      for(const label of [plan.question,plan.foundation,plan.feasibility])await page.getByRole('textbox',{name:label,exact:true}).fill('')
+      await page.getByRole('combobox',{name:plan.approach,exact:true}).selectOption('undecided')
       const st=SYNTHESIS_MESSAGES[locale]
       await page.getByRole('heading',{name:st.title,exact:true}).waitFor()
       await page.getByRole('button',{name:st.ask,exact:true}).click()

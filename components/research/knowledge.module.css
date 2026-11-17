@@ -47,3 +47,7 @@
 .consentChoice input { flex-shrink: 0; min-width: 20px; min-height: 20px; accent-color: #1d7079; }
 .consentChoice details { margin-top: .5rem; }
 .consentChoice .hint { margin: .5rem 0; }
+
+.planFields { border: 0; padding: 0; margin: 0 0 var(--space-4); min-width: 0; }
+.planLegend { font-weight: 600; color: var(--identity-navy); }
+.planFields select { width: 100%; min-height: 48px; padding: var(--space-3); font: inherit; font-size: 16px; color: var(--ink); background: var(--surface); border: 1px solid var(--line-control); border-radius: var(--radius-sm); }
