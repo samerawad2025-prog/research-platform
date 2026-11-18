@@ -2,6 +2,12 @@
 
 Prepared 2026-10-20. Status: materials ready; recruitment and participant sessions have not started. These are proposed operating targets, not measured results or external benchmarks.
 
+## Current scope, 18 November 2026
+
+Participation is optional. Contacting submitters, recruiting five people, or collecting feedback is not a prerequisite for development or publication. The cohort sizes and targets below are suggestions for a voluntary evaluation, not mandatory gates. No invitations have been sent. Completed feedback stays private.
+
+The catalogue, bilingual comparison/planning markup and reading-brief exports passed a live public HTTP check on 18 November. Browser interaction has synthetic hosted coverage; real user experience and two-study Gemini answer quality remain separate, unverified outcomes.
+
 ## Start here
 
 1. Founder selects five willing University of Khartoum participants from existing contacts. Aim for three authors with completed papers and two readers, including a supervisor or postgraduate researcher if available. Include both interface languages and at least two phone users where feasible. Do not collect documents merely to meet a quota.
@@ -50,6 +56,16 @@ Record catalogue navigation, search/filter confusion and whether the participant
 
 Check that the participant can identify a citation export and the reading/download controls. A successful export is not an academic citation. They may skip a download because of data cost or connectivity; record that separately from a broken feature.
 
+### Task 4: build on earlier research (optional, readers or supervisors)
+
+“Select two public studies, compare their abstracts, and open Plan a follow-up study. Write a possible question, identify the earlier finding or limitation you would build on, choose replication, extension or another context, and note what data or resources you need. Download the plan.”
+
+«اختر بحثين منشورين وقارن ملخصيهما، ثم افتح «خطط لدراسة تكمّل ما سبق». اكتب سؤالاً محتملاً وحدّد النتيجة أو القيد الذي ستبني عليه، واختر إعادة الدراسة أو التوسع فيها أو تطبيقها في سياق آخر، ثم اذكر البيانات أو الموارد المطلوبة ونزّل الخطة.»
+
+The two studies need not address the same topic; identifying that they are unsuitable for a combined project is a valid outcome. Do not manufacture a connection. Ask the participant to distinguish source evidence from their own proposal. The ordinary comparison and plan do not require optional AI permission. AI comparison does require eligible sources and should be skipped when unavailable.
+
+Observe whether the student can identify a real source passage, explain what needs checking in the full text or wider literature, and understand that the plan is not supervisor approval. Notes stay in the page, not in an account; download before leaving. Do not collect the student's plan by default. A supervisor may comment on feasibility without disclosing or endorsing the student's idea.
+
 Finish with:
 - What was hardest? / ما أصعب خطوة؟
 - What would make you use this again? / ما الذي يشجعك على استخدامه مرة أخرى؟
@@ -68,6 +84,7 @@ Copy this blank template into a private cloud note. Use P01, P02, etc. Do not co
 | Submission: independent / assisted / incomplete / declined / not attempted | |
 | Discovery: independent / assisted / incomplete / no relevant content | |
 | Citation/document: independent / assisted / incomplete / skipped | |
+| Comparison/plan: independent / assisted / incomplete / unsuitable sources / skipped | |
 | Time per attempted task, in minutes | |
 | Help required and step where it happened | |
 | Extraction correction categories, if relevant | |
@@ -117,4 +134,4 @@ Proposed practical gate, not statistical validation:
 - Any unintended publication, private-data exposure or lost submission pauses the affected workflow until investigated.
 - Report content scarcity separately. Use it to guide the next collection, not as evidence the search code is broken.
 
-M2 is complete only after real sessions, a summarized findings review, and resolution or explicit acceptance of important issues. A prepared kit alone does not complete M2. “Explore research directions” remains M3; no new AI provider, automated invitations or volunteer accounts are part of this pilot.
+M2 is complete only after real sessions, a summarized findings review, and resolution or explicit acceptance of important issues. A prepared kit alone does not complete M2. The M3 directions, comparison and planning tools are already released; this optional evaluation does not hold them back. No new AI provider, automated invitations or volunteer accounts are part of this pilot.
