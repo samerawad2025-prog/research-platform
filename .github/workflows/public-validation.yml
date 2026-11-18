@@ -6,8 +6,6 @@ on:
         description: Two existing public record IDs, comma separated
         required: true
         type: string
-  push:
-    branches: ['codex/public-workflow-validation']
 permissions:
   contents: read
 jobs:

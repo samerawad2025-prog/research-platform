@@ -1,5 +1,14 @@
 # CURRENT_STATUS.md
 
+## Live public workflow validation: 18 November 2026
+
+An explicit hosted HTTP check passed against the production catalogue, both language versions of comparison/planning markup, bilingual reading-brief downloads and invalid-selection rejection (run 44324705445). Source links, attachment headers and no-store exports were checked. No private token, credentials, submissions or AI calls were involved. This is real public HTTP validation, not browser interaction, visual review or Gemini output evaluation.
+
+Read-only production checks found two public records, with only one eligible for the optional AI reader. Real two-study Gemini testing remains pending a second genuine grant. Existing permissions were not changed. The desktop browser and local process runner remain unavailable due to a host startup error; cloud validation does not depend on them.
+
+The public-validation workflow supports explicit manual runs with two public IDs. It has no schedule. The pilot guide now includes comparison and research planning as an optional reader/supervisor task; recruitment and contacting submitters are not required to continue development. No participant feedback is fabricated.
+
+
 ## Guided follow-up planning: 17 November 2026
 
 Phase 4 M3 now includes a compact planning section on study comparison. Students record a proposed question, replication/extension/new-context approach, the source finding or limitation to build on, and feasibility needs. A downloadable text plan combines the existing source-linked reading brief with a clearly separate student-proposals section. Empty fields stay unspecified; the platform does not infer gaps, methods or findings.
