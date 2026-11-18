@@ -353,7 +353,7 @@ export default function AcceptanceSubmissionForm() {
         authors: form.authors,
         file: { name: chosenFile.name, size: chosenFile.size, type: chosenType },
       })
-      const selectedKnowledge=knowledgeChoice?.language===locale?knowledgeChoice:null
+      const selectedKnowledge=agreement.bundledKnowledge ? null : knowledgeChoice?.language===locale?knowledgeChoice:null
       const key = snapshotKey(body, fileSerial.current)+JSON.stringify(selectedKnowledge)
       let intent = reusableIntent(intentRef.current, key)
       if (!intent) {
@@ -640,7 +640,7 @@ export default function AcceptanceSubmissionForm() {
           <p className={styles.hint}>{pinnedAgreementId ? a.pinnedLanguage : a.otherLanguage}</p>
         )}
         <SubmissionKnowledgeChoice key={locale} locale={locale} choice={knowledgeChoice}
-          onChange={setKnowledgeChoice} disabled={locked} compact
+          onChange={setKnowledgeChoice} disabled={locked} compact bundled={agreement.bundledKnowledge === true}
           termsSummary={ux.allTerms}
           termsContent={<>
             {decision === 'automatic' && form.processing === 'automatic' && (
@@ -658,7 +658,7 @@ export default function AcceptanceSubmissionForm() {
           requiredConsent={<label className={styles.checkboxOption}>
             <input type="checkbox" checked={accepted}
               onChange={(e) => { update('acceptedFor', e.target.checked ? agreement.id : null); if (e.target.checked) setNotice(null) }} />
-            <span>{decision === 'automatic' && form.processing === 'automatic' ? ux.terms : ux.manualTerms}</span>
+            <span>{agreement.bundledKnowledge ? (decision === 'automatic' && form.processing === 'automatic' ? ux.bundledTerms : ux.bundledManualTerms) : (decision === 'automatic' && form.processing === 'automatic' ? ux.terms : ux.manualTerms)}</span>
           </label>}
         />
       </fieldset>

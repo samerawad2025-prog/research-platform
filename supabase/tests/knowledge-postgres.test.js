@@ -25,6 +25,11 @@ function setup() {
     const old=execFileSync('git',['show','00551a440879870bc21a357d9f3449be74ddf380:supabase/schema.sql'],{encoding:'utf8'})
     execFileSync('psql',['-X','-q','-v','ON_ERROR_STOP=1','-d',DB],{input:old,stdio:['pipe','ignore','pipe']})
     run(path.join(ROOT,'supabase/migrations/0021_reader_articles.sql'))
+    const before=paper()
+    const snapshot=sqlOk(`select to_jsonb(p)::text from papers p where id=${lit(before)}`)
+    run(path.join(ROOT,'supabase/migrations/0022_bundled_submission_agreement.sql'))
+    assert.equal(sqlOk(`select to_jsonb(p)::text from papers p where id=${lit(before)}`),snapshot)
+    assert.equal(sqlOk(`select count(*) from knowledge_permissions where paper_id=${lit(before)}`),'0')
   }else run(path.join(ROOT, 'supabase/schema.sql'))
 }
 
@@ -130,6 +135,55 @@ async function main(){
     assert.equal(q('knowledge_source',pid),null)
     assert.equal(q('knowledge_article',pid),null)
   })
+
+  await check('bundled terms: exact evidence, atomic finalization, no legacy grant, retry and withdrawal',()=>{
+    const {AGREEMENTS}=require('../../lib/submission/agreements')
+    const fs=require('node:fs')
+    sqlOk("update extraction_policy set mode='automatic';")
+    for(const language of ['en','ar']){
+      const agreement=AGREEMENTS.find(a=>a.versionLabel==='Version 5'&&a.language===language)
+      const notice=json("select to_jsonb(n) from knowledge_notices n where version='submission-v5-2026-11-18'")
+      const text=fs.readFileSync(path.join(ROOT,agreement.file),'utf8')
+      assert.equal(notice['text_'+language],text)
+      assert.equal(crypto.createHash('sha256').update(text).digest('hex'),agreement.sha256)
+      sqlOk(`update agreement_versions set active=true where id=${lit(agreement.id)};`)
+      const token=crypto.randomBytes(32).toString('hex'), tokenHash=crypto.createHash('sha256').update(token).digest('hex')
+      const ih=crypto.randomBytes(32).toString('hex')
+      const args=[ih,agreement.id,language,agreement.sha256,'author','record_abstract','automatic','Synthetic Bundled','bundle@example.invalid',null,'pdf',123,1800,'automatic',new Date().toISOString(),language==='en'?'automatic':'manual','gemini_api_unpaid']
+      const intent=q('create_submission_intent',...args)
+      assert.equal(sqlOk('select count(*) from knowledge_permissions where version=\'submission-v5-2026-11-18\''),language==='en'?'0':'1')
+      // Force a grant failure. The paper and intent finalization must roll back together.
+      sqlOk("create function test_refuse_grant() returns trigger language plpgsql as $test$ begin raise exception 'synthetic grant failure'; end; $test$; create trigger test_refuse_grant before insert on knowledge_permissions for each row execute function test_refuse_grant();")
+      assert.ok(psql(`select finalize_submission_intent(${lit(intent.id)},${lit(ih)},123,'${'f'.repeat(64)}',${lit(tokenHash)});`).error)
+      assert.equal(sqlOk(`select status from submission_acceptances where id=${lit(intent.id)}`),'open')
+      assert.equal(sqlOk(`select count(*) from papers where submission_acceptance_id=${lit(intent.id)}`),'0')
+      sqlOk('drop trigger test_refuse_grant on knowledge_permissions; drop function test_refuse_grant();')
+      const final=q('finalize_submission_intent',intent.id,ih,123,'f'.repeat(64),tokenHash)
+      let events=json(`select jsonb_agg(k) from knowledge_permissions k where paper_id=${lit(final.paper_id)}`)
+      assert.equal(events.length,1);assert.equal(events[0].granted,true);assert.equal(events[0].text_sha256,agreement.sha256);assert.equal(events[0].language,language)
+      assert.equal(q('get_paper_for_confirmation',token).bundled_knowledge,true)
+      assert.equal(q('get_paper_for_confirmation','wrong'),null)
+      assert.equal(q('external_ai_permission',final.paper_id).permitted,language==='en')
+      q('finalize_submission_intent',intent.id,ih,123,'f'.repeat(64),tokenHash)
+      assert.equal(sqlOk(`select count(*) from knowledge_permissions where paper_id=${lit(final.paper_id)}`),'1')
+      sqlOk(`update papers set metadata_confirmed_at=now() where id=${lit(final.paper_id)};`)
+      const current=q('knowledge_permission',tokenHash,language,null,null)
+      assert.equal(current.granted,true)
+      q('knowledge_permission',tokenHash,language,false,current.hash)
+      q('finalize_submission_intent',intent.id,ih,123,'f'.repeat(64),tokenHash)
+      assert.equal(q('knowledge_permission',tokenHash,language,null,null).granted,false,'retry cannot undo withdrawal')
+    }
+    const legacy=AGREEMENTS.find(a=>a.versionLabel==='Version 4'&&a.language==='en')
+    sqlOk(`update agreement_versions set active=true where id=${lit(legacy.id)}`)
+    const ih=crypto.randomBytes(32).toString('hex')
+    const intent=q('create_submission_intent',ih,legacy.id,'en',legacy.sha256,'author','record_abstract','manual','Synthetic Old','old@example.invalid',null,'pdf',123,1800,'manual',new Date().toISOString(),'manual',null)
+    const final=q('finalize_submission_intent',intent.id,ih,123,'e'.repeat(64),'d'.repeat(64))
+    assert.equal(sqlOk(`select count(*) from knowledge_permissions where paper_id=${lit(final.paper_id)}`),'0')
+    for(const role of ['anon','authenticated','service_role']){
+      assert.ok(psql(`set role ${role};select record_bundled_knowledge_permission();`).error)
+    }
+  })
+
   execFileSync('dropdb',['--if-exists',DB])
   if(failed)process.exitCode=1
 }

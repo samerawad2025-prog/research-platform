@@ -2,10 +2,11 @@
 import {useEffect,useState} from 'react'
 import {SUBMISSION_UX} from '../lib/i18nSubmissionUX'
 import s from './research/knowledge.module.css'
-export default function SubmissionKnowledgeChoice({locale,choice,onChange,disabled,compact=false,termsSummary,termsContent,requiredConsent}) {
+export default function SubmissionKnowledgeChoice({locale,choice,onChange,disabled,compact=false,bundled=false,termsSummary,termsContent,requiredConsent}) {
   const t=SUBMISSION_UX[locale]
   const [notice,setNotice]=useState(null),[failed,setFailed]=useState(false)
   useEffect(()=>{
+    if(bundled)return
     let live=true
     const ac=new AbortController(),timer=setTimeout(()=>ac.abort(),8000)
     fetch('/api/knowledge',{method:'POST',headers:{'Content-Type':'application/json'},
@@ -13,7 +14,7 @@ export default function SubmissionKnowledgeChoice({locale,choice,onChange,disabl
       .then(async r=>{const d=await r.json();if(live){if(r.ok&&d.text&&d.hash)setNotice({...d,language:locale});else setFailed(true)}})
       .catch(()=>{if(live)setFailed(true)}).finally(()=>clearTimeout(timer))
     return()=>{live=false;clearTimeout(timer);ac.abort()}
-  },[locale])
+  },[locale,bundled])
   const ready=Boolean(notice && notice.language===locale)
   const checked=ready && choice?.language===locale && choice?.hash===notice.hash
   const permission=ready?<><p className={s.notice}>{notice.text}</p><p>{t.authority}</p></>:<p role="status">{failed?t.later:t.loading}</p>
@@ -28,11 +29,10 @@ export default function SubmissionKnowledgeChoice({locale,choice,onChange,disabl
     <details className={s.panel}>
       <summary>{termsSummary}</summary>
       {termsContent}
-      <h3>{t.optional}</h3>
-      {permission}
+      {!bundled && <><h3>{t.optional}</h3>{permission}</>}
     </details>
     {requiredConsent}
-    {option}
+    {!bundled && option}
   </>
   return option
 }

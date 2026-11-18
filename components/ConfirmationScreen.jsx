@@ -696,7 +696,7 @@ export default function ConfirmationScreen({ token, manualMode = false }) {
         return
       }
 
-      const permissionResult=await saveKnowledgeChoice({token,choice:permissionChoice,language:carriedKnowledge?permissionChoice?.language:permissionLanguage})
+      const permissionResult=paper?.bundled_knowledge ? 'skipped' : await saveKnowledgeChoice({token,choice:permissionChoice,language:carriedKnowledge?permissionChoice?.language:permissionLanguage})
       setKnowledgeResult(permissionResult)
       if(permissionResult==='saved'||permissionResult==='skipped')await forgetKnowledgeChoice(token)
       setKnowledgeChoice(null)
@@ -975,7 +975,7 @@ export default function ConfirmationScreen({ token, manualMode = false }) {
         ))}
       </section>
 
-      {!paper?.metadata_confirmed_at && !extracting && choiceReady && (carriedKnowledge?<p className={knowledgeStyles.hint}>{knowledgeChoice?SUBMISSION_UX[locale].selected:SUBMISSION_UX[locale].notSelected} <button type="button" className={knowledgeStyles.secondary} disabled={status==='saving'} onClick={()=>{setCarriedKnowledge(false);setKnowledgeChoice(null);forgetKnowledgeChoice(token)}}>{SUBMISSION_UX[locale].change}</button></p>:<SubmissionKnowledgeChoice key={locale} locale={locale} choice={knowledgeChoice} onChange={setKnowledgeChoice} disabled={status==='saving'} />)}
+      {!paper?.bundled_knowledge && !paper?.metadata_confirmed_at && !extracting && choiceReady && (carriedKnowledge?<p className={knowledgeStyles.hint}>{knowledgeChoice?SUBMISSION_UX[locale].selected:SUBMISSION_UX[locale].notSelected} <button type="button" className={knowledgeStyles.secondary} disabled={status==='saving'} onClick={()=>{setCarriedKnowledge(false);setKnowledgeChoice(null);forgetKnowledgeChoice(token)}}>{SUBMISSION_UX[locale].change}</button></p>:<SubmissionKnowledgeChoice key={locale} locale={locale} choice={knowledgeChoice} onChange={setKnowledgeChoice} disabled={status==='saving'} />)}
 
       <Button type="submit" disabled={!choiceReady || extracting || status === 'saving'}>
         {!paper ? t.openingHeading : extracting ? t.confirmExtracting : status === 'saving' ? t.confirmSaving : t.confirm}
