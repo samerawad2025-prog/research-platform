@@ -1,0 +1,25 @@
+name: public-validation
+on:
+  workflow_dispatch:
+    inputs:
+      public_ids:
+        description: Two existing public record IDs, comma separated
+        required: true
+        type: string
+  push:
+    branches: ['codex/public-workflow-validation']
+permissions:
+  contents: read
+jobs:
+  public-http:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate live public routes without submissions or AI
+        run: node scripts/validate-live-public.cjs
+        env:
+          PUBLIC_SMOKE_IDS: ${{ inputs.public_ids || 'frsp3vfhk6zq,3tgtqz6e69bf' }}
