@@ -243,6 +243,32 @@ async function main(){
       assert.equal(await page.getByRole('table').count(),0)
       await page.goto(APP+'/research/'+PID)
       await page.getByRole('heading',{name:t.reader}).waitFor()
+      // Plan directly from one public record, with no comparison or AI request.
+      await page.getByText(plan.title,{exact:true}).click()
+      await page.getByText(plan.singleScope,{exact:true}).waitFor()
+      const singleNote='PRIVATE_SINGLE_STUDY_NOTE_'+locale
+      await page.getByRole('textbox',{name:plan.question,exact:true}).fill(singleNote)
+      planBlocked=true
+      await page.getByRole('button',{name:plan.download,exact:true}).click()
+      await page.getByRole('alert').filter({hasText:plan.error}).waitFor()
+      assert.equal(await page.getByRole('textbox',{name:plan.question,exact:true}).inputValue(),singleNote)
+      planBlocked=false
+      const singleEvent=page.waitForEvent('download')
+      await page.getByRole('button',{name:plan.download,exact:true}).click()
+      const singleDownload=await singleEvent
+      const singleText=readFileSync(await singleDownload.path(),'utf8')
+      assert.ok(singleText.includes(singleNote))
+      assert.ok(singleText.includes(plan.singleScope))
+      assert.ok(singleText.includes(rec.abstract)&&singleText.includes(rec.abstract_ar))
+      assert.ok(singleText.includes(APP+'/research/'+PID+'#abstract-en'))
+      assert.ok(!singleText.includes('Synthetic follow-up study'))
+      assert.equal(new URL(planRequests.at(-1).url).searchParams.get('ids'),PID)
+      assert.ok(planRequests.every(r=>!r.url.includes(singleNote)&&!r.body))
+      assert.equal(await page.evaluate(value=>Object.values(localStorage).some(v=>v.includes(value))||Object.values(sessionStorage).some(v=>v.includes(value)),singleNote),false)
+      assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth))
+      await page.screenshot({path:'artifacts/ui/single-study-plan-'+locale+'.png',fullPage:true})
+      await page.getByRole('textbox',{name:plan.question,exact:true}).fill('')
+      await page.getByText(plan.title,{exact:true}).click()
       assert.equal(await page.getByRole('heading',{name:DIRECTIONS_MESSAGES[locale].buildOn,exact:true}).count(),0,'unrelated or unavailable directions stay absent')
       await page.getByLabel(t.question,{exact:true}).fill('How many farms?')
       await page.getByRole('button',{name:t.ask,exact:true}).click()
