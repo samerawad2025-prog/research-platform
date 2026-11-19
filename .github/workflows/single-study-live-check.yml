@@ -1,0 +1,17 @@
+name: single-study-live-check
+on:
+  push:
+    branches: ['codex/verify-single-study-live']
+permissions:
+  contents: read
+jobs:
+  public-http:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check public single-source plan without AI or writes
+        run: node scripts/validate-single-study-live.cjs
