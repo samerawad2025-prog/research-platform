@@ -1,5 +1,9 @@
 # Legal content
 
+## Version 5: one acceptance for submission and reader/articles
+
+The founder requested combined consent on 18 November 2026. New V5 English and Arabic texts incorporate reader/article permission in section 6A. They replace the two-checkbox presentation only when activated. Previous legal files and accepted permissions remain unchanged. See [V5 release details](submission-v5-release.md) and the latest release-runbook entry. Old descriptions below are historical where they conflict.
+
 > **Release order and steps live in [`docs/release-runbook.md`](../release-runbook.md)** (authoritative since 2026-09-30). This file explains the reasoning; where the two differ, the runbook wins.
 
 | File | What it is |

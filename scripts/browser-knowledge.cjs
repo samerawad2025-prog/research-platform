@@ -39,7 +39,7 @@ async function main(){
       await ctx.addCookies([{name:'sarp_lang',value:locale,url:APP}])
       await ctx.addInitScript(()=>localStorage.setItem('sarp-admin-auth',JSON.stringify({access_token:'synthetic-access-token-for-ui-only',refresh_token:'synthetic',expires_at:Math.floor(Date.now()/1000)+3600,expires_in:3600,token_type:'bearer',user:{id:'11111111-1111-4111-8111-111111111111'}})))
       let planBlocked=false,planRequests=[]
-      let submissionDecision='automatic',noticeFails=false
+      let submissionDecision='automatic',noticeFails=false,bundled=false
       let metadataConfirmed=true,confirmationFails=false,permissionFails=false,permissionWrites=0
       let comparisonMode='normal',comparisonCalls=[]
       let holdAnswers=false,pendingAnswers=[]
@@ -50,7 +50,7 @@ async function main(){
         const req=route.request(),u=new URL(req.url())
         if(u.origin==='http://127.0.0.1:3199' && u.pathname.endsWith('/get_paper_for_confirmation')){
           assert.ok(!req.headers().referer,'private URL never sent to database')
-          return json(route, req.postDataJSON().p_token==='a'.repeat(64)?{title:'Private synthetic submission',metadata_confirmed_at:metadataConfirmed?'2026-01-01':null,extraction_status:'completed',automatic_processing:false,manual_entry_at:'2026-01-01',researchers:[{full_name:'Synthetic Submitter'}],abstract:'Private synthetic abstract.'}:null)
+          return json(route, req.postDataJSON().p_token==='a'.repeat(64)?{title:'Private synthetic submission',metadata_confirmed_at:metadataConfirmed?'2026-01-01':null,extraction_status:'completed',automatic_processing:false,bundled_knowledge:bundled,manual_entry_at:'2026-01-01',researchers:[{full_name:'Synthetic Submitter'}],abstract:'Private synthetic abstract.'}:null)
         }
         if(u.origin==='http://127.0.0.1:3199' && u.pathname.endsWith('/confirm_researcher_metadata')){
           if(confirmationFails)return json(route,{message:'synthetic failure',code:'TEST'},500)
@@ -61,7 +61,7 @@ async function main(){
           planRequests.push({url:req.url(),body:req.postData()})
           if(planBlocked)return route.fulfill({status:404,contentType:'text/plain',body:'Unavailable'})
         }
-        if(u.pathname==='/api/submissions/terms')return json(route,{available:true,agreements:[{id:'synthetic-'+locale,language:locale,versionLabel:'Synthetic',versionDate:'2026-11-09',text:'# Synthetic agreement',acceptanceSentence:'Accept synthetic terms'}],offer:{token:'synthetic',decision:submissionDecision,expiresAt:new Date(Date.now()+1800000).toISOString()},processing:{terms:'gemini_api_unpaid'}})
+        if(u.pathname==='/api/submissions/terms')return json(route,{available:true,agreements:[{id:'synthetic-'+locale,bundledKnowledge:bundled,language:locale,versionLabel:'Synthetic',versionDate:'2026-11-09',text:'# Synthetic agreement',acceptanceSentence:'Accept synthetic terms'}],offer:{token:'synthetic',decision:submissionDecision,expiresAt:new Date(Date.now()+1800000).toISOString()},processing:{terms:'gemini_api_unpaid'}})
         if(u.pathname==='/api/submissions/publication-status')return json(route,{state:'not_public',publicUrl:null})
         if(u.pathname==='/api/admin/me')return json(route,{role:'administrator',confidentiality_required:false})
         if(u.pathname==='/api/admin/metrics-exclusion')return json(route,{ok:true})
@@ -419,6 +419,31 @@ async function main(){
       await page.getByText(ux.failed,{exact:true}).waitFor()
       await page.getByRole('link',{name:t.viewResearch,exact:true}).waitFor()
       assert.equal(permissionWrites,1)
+
+      // The new combined agreement needs one explicit checkbox, no optional fetch.
+      bundled=true;noticeFails=true;permissionFails=false;permissionWrites=0
+      await page.goto(APP+'/submit')
+      const single=page.getByRole('checkbox',{name:ux.bundledTerms,exact:true})
+      await single.waitFor()
+      assert.equal(await page.getByRole('checkbox').count(),1)
+      assert.equal(await single.isChecked(),false)
+      await single.check()
+      await page.getByRole('button',{name:ux.manual,exact:true}).click()
+      assert.equal(await page.getByRole('checkbox',{name:ux.bundledManualTerms,exact:true}).isChecked(),false)
+      await page.getByText(ux.allTerms,{exact:true}).click()
+      await page.locator('[data-agreement-language]').waitFor()
+      assert.equal(await page.getByText('Synthetic optional notice',{exact:true}).count(),0)
+      assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth))
+      await page.screenshot({path:'artifacts/ui/single-consent-'+locale+'.png',fullPage:true})
+      metadataConfirmed=false
+      await page.evaluate(()=>sessionStorage.clear())
+      await page.goto(APP+'/confirm/'+'a'.repeat(64))
+      await page.getByRole('button',{name:confirmLabel,exact:true}).waitFor()
+      assert.equal(await page.getByRole('checkbox',{name:ux.optionalLabel,exact:true}).count(),0,'server bundle evidence works without browser storage')
+      await page.getByRole('button',{name:confirmLabel,exact:true}).click()
+      await page.getByRole('link',{name:t.viewResearch,exact:true}).waitFor()
+      assert.equal(permissionWrites,0,'confirmation never recreates a bundled grant')
+
       assert.deepEqual(errors,[])
       await ctx.close();console.log('PASS knowledge browser '+locale)
     }

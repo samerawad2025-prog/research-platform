@@ -65,7 +65,7 @@ async function main() {
     for (const a of AGREEMENTS) {
       if (a.externalAi) {
         const re = new RegExp(`\\('${a.id}', '${a.key}', '${a.language}', '${a.versionLabel}', '${a.versionDate}',\\s*'${a.sha256}', false, '${a.externalAi}'\\)`)
-        const source = a.versionLabel === 'Version 4' ? fs.readFileSync(path.join(ROOT, 'supabase/migrations/0020_free_tier_full_document_agreement.sql'), 'utf8') : a.externalAi === 'gemini_api_unpaid' ? migration19 : migration18
+        const source = a.versionLabel === 'Version 5' ? fs.readFileSync(path.join(ROOT, 'supabase/migrations/0022_bundled_submission_agreement.sql'), 'utf8') : a.versionLabel === 'Version 4' ? fs.readFileSync(path.join(ROOT, 'supabase/migrations/0020_free_tier_full_document_agreement.sql'), 'utf8') : a.externalAi === 'gemini_api_unpaid' ? migration19 : migration18
         assert.ok(re.test(source), a.id)
       } else {
         const re = new RegExp(`\\('${a.id}', '${a.key}', '${a.language}', '${a.versionLabel}', '${a.versionDate}',\\s*'${a.sha256}', false\\)`)

@@ -1,5 +1,14 @@
 # Phase 3 release runbook
 
+## Version 5 combined consent: 18 November 2026
+
+The founder requested one checkbox for submission and reader/article consent. [Version 5 release notes](legal/submission-v5-release.md) describe the prospective change. It supersedes the earlier two-checkbox presentation for new V5 submissions only.
+
+Release order: apply migration 0022 with V5 inactive; deploy the compatible application after hosted checks pass; verify the exact production commit; then activate V5 EN/AR with the guarded script in supabase/release/activate-v5.sql. Existing acceptances and permissions are not updated. The prior V4 flow remains usable until activation. No extraction configuration changes are needed.
+
+Validation includes exact legal hashes, real Postgres fresh/upgrade tests, rollback of paper creation on permission failure, retry after withdrawal, and bilingual browser checks. The separate hosted test database was unavailable; isolated GitHub-hosted Postgres supplies the database test environment. Record deployment and activation evidence in PR #52.
+
+
 ## Phase 4 package released: 24 October 2026
 
 Released through PR #29, merge `1993837a`, on 24 October. Production deployment `dpl_EroQbwrUBFxuUJS2heeCLY69W5gE` is READY with the live alias. The live catalogue, research page and signed-in administrator queue/review were checked in the browser. The existing real paper remains public and its reader is correctly absent without optional permission.

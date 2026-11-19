@@ -1,5 +1,14 @@
 # HANDOVER — Sudanese Academic Research Platform
 
+## Single submission checkbox: 18 November 2026
+
+Version 5 includes the AI reader and reviewed articles in the general terms. New submissions accepting V5 show one unchecked checkbox, in English or Arabic. The exact complete agreement is the immutable permission notice. Finalization records the permission in the same transaction as the paper; failure rolls back both, and retries cannot regrant after withdrawal. No browser-storage handoff or second confirmation checkbox is needed for V5. Previous versions retain their original optional consent flow and evidence.
+
+Reader/article processing remains limited to approved public titles and abstracts. Manual metadata entry, sharing choices, public eligibility and editorial review remain. Permission can still be withdrawn from private research settings. No existing paper receives a new grant.
+
+Release: migration 0022 seeds V5 inactive. Deploy compatible application code before activating only V5 EN/AR. To revert the offered terms, reactivate V4 EN/AR without deleting V5 or changing any acceptance or permission record. Hosted checks cover exact legal hashes, transactional rollback, retry after withdrawal, old-version compatibility and bilingual single-checkbox rendering. See PR checks and deployment evidence for completion status.
+
+
 ## Live public workflow validation: 18 November 2026
 
 An explicit hosted HTTP check passed against the production catalogue, both language versions of comparison/planning markup, bilingual reading-brief downloads and invalid-selection rejection (run 44324705445). Source links, attachment headers and no-store exports were checked. No private token, credentials, submissions or AI calls were involved. This is real public HTTP validation, not browser interaction, visual review or Gemini output evaluation.
