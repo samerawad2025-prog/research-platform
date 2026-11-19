@@ -47,7 +47,7 @@ function Session({ids,question,locale}){
  }
  return <details className={s.panel}>
   <summary>{t.title}</summary>
-  <p>{t.intro}</p><p className={s.hint}>{t.privacy}</p>
+  <p>{ids.length===1?t.singleScope:t.intro}</p><p className={s.hint}>{t.privacy}</p>
   <fieldset className={s.planFields} disabled={busy}>
    <legend className={s.planLegend}>{t.ownNotes}</legend>
    <label className={s.field}>{t.question}

@@ -113,3 +113,13 @@ Hosted unit and bilingual desktop/mobile browser tests cover separate attributio
 
 
 Next: evaluate the question-to-comparison-to-plan journey with genuine research and supervisor feedback. Multi-study provider quality, broader evidence coverage and article publication remain separate checks. Do not mark these complete based on synthetic browser tests.
+
+
+## Single-study follow-up planning: 19 November 2026
+
+Students can open Plan a follow-up study directly on a public paper, without selecting an unrelated second paper. The same compact bilingual planner keeps proposals in browser memory and exports a source-linked plan. One-study exports include the approved abstracts verbatim, a visible one-source limitation and tailored supervisor questions. Comparisons still require two or three studies.
+
+Every export rechecks publication eligibility; a missing, withdrawn or mismatched source suppresses the file. The ordinary planner makes no AI call and does not require reader permission. It does not grant permission or infer a research gap. No schema, provider or cost change.
+
+Hosted checks cover single-source English/Arabic exports, missing abstracts, unavailable or mismatched records, retained notes on failed download, and desktop/mobile interaction. Real supervisor feedback and multi-study Gemini quality remain pending genuine eligible sources. See PR checks and exact deployment for release status.
+

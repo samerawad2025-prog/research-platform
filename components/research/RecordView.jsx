@@ -6,6 +6,7 @@
 
 import Link from 'next/link'
 import KnowledgeReader from './KnowledgeReader'
+import ResearchPlan from './ResearchPlan'
 import { useLocale } from '../LocaleProvider'
 import { CONTACT_EMAIL, messagesFor } from '../../lib/i18n'
 import { titles, named, fileSize } from './format'
@@ -79,6 +80,7 @@ export default function RecordView({ record: r, citation, hasUrl, activity, acti
           </section>
         )}
 
+        <ResearchPlan records={[r]} question="" />
         <KnowledgeReader publicId={r.public_id} />
         {directions}
 
